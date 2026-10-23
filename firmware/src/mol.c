@@ -896,6 +896,45 @@ static void mo_body_reed(mo_design_t *d, rnd_t *r)
     p[FP_LPMD] = (uint8_t)rnd_in(r, 3, 12);
     p[FP_LFD] = (uint8_t)rnd_in(r, 50, 90);
 }
+/* generation 1: the bodies kept from bending pitch, the tonal ones roughened (dsp.h GEN_NOW) */
+static void mo_gen1(mo_design_t *d, int body, rnd_t *r)
+{
+    uint8_t *p = d->p;
+    int n;
+    switch (body) {
+    case MF_IMPACT:                                      /* the fall a thud: a few semitones, quick */
+        p[FP_PL1] = (uint8_t)rnd_in(r, 52, 58);
+        p[FP_PR1 + 1] = (uint8_t)rnd_in(r, 75, 95);
+        break;
+    case MF_BRUIT:                                       /* the sample-and-hold on the level more than the pitch */
+        p[FP_LPMD] = (uint8_t)rnd_in(r, 5, 25);
+        p[FP_LPMS] = (uint8_t)rnd_in(r, 2, 4);
+        p[FP_LAMD] = (uint8_t)rnd_in(r, 40, 90);
+        for (n = 1; n <= 6; n++)
+            if (mo_is_carrier(p, n))
+                mo_op(p, n)[FP_AMS] = 2;
+        break;
+    case MF_PULSE:
+        p[FP_LPMD] = 0;
+        break;
+    case MF_DRONE:
+        p[FP_LPMD] = (uint8_t)rnd_in(r, 0, 4);
+        break;
+    case MF_FORMANT:
+    case MF_REED:
+        if (p[FP_LPMD] > 6)
+            p[FP_LPMD] = 6;
+        if (rnd_chance(r, 50))                           /* a modulator off the harmonics: clangour */
+            for (n = 1; n <= 6; n++)
+                if (!mo_is_carrier(p, n)) {
+                    mo_ratio(mo_op(p, n), INHARM[1 + rnd_below(r, 6)]);
+                    break;
+                }
+        break;
+    default:
+        break;
+    }
+}
 static void mo_body(mo_design_t *d, int body, rnd_t *r)
 {
     switch (body) {
@@ -1158,6 +1197,8 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
         body = (int)rnd_weighted(r, MF_BODY_ANY[path], MF_BODY_N);
     d->body = (uint8_t)body;
     mo_body(d, body, r);
+    if (gen >= 1u)
+        mo_gen1(d, body, r);
     switch (f) {
     case MF_CLOUD: mo_cloud(&d->gr, r); break;
     case MF_SHATTER: mo_shatter(&d->gr, r); break;
@@ -1183,6 +1224,13 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
         mo_mutate(d, r);
     mo_care(d, r);
     mo_sanitize(d);
+    if (gen >= 1u && d->gr.freeze_ms) {                  /* (generation 1: never frozen before the body has sounded) */
+        int32_t a[4], fz;
+        mo_env_adsr(d, a);
+        fz = clampi(a[0] + 150, 0, 3000);
+        if (d->gr.freeze_ms < fz)
+            d->gr.freeze_ms = (uint16_t)fz;
+    }
 }
 
 /* the sound rendered offline (the main loop) for 2.5 s at middle C, its loudest 2048-sample window brought to

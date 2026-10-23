@@ -20,14 +20,16 @@ build/host patches build/sounds 12 > build/sounds/patches.txt
 rm -f build/screens/*.png
 build/host screens build/screens > build/screens/patches.txt
 $PY tools/ppm2png.py build/screens/*.ppm
-build/host golden > build/golden.txt
-if [ -f tests/golden/gen0.txt ]; then
-    diff -q build/golden.txt tests/golden/gen0.txt >/dev/null || { echo "FAIL golden: generation 0 no longer draws its sounds again (tests/golden/gen0.txt)"; exit 1; }
-    echo "golden: generation 0 as it was"
-else
-    cp build/golden.txt tests/golden/gen0.txt
-    echo "golden: tests/golden/gen0.txt written"
-fi
+for g in 0 1; do
+    build/host golden $g > build/golden$g.txt
+    if [ -f tests/golden/gen$g.txt ]; then
+        diff -q build/golden$g.txt tests/golden/gen$g.txt >/dev/null || { echo "FAIL golden: generation $g no longer draws its sounds again (tests/golden/gen$g.txt)"; exit 1; }
+    else
+        cp build/golden$g.txt tests/golden/gen$g.txt
+        echo "golden: tests/golden/gen$g.txt written"
+    fi
+done
+echo "golden: generations 0 and 1 as they were"
 build/host bench
 build/host render build/sounds 3 0 > build/sounds/stats-open.txt
 build/host render build/sounds 2 1 > build/sounds/stats-ambient.txt

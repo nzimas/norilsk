@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.03 (2026-10-23): two dice, generators and pedalboard
+
+The owner's model: synthesizers sharing a pedalboard.
+
+- **HOME** rolls the chosen slot: its sound, the modules it is wired into (one to three, often shared with other
+  slots), how much it sends them, its dry share, its level and pan, and now and then its modulation by another slot.
+- **SAVE** rolls the rack: every module's values, and how the modules are wired to each other -- an order the sound
+  runs through, from each module one or two cables to modules later in that order and/or out to the master. The
+  slots' wiring into the rack is kept. (SEQ does nothing now.)
+- **DELAY** (Tonitor's) is a module again, in FLANGE's place; delay and reverb are modules like any other, no sends.
+- **Nothing in the rack bends a pitch**: SHIFT's shift is fixed while it sounds (its fourth value is now its
+  feedback's tone), REVERSE plays at the sound's own pitch (no octave head; its third value is now feedback, its
+  fourth how far back it reaches), TAPE's wow is faint (at most 0.25 %), no flutter; a change of delay time
+  cross-fades instead of sliding; FILTER's drift is slow and narrow.
+- **The engine's generation 1** (new sounds): IMPACT's pitch fall a thud of a few semitones, not a zap; BRUIT's
+  sample-and-hold on the level more than the pitch; PULSE's pitch still; DRONE's vibrato faint; FORMANT and REED given
+  an inharmonic modulator one time in two; a freeze never before the body's attack is over. Generation 0 is kept as it
+  was (tests/golden).
+- **The draw leans to the inharmonic**: metals, bruits, impacts, glass, clouds, shatters, freezes up; formants and
+  reeds down.
+- **Latching**: SHIFT + a white key latches its note on the chosen slot (the key stays lit while that slot is
+  chosen); SHIFT + the key again lets it go. A latched note is never stolen while another can go. A new patch on a
+  slot moves its held and latched notes over to the new sound instead of cutting them.
+- **The screen**: round each module, a border in the colours of the slots wired into it, shared out equally
+  between them; the modules the chosen slot is wired into filled with its colour, their names white. How the modules
+  are wired to each other is not drawn.
+
 ## 0.02 (2026-10-23): six slots and a rack
 
 The owner's design after trying 0.01.

@@ -3,16 +3,18 @@
  *
  *   FX SEL ENV LFO EDIT GLO   the top row: slots 1 to 6. Pressed: the slot chosen. Held 0.8 s: the slot on, or
  *                             off again (only slot 1 is on at the start)
- *   HOME                      a new patch for the slot chosen: its sound, its wiring into the rack and to the
- *                             other slots, its level and pan. SHIFT + HOME: a new one of the same family. HOME held
- *                             0.8 s: a new patch for every slot that is on
- *   SEQ                       new values for the rack's twelve modules (the patches' wiring is kept)
+ *   HOME                      a new patch for the slot chosen: its sound, the modules it is wired into, its
+ *                             modulation by another slot, its level and pan. SHIFT + HOME: a new one of the same
+ *                             family. HOME held 0.8 s: a new patch for every slot that is on
+ *   SAVE                      a new patch for the rack: every module's values, and how the modules are wired to
+ *                             each other (the slots' wiring into the rack is kept)
  *   the white keys            play the slot chosen, in the scale chosen: the first key is the root, every white key
- *                             the next note of the scale. Six voices for the six slots
+ *                             the next note of the scale. Six voices for the six slots. SHIFT + a key: its note
+ *                             latched on the slot (the key lit while the slot is chosen); SHIFT + it again: let go
  *   ARP                       the SCALE page (its light: on it): SELECT the scale, ALGORITHM the root
  *   SELECT, ALGORITHM         the chosen slot's level and pan (the SCALE page aside)
  *   OCT- / OCT+               the octave, -3 .. +3
- *   SAVE                      kept for the sessions; PLAY, REC: nothing yet
+ *   SEQ, PLAY, REC            nothing yet
  *   USB MIDI notes            as the keys, on the slot chosen
  *   MASTER (knob)             the level
  *
@@ -20,9 +22,10 @@
  * battery at the right (or a message, black on white, across). Under it the six slots, each a block in its own
  * colour: filled when on, an outline when off, framed in white when chosen, brighter as it sounds; a small square in
  * another slot's colour in its corner when that slot modulates it. Under them the rack: twelve tiles, three across,
- * four down, in the signal's order, each with its name. No cables: a tile lights as sound passes through it; along
- * its foot, a bar in the colour of every slot wired into it; framed in the chosen slot's colour when that slot's
- * chain passes through it. The left column sounds at the left, the right column at the right. */
+ * four down, each with its name. No cables: round each tile, a border in the colours of the slots wired into it, the
+ * border shared out equally between them; the tiles the chosen slot is wired into filled with its colour, their names
+ * white, the others dark, their names grey; a tile brightens as sound passes through it. The left column sounds at
+ * the left, the right column at the right. How the modules are wired to each other is not drawn. */
 
 /* the panel: which matrix button carries which printed label (as SLOOP's panel.c, default table) */
 enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP, NB };
@@ -77,7 +80,7 @@ static const uint16_t SLOT_COL[NSLOT] = {RGB(255, 72, 72), RGB(72, 150, 255), RG
                                          RGB(255, 150, 200), RGB(235, 185, 60)};
 #define C_SCALE RGB(255, 196, 90)
 #define C_OK RGB(60, 220, 90)
-static const char *const RM_TILE[NMOD] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "FLG", "TAP", "RVS", "SPR", "PLT"};
+static const char *const RM_TILE[NMOD] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "DLY", "TAP", "RVS", "SPR", "PLT"};
 
 /* the screen's layout */
 #define TOP_H 40
@@ -116,6 +119,8 @@ static struct {
     uint32_t load_at;
     uint8_t load_shown;
     uint8_t midi_note[128], midi_slot[128];
+    uint32_t latch[NSLOT];       /* each slot's keys latched (lit while it is chosen) */
+    uint8_t latch_note[NSLOT][NKEY];
 } ui;
 static int32_t batt_raw;                         /* the battery's divider, smoothed (main.c), 0 .. 1023; 0 none yet */
 
@@ -179,6 +184,7 @@ static void slot_toggle(uint32_t l)
 {
     if (slot_on[l]) {
         slot_on[l] = 0;
+        ui.latch[l] = 0;                         /* (its latched notes go with it) */
         ev_post(EV_SLOT_OFF, l, 0);
         say_n("SLOT ", (int32_t)l + 1, " OFF", 1200);
     } else {
@@ -251,9 +257,11 @@ static void ui_input(void)
         if (!ui.home_done)
             new_patch(ui.sel, ui.home_shift);
     }
-    if (btn_bit(press, B_SEQ)) {
-        rack_draw(next_seed());
-        say("RACK", 800);
+    if (btn_bit(press, B_SAVE)) {
+        if (rack_draw(next_seed()))
+            say("NEW RACK", 800);
+        else
+            say("BUSY", 600);
     }
     if (btn_bit(press, B_ARP)) {
         ui.sc_page ^= 1u;
@@ -308,10 +316,23 @@ static void ui_input(void)
         if (white_ix(k) < 0)
             continue;                            /* the black keys: no notes */
         if ((keys >> k) & 1u) {
-            uint32_t note = scale_note(white_ix(k), ui.oct);
+            uint32_t note = scale_note(white_ix(k), ui.oct), bit = 1u << k;
+            ui.key_note[k] = KEY_NONE;
             if (!slot_on[ui.sel]) {
                 say_n("SLOT ", (int32_t)ui.sel + 1, " OFF", 800);
-                ui.key_note[k] = KEY_NONE;
+                continue;
+            }
+            if (ui.latch[ui.sel] & bit) {        /* a latched key: SHIFT lets it go; alone, nothing */
+                if (shift_held()) {
+                    ui.latch[ui.sel] &= ~bit;
+                    ev_post(EV_OFF, ui.sel, ui.latch_note[ui.sel][k]);
+                }
+                continue;
+            }
+            if (shift_held()) {                  /* SHIFT and a key: latched */
+                ui.latch[ui.sel] |= bit;
+                ui.latch_note[ui.sel][k] = (uint8_t)note;
+                ev_post(EV_LATCH, ui.sel, note);
                 continue;
             }
             ui.key_note[k] = (uint8_t)note;
@@ -336,8 +357,9 @@ static void ui_leds(void)
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct > 0);
-    for (k = 0; k < NKEY; k++)
-        fm1_led_key(14u + k, white_ix(k) >= 0 && ((ui.keys >> k) & 1u));
+    for (k = 0; k < NKEY; k++)                   /* a key held, or latched on the slot chosen */
+        fm1_led_key(14u + k, white_ix(k) >= 0 && (((ui.keys >> k) & 1u) || ((ui.latch[ui.sel] >> k) & 1u)));
+    fm1_led_key(14u + KEY_SHIFT, shift_held());
 }
 
 /* -------------------------------------------------------------- the screen --- */
@@ -469,33 +491,51 @@ static int32_t slot_key(uint32_t l)
     return level_step(slot_on[l] ? slot_meter[l] : 0) | slot_on[l] << 2 | (l == ui.sel) << 3 | xm << 4 |
            (int32_t)(p->serial & 0xFFFFu) << 8;
 }
-/* a module's tile: its name; lit as sound passes (four steps); a bar along its foot in the colour of each slot wired
- * into it; framed in the chosen slot's colour when its chain passes through it */
+/* a border t pixels thick round a w x h box, shared out between n colours: the perimeter walked clockwise from the
+ * top left, each colour its equal stretch of it */
+static void cv_border_shared(int32_t w, int32_t h, int32_t t, const uint16_t *col, int32_t n)
+{
+    int32_t per = 2 * (w + h), k;
+    for (k = 0; k < n; k++) {
+        int32_t a = per * k / n, b = per * (k + 1) / n, lo, hi;
+        uint16_t c = col[k];
+        lo = clampi(a, 0, w), hi = clampi(b, 0, w);                  /* the top, left to right */
+        if (hi > lo)
+            cv_rect(lo, 0, hi - lo, t, c);
+        lo = clampi(a - w, 0, h), hi = clampi(b - w, 0, h);          /* the right side, down */
+        if (hi > lo)
+            cv_rect(w - t, lo, t, hi - lo, c);
+        lo = clampi(a - w - h, 0, w), hi = clampi(b - w - h, 0, w);  /* the bottom, right to left */
+        if (hi > lo)
+            cv_rect(w - hi, h - t, hi - lo, t, c);
+        lo = clampi(a - 2 * w - h, 0, h), hi = clampi(b - 2 * w - h, 0, h);   /* the left side, up */
+        if (hi > lo)
+            cv_rect(0, h - hi, t, hi - lo, c);
+    }
+}
+/* a module's tile: round it, a border in the colours of the slots wired into it (shared out equally); filled with the
+ * chosen slot's colour, its name white, when the chosen slot is wired into it, else dark, its name grey; brighter as
+ * sound passes through it */
 static void draw_tile(uint32_t m, int32_t key)
 {
-    int32_t st = key & 3, feed = (key >> 2) & 63, hi = (key >> 8) & 1, w = TILE_P - 2, h = TILE_H - 2, k, n = 0, x;
-    static const uint8_t GREY[4] = {22, 48, 80, 118};
-    uint16_t bg = RGB(GREY[st], GREY[st], GREY[st]);
+    int32_t st = key & 3, feed = (key >> 2) & 63, hi = (key >> 8) & 1, w = TILE_P - 2, h = TILE_H - 2, k, n = 0;
+    static const uint8_t GREY[4] = {18, 40, 66, 96};
+    uint16_t col[NSLOT], bg, fg;
+    if (hi) {
+        bg = col_scale(SLOT_COL[ui.sel], 60 + st * 24);
+        fg = C_WHITE;
+    } else {
+        bg = RGB(GREY[st], GREY[st], GREY[st]);
+        fg = feed ? RGB(150, 150, 150) : RGB(80, 80, 80);
+    }
     cv_begin((uint32_t)w, (uint32_t)h, bg);
-    if (hi)
-        cv_frame(0, 0, w, h, 3, SLOT_COL[ui.sel]);
-    cv_bg_set(bg);
-    {
-        const char *s = RM_TILE[m];
-        int32_t tw = text_w(&FONT_S, s);
-        cv_text((w - tw) / 2, 3, &FONT_S, s, feed || st ? C_WHITE : RGB(90, 90, 90));
-    }
     for (k = 0; k < NSLOT; k++)
-        n += (feed >> k) & 1;
-    if (n) {                                     /* the bar: a share of it for each slot wired in */
-        int32_t seg = (w - 6) / n;
-        x = 3;
-        for (k = 0; k < NSLOT; k++)
-            if ((feed >> k) & 1) {
-                cv_rect(x, h - 8, seg, 5, SLOT_COL[k]);
-                x += seg;
-            }
-    }
+        if ((feed >> k) & 1)
+            col[n++] = SLOT_COL[k];
+    if (n)
+        cv_border_shared(w, h, 4, col, n);
+    cv_bg_set(bg);
+    cv_text((w - text_w(&FONT_S, RM_TILE[m])) / 2, (h - FONT_S.h) / 2 + 1, &FONT_S, RM_TILE[m], fg);
     cv_blit((m % RACK_COLS) * TILE_P + 1u, RACK_Y + (m / RACK_COLS) * TILE_H);
 }
 static int32_t tile_key(uint32_t m, const uint32_t *mods)

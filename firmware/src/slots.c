@@ -2,17 +2,20 @@
  * MOLECULAR: the six slots -- a generator (MOLECULE, mol.c) each -- the voices they share, their wiring into the
  * rack (rack.c) and to each other, and the mix.
  *
- * A slot's patch is drawn whole by HOME (slot_draw, the main loop): the generator's sound; its chain -- one, two or
- * three of the rack's modules, in rack order, the first fed by the slot's send, each feeding the next, the last
- * out to the master -- and the share of the slot heard dry; where it sits (level, pan); and, now and then, a
- * modulation by another active slot (ring, amplitude, or a filter opened by the other's level), as Vascular's
- * generators modulate each other. The draw follows Vascular's abstract path: a scene leans the family and the
- * modules, a harshness budget pays for what is rough, no two modules of one character, never two destructive.
- * The modules' own values are not the patch's: they belong to the rack (SEQ draws them).
+ * A slot's patch is drawn whole by HOME (slot_draw, the main loop): the generator's sound; the modules of the rack it
+ * is wired into -- one, two or three, often shared with other slots, as synthesizers share a pedalboard -- and how
+ * much it sends them; the share of the slot heard dry; where it sits (level, pan); and, now and then, a modulation
+ * by another active slot (ring, amplitude, or a filter opened by the other's level), as Vascular's generators
+ * modulate each other. The draw follows Vascular's abstract path: a scene leans the family and the modules, a
+ * harshness budget pays for what is rough, no two modules of one character, never two destructive. What the
+ * modules do and how they are wired to each other is the rack's (SAVE draws it: rack.c).
  *
  * Six voices for the six slots: a note takes a free voice, whatever its slot; all six busy, the quietest release
  * goes, else the oldest note. The keys play the slot chosen; a key lifted ends its note on the slot it was played
- * on. A slot switched off fades its voices and stops feeding the rack; what the rack holds rings out.
+ * on. SHIFT and a key latch its note on the slot (it sounds on with the key let go); SHIFT and the key again let it
+ * go. A latched note is never stolen while an unlatched one can go. A slot switched off fades its voices (its
+ * latched ones too) and stops feeding the rack; what the rack holds rings out. A new patch on a slot moves the notes
+ * held and latched on it over to the new sound.
  *
  * The audio ISR sees each slot's patch through two buffers, as Tonitor's layers: the main loop writes the one the
  * ISR is not using and publishes it; the ISR takes it at a block's start, fading that slot's voices (they finish
@@ -20,7 +23,7 @@
 
 #define NSLOT 6
 #define NVOICE 6
-#define NCHAIN 3
+#define NENT 3
 #define FADE 12u                 /* blocks of a fade (~9 ms) */
 #define LEVEL_MAX 23
 #define LEVEL_UNITY 20
@@ -31,8 +34,8 @@ static const char *const XM_NAME[XM_N] = {"RING", "AM", "FILTER"};
 
 typedef struct {
     mo_design_t gen;
-    uint8_t chain[NCHAIN], nch;  /* the modules, in rack order */
-    int32_t send, dry;           /* into the chain's first module; the slot heard directly (Q15) */
+    uint8_t ent[NENT], nent;     /* the modules it is wired into */
+    int32_t send, dry;           /* into them; the slot heard directly (Q15) */
     uint8_t xsrc, xkind, xdepth; /* modulated by slot xsrc (XM_NONE: none), how, how deep (0 .. 100) */
     uint8_t scene;
     uint32_t seed, serial;
@@ -45,9 +48,9 @@ static volatile int8_t slot_lvl[NSLOT], slot_pan[NSLOT];   /* the level (0 .. LE
 static volatile int32_t slot_meter[NSLOT];    /* each slot's sound, its last peaks (the screen's) */
 
 typedef struct {
-    uint8_t note, gate, sounding, slot;
+    uint8_t note, gate, sounding, slot, latched;
     uint8_t fade;                /* blocks of a fade left (a steal, a patch change, a slot off), 0 = none */
-    uint8_t pend, pend_note, pend_slot;
+    uint8_t pend, pend_note, pend_slot, pend_latched;   /* the fade ends in a note-on (a steal, a patch change) */
     uint8_t dsg;                 /* the buffer of its slot it plays */
     uint32_t age, pk, rel_at;
     int32_t lvl;
@@ -62,17 +65,14 @@ static int32_t sl_env[NSLOT], sl_g[NSLOT];    /* each slot's limiter */
 static int32_t sl_gg[NSLOT], sl_pl[NSLOT], sl_pr[NSLOT];   /* its level and pan as the last block ended (they glide) */
 static int32_t xm_env[NSLOT];                 /* each slot's level as a modulator follows it */
 static svf_t xm_f[NSLOT];
-static int32_t sbus[NSLOT][CTL], sraw[NSLOT][CTL], mbus[NMOD][CTL];
-static uint16_t rm_edge_last[NMOD];           /* where each module's output went, the last block it was fed */
-static uint8_t rm_end_last[NMOD];
+static int32_t sbus[NSLOT][CTL], sraw[NSLOT][CTL];
 
 #define TAIL_FLOOR 11u           /* let go, a voice 66 dB (2^11) under its loudest .. */
 #define TAIL_QUIET 276u          /* .. for 0.2 s ends; */
 #define TAIL_MAX 41340u          /* .. and none rings on more than 30 s after it was let go */
-#define RM_TAIL 2756u            /* a module no slot feeds goes on until its output has been near silence 2 s */
 
 /* ------------------------------------------------------------ the events --- */
-enum { EV_ON, EV_OFF, EV_SLOT_OFF, EV_STOP };
+enum { EV_ON, EV_OFF, EV_LATCH, EV_SLOT_OFF, EV_STOP };
 typedef struct { uint8_t type, slot, note; } ev_t;
 #define EVQ 64u
 static ev_t evq[EVQ];
@@ -89,13 +89,14 @@ static void ev_post(uint32_t type, uint32_t slot, uint32_t note)
 }
 
 /* ------------------------------------------------------------ the voices --- */
-static void voice_start(uint32_t k, uint32_t slot, uint32_t note)
+static void voice_start(uint32_t k, uint32_t slot, uint32_t note, uint32_t latched)
 {
     voice_t *v = &vox[k];
     mo_note_on(&vmem[k], &sbuf[slot][s_use[slot]].gen, (int32_t)note, 1);
     v->note = (uint8_t)note;
     v->slot = (uint8_t)slot;
     v->gate = 1;
+    v->latched = (uint8_t)latched;
     v->sounding = 1;
     v->fade = 0;
     v->pend = 0;
@@ -116,12 +117,17 @@ static uint32_t voice_pick(void)
             best = k;
     if (best != NVOICE)
         return best;
-    for (k = 0; k < NVOICE; k++)                          /* the oldest note */
+    for (k = 0; k < NVOICE; k++)                          /* the oldest note not latched */
+        if (!vox[k].pend && !vox[k].latched && (best == NVOICE || vox[k].age < vox[best].age))
+            best = k;
+    if (best != NVOICE)
+        return best;
+    for (k = 0; k < NVOICE; k++)                          /* (all latched: the oldest) */
         if (!vox[k].pend && (best == NVOICE || vox[k].age < vox[best].age))
             best = k;
     return best == NVOICE ? 0 : best;
 }
-static void note_on(uint32_t slot, uint32_t note)
+static void note_on(uint32_t slot, uint32_t note, uint32_t latched)
 {
     uint32_t k;
     if (!slot_on[slot])
@@ -129,11 +135,12 @@ static void note_on(uint32_t slot, uint32_t note)
     for (k = 0; k < NVOICE; k++)                          /* the same note again on the slot: its voice retriggers */
         if (vox[k].sounding && vox[k].gate && vox[k].slot == slot && vox[k].note == note && !vox[k].fade) {
             mo_note_on(&vmem[k], &sbuf[slot][vox[k].dsg].gen, (int32_t)note, 0);
+            vox[k].latched = (uint8_t)latched;
             return;
         }
     k = voice_pick();
     if (!vox[k].sounding) {
-        voice_start(k, slot, note);
+        voice_start(k, slot, note, latched);
         return;
     }
     vox[k].gate = 0;                                      /* stolen: faded, then the new note */
@@ -141,16 +148,21 @@ static void note_on(uint32_t slot, uint32_t note)
     vox[k].pend = 1;
     vox[k].pend_note = (uint8_t)note;
     vox[k].pend_slot = (uint8_t)slot;
+    vox[k].pend_latched = (uint8_t)latched;
 }
 static void note_off(uint32_t slot, uint32_t note)
 {
     uint32_t k;
-    for (k = 0; k < NVOICE; k++)
-        if (vox[k].sounding && vox[k].gate && vox[k].slot == slot && vox[k].note == note) {
-            vox[k].gate = 0;
-            vox[k].rel_at = blk_clock;
-            mo_note_off(&vmem[k], &sbuf[slot][vox[k].dsg].gen);
-        }
+    for (k = 0; k < NVOICE; k++) {
+        voice_t *v = &vox[k];
+        if (v->sounding && v->gate && v->slot == slot && v->note == note) {
+            v->gate = 0;
+            v->latched = 0;
+            v->rel_at = blk_clock;
+            mo_note_off(&vmem[k], &sbuf[slot][v->dsg].gen);
+        } else if (v->sounding && v->pend && v->pend_slot == slot && v->pend_note == note)
+            v->pend = 0;                                  /* (a note let go while its voice still fades for it) */
+    }
 }
 static void slot_fade(uint32_t slot)                     /* every voice of a slot (NSLOT: of all), faded */
 {
@@ -159,6 +171,7 @@ static void slot_fade(uint32_t slot)                     /* every voice of a slo
         if (vox[k].sounding && (slot == NSLOT || vox[k].slot == slot)) {
             vox[k].gate = 0;
             vox[k].pend = 0;
+            vox[k].latched = 0;
             if (!vox[k].fade)
                 vox[k].fade = FADE;
         }
@@ -169,8 +182,8 @@ static void events_take(void)
         ev_t e = evq[ev_r % EVQ];
         RING_PUBLISH();
         ev_r++;
-        if (e.type == EV_ON)
-            note_on(e.slot, e.note);
+        if (e.type == EV_ON || e.type == EV_LATCH)
+            note_on(e.slot, e.note, e.type == EV_LATCH);
         else if (e.type == EV_OFF)
             note_off(e.slot, e.note);
         else if (e.type == EV_SLOT_OFF)
@@ -179,13 +192,27 @@ static void events_take(void)
             slot_fade(NSLOT);
     }
 }
-/* each slot's patch published, taken: its voices fade */
+/* each slot's patch published, taken: its voices fade; the notes held or latched on it start again on the new sound */
 static void slots_take(void)
 {
-    uint32_t l;
+    uint32_t l, k;
     for (l = 0; l < NSLOT; l++)
         if (s_pub[l] != s_use[l]) {
-            slot_fade(l);
+            for (k = 0; k < NVOICE; k++) {
+                voice_t *v = &vox[k];
+                if (!v->sounding || v->slot != l)
+                    continue;
+                if (v->gate && !v->fade) {
+                    v->pend = 1;
+                    v->pend_note = v->note;
+                    v->pend_slot = (uint8_t)l;
+                    v->pend_latched = v->latched;
+                }
+                v->gate = 0;
+                v->latched = 0;
+                if (!v->fade)
+                    v->fade = FADE;
+            }
             s_use[l] = s_pub[l];
         }
 }
@@ -196,9 +223,9 @@ static void shed(int held)
     for (k = 0; k < NVOICE; k++)
         if (vox[k].sounding && !vox[k].fade && !vox[k].gate && (ok == NVOICE || vox[k].lvl < vox[ok].lvl))
             ok = k;
-    if (ok == NVOICE && held)
+    if (ok == NVOICE && held)                             /* (a latched note is never let go: a drone held on purpose) */
         for (k = 0; k < NVOICE; k++)
-            if (vox[k].sounding && !vox[k].fade && (ok == NVOICE || vox[k].age < vox[ok].age))
+            if (vox[k].sounding && !vox[k].fade && !vox[k].latched && (ok == NVOICE || vox[k].age < vox[ok].age))
                 ok = k;
     if (ok != NVOICE) {
         vox[ok].gate = 0;
@@ -223,11 +250,12 @@ static void voice_block(uint32_t k)
         if (!--v->fade) {
             alive = 0;
             if (v->pend) {
-                uint32_t n = v->pend_note, s = v->pend_slot;
+                uint32_t n = v->pend_note, s = v->pend_slot, lt = v->pend_latched;
                 v->sounding = 0;
                 for (i = 0; i < CTL; i++)
                     x[i] += vb[i];
-                voice_start(k, s, n);
+                if (slot_on[s])
+                    voice_start(k, s, n, lt);
                 return;                                  /* (its first block next time) */
             }
         }
@@ -331,34 +359,30 @@ static void pan_gains(int32_t pan_q15, int32_t *pl, int32_t *pr)   /* -Q15 .. Q1
 /* one block: the events, the patches, the voices, the slots, the rack, the master (Q15 stereo, interleaved) */
 static void mix_block(int32_t *out)
 {
-    int32_t l_[CTL], r_[CTL];
-    uint32_t i, l, k, m;
-    uint16_t edge[NMOD];
-    uint8_t end[NMOD], fed[NMOD];
+    int32_t l_[CTL], r_[CTL], pk[NSLOT];
+    uint32_t i, l, k, fed = 0;
     events_take();
     slots_take();
+    rack_take();
     if (shed_req) {
         shed(shed_req > 1u);
         shed_req = 0;
     }
     memset(sbus, 0, sizeof sbus);
     memset(mbus, 0, sizeof mbus);
-    memset(edge, 0, sizeof edge);
-    memset(end, 0, sizeof end);
-    memset(fed, 0, sizeof fed);
     for (i = 0; i < CTL; i++)
         l_[i] = r_[i] = 0;
     for (k = 0; k < NVOICE; k++)
         if (vox[k].sounding)
             voice_block(k);
     for (l = 0; l < NSLOT; l++) {                        /* each slot: its gain and limiter, its raw sound kept */
-        int32_t pk = 0;
+        pk[l] = 0;
         for (i = 0; i < CTL; i++)
             sbus[l][i] = mulq12(sbus[l][i], SLOT_GAIN);
         lim_block(&sl_env[l], &sl_g[l], sbus[l], CTL);
         for (i = 0; i < CTL; i++)
-            pk = maxi(pk, absi(sbus[l][i]));
-        slot_meter[l] = pk > slot_meter[l] ? pk : slot_meter[l] - (slot_meter[l] >> 4);
+            pk[l] = maxi(pk[l], absi(sbus[l][i]));
+        slot_meter[l] = pk[l] > slot_meter[l] ? pk[l] : slot_meter[l] - (slot_meter[l] >> 4);
     }
     memcpy(sraw, sbus, sizeof sraw);
     for (l = 0; l < NSLOT; l++) {                        /* the slots' modulations of each other */
@@ -366,10 +390,10 @@ static void mix_block(int32_t *out)
         if (slot_on[l] && p->xsrc < NSLOT && p->xsrc != l && slot_on[p->xsrc])
             xmod_block(l, p);
     }
-    for (l = 0; l < NSLOT; l++) {                        /* each slot: dry to the master, its send into its chain */
+    for (l = 0; l < NSLOT; l++) {                        /* each slot: dry to the master, its sends into the rack */
         const slot_patch_t *p = &sbuf[l][s_use[l]];
         int32_t g, pl, pr, dg, dpl, dpr;
-        if (!slot_on[l] && !slot_meter[l])
+        if (!pk[l] && !sl_gg[l])
             continue;
         g = slot_lvl[l] ? (int32_t)(exp2_q16((slot_lvl[l] - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a step */
         pan_gains(slot_pan[l] * (Q15 / PAN_MAX), &pl, &pr);
@@ -382,7 +406,7 @@ static void mix_block(int32_t *out)
             sl_pl[l] += dpl;
             sl_pr[l] += dpr;
             s = (int32_t)(((int64_t)sbus[l][i] * sl_gg[l]) >> 14);
-            sbus[l][i] = s;                              /* (after the level: what the chain hears too) */
+            sbus[l][i] = s;                              /* (after the level: what the rack hears too) */
             s = mulq15(s, p->dry);
             l_[i] += mulq15(s, sl_pl[l]);
             r_[i] += mulq15(s, sl_pr[l]);
@@ -390,47 +414,15 @@ static void mix_block(int32_t *out)
         sl_gg[l] = g;
         sl_pl[l] = pl;
         sl_pr[l] = pr;
-        if (p->nch && slot_on[l]) {
-            uint32_t m0 = p->chain[0];
-            for (i = 0; i < CTL; i++)
-                mbus[m0][i] += mulq15(sbus[l][i], p->send);
-            fed[m0] = 1;
-            for (k = 0; k + 1u < p->nch; k++) {
-                edge[p->chain[k]] |= (uint16_t)(1u << p->chain[k + 1u]);
-                fed[p->chain[k + 1u]] = 1;
-            }
-            end[p->chain[p->nch - 1u]] = 1;
-        }
-    }
-    for (m = 0; m < NMOD; m++) {                         /* the rack, in its order */
-        int32_t pl, pr;
-        if (fed[m]) {
-            rm_edge_last[m] = edge[m];
-            rm_end_last[m] = end[m];
-            rm_quiet[m] = 0;
-        } else if (rm_quiet[m] >= RM_TAIL)
-            continue;                                    /* (silent, and nothing feeds it) */
-        else {
-            edge[m] = rm_edge_last[m];                   /* (ringing out where it went) */
-            end[m] = rm_end_last[m];
-        }
-        rm_block(m, mbus[m], l_, r_);
-        if (rm_meter[m] < 8)
-            rm_quiet[m] = (uint16_t)(rm_quiet[m] < 0xFFFEu ? rm_quiet[m] + 1u : rm_quiet[m]);
-        else if (!fed[m])
-            rm_quiet[m] = 0;
-        if (m != RM_PLT && end[m]) {                     /* out, at its column's place (the plate is stereo already) */
-            pan_gains(RM_PAN[m % RM_COLS], &pl, &pr);
-            for (i = 0; i < CTL; i++) {
-                l_[i] += mulq15(mbus[m][i], pl);
-                r_[i] += mulq15(mbus[m][i], pr);
-            }
-        }
-        for (k = m + 1u; k < NMOD; k++)
-            if ((edge[m] >> k) & 1u)
+        if (pk[l])                                       /* (a slot sounding: its cables carry it) */
+            for (k = 0; k < p->nent; k++) {
+                uint32_t m = p->ent[k];
                 for (i = 0; i < CTL; i++)
-                    mbus[k][i] += mbus[m][i];
+                    mbus[m][i] += mulq15(sbus[l][i], p->send);
+                fed |= 1u << m;
+            }
     }
+    rack_block(fed, l_, r_);
     for (i = 0; i < CTL; i++) {
         out[2u * i] = ceiling(mulq12(l_[i], master_q12));
         out[2u * i + 1u] = ceiling(mulq12(r_[i], master_q12));
@@ -446,13 +438,13 @@ static int slots_sounding(void)
             return 1;
     return 0;
 }
-/* the modules a slot's chain passes through, as a mask (the screen's) */
+/* the modules a slot is wired into, as a mask (the screen's) */
 static uint32_t slot_mods(uint32_t l)
 {
     const slot_patch_t *p = &sbuf[l][s_use[l]];
     uint32_t k, m = 0;
-    for (k = 0; k < p->nch; k++)
-        m |= 1u << p->chain[k];
+    for (k = 0; k < p->nent; k++)
+        m |= 1u << p->ent[k];
     return m;
 }
 
@@ -462,12 +454,12 @@ static uint32_t slot_mods(uint32_t l)
  *     and of a modulation by another slot:
  *       FIELD      glass, formants, clouds; the filter, the vowel, the flanger, the plate
  *       MATERIAL   metals, glass, reeds, impacts, pulsars; the modal, the string, the spring, the plate
- *       FEEDBACK   bruits, drones, pulses, reeds; the shift, the tape, the flanger, the fold
+ *       FEEDBACK   bruits, drones, pulses, reeds; the shift, the tape, the delay, the fold
  *       EROSION    clouds, freezes, shatters, bruits; the mulaw, the fold, the reverse, the tape
  *   - a HARSHNESS budget of 0, 1 or 2 (0.4, 0.4, 0.2) pays for the rough families and modules
- *   - the chain: none one time in twenty, else one module, a second 0.45, a third 0.25; never two of a character,
- *     never two destructive; the plate added at the end by the scene's chance; in rack order
- *   - the dry share 0.15 .. 0.6 with a chain (Vascular's processors are 0.62 wet), all of it without one
+ *   - the modules it is wired into: none one time in twenty, else one, a second 0.45, a third 0.25; never two of a
+ *     character, never two destructive; the plate added by the scene's chance (the shared tail)
+ *   - the dry share 0.15 .. 0.6 when wired (Vascular's processors are 0.62 wet), all of it when not
  *   - the level a little under unity, the pan anywhere */
 enum { SC_FIELD, SC_MATERIAL, SC_FEEDBACK, SC_EROSION, SC_N };
 static const char *const SC_NAME[SC_N] = {"FIELD", "MATERIAL", "FEEDBACK", "EROSION"};
@@ -480,17 +472,20 @@ static const uint8_t SC_FAM[SC_N][MF_N] = {
     {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0},
     {0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1}};
 static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0};
+/* the lean to the inharmonic and the non-melodic, x 2 (the owner's: experimental, not tunes): metals, bruits, impacts,
+ * glass, clouds, shatters, freezes up; the tonal formants and reeds down */
+static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4};
 static const uint8_t SC_MOD[SC_N][NMOD] = {
     {1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1},
     {0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1},
     {0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0},
     {0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0}};
 
-static void chain_draw(slot_patch_t *p, rnd_t *r, int32_t *budget)
+static void ent_draw(slot_patch_t *p, rnd_t *r, int32_t *budget)
 {
     uint32_t n = rnd_chance(r, 5) ? 0u : 1u + (rnd_chance(r, 45) ? 1u : 0u) + (rnd_chance(r, 25) ? 1u : 0u);
-    uint32_t i, j, chars = 0, destr = 0, used = 0;
-    p->nch = 0;
+    uint32_t i, chars = 0, destr = 0, used = 0;
+    p->nent = 0;
     for (i = 0; i < n; i++) {
         uint8_t w[NMOD];
         uint32_t k, any = 0;
@@ -510,17 +505,10 @@ static void chain_draw(slot_patch_t *p, rnd_t *r, int32_t *budget)
         if (RM_CHAR[k] == CH_DESTRUCTIVE)
             destr = 1;
         *budget -= RM_HARSH[k];
-        p->chain[p->nch++] = (uint8_t)k;
+        p->ent[p->nent++] = (uint8_t)k;
     }
-    if (p->nch && p->nch < NCHAIN && !((used >> RM_PLT) & 1u) && !((chars >> CH_SPACE) & 1u) && rnd_chance(r, SC_TAIL[p->scene]))
-        p->chain[p->nch++] = RM_PLT;                     /* the shared tail */
-    for (i = 0; i < p->nch; i++)                         /* in rack order */
-        for (j = i + 1u; j < p->nch; j++)
-            if (p->chain[j] < p->chain[i]) {
-                uint8_t t = p->chain[i];
-                p->chain[i] = p->chain[j];
-                p->chain[j] = t;
-            }
+    if (p->nent && p->nent < NENT && !((used >> RM_PLT) & 1u) && !((chars >> CH_SPACE) & 1u) && rnd_chance(r, SC_TAIL[p->scene]))
+        p->ent[p->nent++] = RM_PLT;                      /* the shared tail */
 }
 
 /* the main loop waits (up to ~40 ms) until no voice plays the buffer of slot l it is about to write */
@@ -568,7 +556,7 @@ static int slot_draw(uint32_t l, int32_t family, uint32_t seed)
         f = family;
     else {
         for (k = 0; k < MF_N; k++)
-            w[k] = (uint8_t)((int32_t)MF_HARSH[k] <= budget ? MF_W[path][k] * (SC_FAM[p->scene][k] ? 3u : 1u) : 0u);
+            w[k] = (uint8_t)((int32_t)MF_HARSH[k] <= budget ? MF_W[path][k] * (SC_FAM[p->scene][k] ? 3u : 1u) * MF_INH[k] / 2u : 0u);
         f = (int32_t)rnd_weighted(r, w, MF_N);
         if (!w[f])
             f = MF_GLASS;
@@ -576,9 +564,9 @@ static int slot_draw(uint32_t l, int32_t family, uint32_t seed)
     budget -= MF_HARSH[f];
     mo_design(&p->gen, f, rnd_next(r), path, GEN_NOW);
     mo_measure(&p->gen);
-    chain_draw(p, r, &budget);
+    ent_draw(p, r, &budget);
     p->send = rnd_in(r, LV(0.6), LV(1.0));
-    p->dry = p->nch ? rnd_in(r, LV(0.15), LV(0.6)) : Q15;
+    p->dry = p->nent ? rnd_in(r, LV(0.15), LV(0.6)) : Q15;
     p->xsrc = XM_NONE;
     {   /* a modulation by another active slot, now and then */
         uint32_t cand[NSLOT], nc = 0;

@@ -3,21 +3,22 @@
 A firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: 0.02.** Six slots, each a MOLECULE generator, on the top row's buttons; a rack of twelve effect modules
-under them on the screen; HOME draws the chosen slot's patch -- its sound and its wiring into the rack and to the
-other slots -- after Vascular's abstract path, and the white keys play it in the scale chosen. No sessions, no
-patterns, no internal clocks yet. `CHANGELOG.md` says what each version does.
+**State: 0.03.** Six slots, each a MOLECULE generator, share a rack of twelve effect modules the way synthesizers
+share a pedalboard. Two dice: HOME rolls the chosen generator and its cables into the rack; SAVE rolls the rack --
+every module's values and how the modules are wired to each other. The white keys play the chosen slot in the scale
+chosen. No sessions, no patterns, no internal clocks yet. `CHANGELOG.md` says what each version does.
 
 ## Playing it
 
 | Control | What it does |
 |---|---|
 | **FX SEL ENV LFO EDIT GLO** | slots 1 to 6: pressed, the slot chosen; held 0.8 s, the slot on (or off again). Slot 1 is on at the start |
-| **HOME** | a new patch for the slot chosen: its sound, its wiring into the rack and to the other slots, its level and pan |
+| **HOME** | a new patch for the slot chosen: its sound, the modules it is wired into, its modulation by another slot, its level and pan |
 | **SHIFT + HOME** | a new patch of the same family (SHIFT: the rightmost black key) |
 | **HOME** held 0.8 s | a new patch for every slot that is on |
-| **SEQ** | new values for the rack's twelve modules (the wiring is kept) |
+| **SAVE** | a new patch for the rack: every module's values and how the modules are wired to each other |
 | the white keys | play the slot chosen in the scale chosen: the first key is the root, every white key the next note of the scale. Six voices for the six slots |
+| **SHIFT + a white key** | its note latched on the slot chosen (the key stays lit); again: let go |
 | **SELECT / ALGORITHM** | the chosen slot's level / pan |
 | **ARP** | the SCALE page: SELECT the scale (23), ALGORITHM the root |
 | **OCT- / OCT+** | the octave, -3 .. +3 |
@@ -26,9 +27,10 @@ patterns, no internal clocks yet. `CHANGELOG.md` says what each version does.
 | **OCT-** held at power-on | the rescue mode (install again); **OCT- and OCT+** held 5 s: the chip's own updater |
 
 The screen: the audio's load at the top left, the battery at the top right; the six slots (filled when on, framed
-in white when chosen, brighter as they sound); the rack, twelve tiles in the signal's order, lit as sound passes
-through them, a bar along each tile's foot in the colour of every slot wired into it, the chosen slot's chain
-framed in its colour. The rack's left column sounds at the left, the right column at the right.
+in white when chosen, brighter as they sound); the rack's twelve modules -- FILTER, FOLD, MULAW, SHIFT, MODAL,
+STRING, VOWEL, DELAY, TAPE, REVERSE, SPRING, PLATE -- each with a border in the colours of the slots wired into it,
+those of the chosen slot filled with its colour, all brightening as sound passes through them. No cables are drawn.
+The rack's left column sounds at the left, the right column at the right.
 
 ## Installing
 

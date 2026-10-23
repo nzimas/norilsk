@@ -1,49 +1,60 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the rack -- twelve processor modules, always there, in a fixed order that is also the signal's: a
- * slot's patch wires its generator into one, two or three of them, in rack order (slots.c), and the wiring of all
- * the slots together is the rack's patch. A module fed by several slots hears their sum; a module's output goes on
- * to the next module of every chain that passes through it, and out to the master where a chain ends there -- as
- * a cable and a mult would on a modular. The order keeps it feed-forward: no loop can form between modules.
+ * MOLECULAR: the rack -- twelve processor modules, always there, shared by the six slots as a pedalboard is by the
+ * synthesizers plugged into it. Two things are drawn, by two buttons:
+ *   - a slot's patch (HOME, slots.c) says which modules the slot's generator is wired into, and how much
+ *   - the rack's patch (SAVE, here) says every module's values, and how the modules are wired to each other: an
+ *     order the sound runs through, and from each module, one or two cables to modules later in that order, and/or
+ *     out to the master. The order keeps it feed-forward: no loop can form between modules.
+ * A module hears the sum of what is wired into it, from the slots and from the modules before it; its output goes
+ * down every cable from it, as a mult would. Where a module sits on the screen is where it sounds: the three
+ * columns are three places in the stereo image (the plate is stereo of its own). Every module's output passes a
+ * guard (a level rider and a ceiling, as Vascular's every processor) so a resonance or a feedback never pins the bus.
+ * Nothing in the rack bends a pitch: no swept delays, no wobbling shifts, delay times that change cross-fade.
  *
- * Where a module sits in the rack is where it sounds: the four columns are four places in the stereo image, left
- * to right (the plate is stereo of its own). Each module has four values 0 .. 100, the module's own (SEQ draws them
- * anew for the whole rack), and its output passes a guard (a level rider and a ceiling, as Vascular's every
- * processor) so a resonance or a feedback never pins the bus.
- *
- * The twelve, after the survey of Vascular's processors (docs/PROCESSORS.md):
- *   FLT  FILTER    a resonant state-variable filter, low-, band- or high-pass, its cutoff wobbling if asked
+ * The twelve, after the survey of Vascular's processors (docs/PROCESSORS.md), as the screen has them:
+ *   FLT  FILTER    a resonant state-variable filter, low-, band- or high-pass, its cutoff drifting slowly if asked
  *   FLD  FOLD      a wavefolder: the wave driven into a window and reflected back, twice
  *   MU   MULAW     the telephone: a lower rate, mu-law with fewer bits, filtered before and after
  *   SHF  SHIFT     a frequency shifter (Hilbert pair and a quadrature sine): every partial moved by the same
- *                  hertz, up or down, or both (ring modulation) at the middle; feedback barber-poles it
+ *                  hertz, up or down, or both (ring modulation) at the middle; feedback stacks the shifts
  *   MDL  MODAL     three resonators tuned to the scale's root: struck metal, bars, bells
  *   STR  STRING    three Karplus strings tuned to the root, detuned: everything that passes rings
- *   VOW  VOWEL     three formants morphing a, e, i, o, u
- *   FLG  FLANGE    a swept short delay with feedback
- *   TAP  TAPE      a tape echo: wow, saturation, age (8-bit line at half the rate)
- *   RVS  REVERSE   windows of the sound played backwards, an octave up beside them if asked
+ *   VOX  VOWEL     three formants between a, e, i, o, u
+ *   DLY  DELAY     Tonitor's delay: 20 ms .. 1.5 s, feedback, damping (8-bit line at half the rate)
+ *   TAP  TAPE      a tape echo: saturation, age, a faint wow (8-bit line at half the rate)
+ *   RVS  REVERSE   windows of the sound played backwards, at their pitch, fed back if asked
  *   SPR  SPRING    a spring: allpass chirps in a short tank, a resonance for its tone
  *   PLT  PLATE     Tonitor's Dattorro plate, stereo */
 
-enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_FLG, RM_TAP, RM_RVS, RM_SPR, RM_PLT, NMOD };
-static const char *const RM_SHORT[NMOD] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOW", "FLG", "TAP", "RVS", "SPR", "PLT"};
-static const char *const RM_NAME[NMOD] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "FLANGE",
+enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_PLT, NMOD };
+static const char *const RM_NAME[NMOD] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "DELAY",
                                           "TAPE", "REVERSE", "SPRING", "PLATE"};
-/* each module's character (Vascular's): a chain never has two of one, nor two destructive ones */
+/* each module's character (Vascular's): a slot is never wired into two of one, nor into two destructive ones */
 enum { CH_SPECTRAL, CH_DESTRUCTIVE, CH_MODULATION, CH_RESONANT, CH_TEMPORAL, CH_SPACE };
 static const uint8_t RM_CHAR[NMOD] = {CH_SPECTRAL, CH_DESTRUCTIVE, CH_DESTRUCTIVE, CH_MODULATION, CH_RESONANT,
-                                      CH_RESONANT, CH_SPECTRAL, CH_MODULATION, CH_TEMPORAL, CH_TEMPORAL, CH_SPACE, CH_SPACE};
+                                      CH_RESONANT, CH_SPECTRAL, CH_TEMPORAL, CH_TEMPORAL, CH_TEMPORAL, CH_SPACE, CH_SPACE};
+static const uint8_t RM_RANK[6] = {0, 0, 1, 1, 2, 3};   /* where a character tends to sit in the rack's order */
 static const uint8_t RM_HARSH[NMOD] = {0, 2, 2, 1, 0, 0, 0, 0, 0, 1, 0, 0};   /* what each costs of a patch's budget */
-static const uint8_t RM_W[NMOD] = {12, 4, 5, 7, 11, 10, 9, 10, 11, 9, 9, 11};   /* Vascular's foundation weights, x 10 */
-/* the values a module comes back to (SEQ draws around them, as Vascular draws a processor's) */
+static const uint8_t RM_W[NMOD] = {12, 4, 5, 7, 11, 10, 9, 11, 10, 9, 9, 11};   /* Vascular's foundation weights, x 10 */
+/* the values a module comes back to (SAVE draws around them, as Vascular draws a processor's) */
 static const uint8_t RM_HOME[NMOD][4] = {
-    {20, 55, 40, 30}, {45, 45, 20, 70}, {45, 60, 50, 30}, {40, 30, 70, 20}, {40, 55, 40, 50}, {35, 60, 40, 60},
-    {50, 50, 50, 30}, {25, 30, 50, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55}};
-#define RM_COLS 4
-static const int16_t RM_PAN[RM_COLS] = {-19661, -6554, 6554, 19661};   /* a column's place: -0.6 .. 0.6 */
+    {20, 55, 40, 30}, {45, 45, 20, 70}, {45, 60, 50, 30}, {40, 30, 70, 50}, {40, 55, 40, 50}, {35, 60, 40, 60},
+    {50, 50, 50, 30}, {65, 40, 40, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55}};
+#define RM_COLS 3
+static const int16_t RM_PAN[RM_COLS] = {-19661, 0, 19661};   /* a column's place: left, middle, right */
 
-static volatile uint8_t rack_p[NMOD][4];       /* the modules' values (main loop) */
+/* the rack's patch (SAVE): the main loop writes the buffer the ISR is not using and publishes it */
+typedef struct {
+    uint8_t p[NMOD][4];          /* every module's values, 0 .. 100 */
+    uint8_t order[NMOD];         /* the order the sound runs through them */
+    uint16_t to[NMOD];           /* bit n: module m's output wired into module n (n later in the order) */
+    uint16_t out;                /* bit m: module m's output to the master */
+    uint32_t seed, serial;
+} rack_patch_t;
+static rack_patch_t rbuf[2];
+static volatile uint8_t r_pub, r_use;
 static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what MODAL and STRING are tuned to */
+static int32_t mbus[NMOD][CTL];                /* each module's input, then its output, this block */
 
 /* ------------------------------------------------------------- shared --- */
 /* a constant-peak-gain resonator (Smith and Angell): zeros at DC and Nyquist, poles at f, radius r. Q28 coefficients */
@@ -93,9 +104,9 @@ static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
     int32_t oct = 321600 + p[1] * (9 * 65536 / 100), hz, q, type;   /* 30 Hz up 9 octaves */
     uint32_t i;
     svf_c c;
-    if (p[3] > 10) {                                    /* the wobble: 0.1 .. 0.5 Hz, up to +-2 octaves */
-        s->lfo += 310000u + (uint32_t)p[3] * 12000u;
-        oct += mulq15(sin_ph(s->lfo), p[3] * (2 * 65536 / 100));
+    if (p[3] > 10) {                                    /* a drift: 0.02 .. 0.1 Hz, up to +-2/3 octave */
+        s->lfo += 62000u + (uint32_t)p[3] * 2400u;
+        oct += mulq15(sin_ph(s->lfo), p[3] * (2 * 65536 / 300));
     }
     hz = (int32_t)(exp2_q16(clampi(oct, 4 << 16, 14 << 16)) >> 16);
     q = 2896 + p[2] * (10 * 4096 - 2896) / 100;
@@ -164,7 +175,8 @@ static void m_mu(const uint8_t *p, m_mu_t *s, int32_t *x)
 /* -------------------------------------------------------------- SHIFT --- */
 /* Niemitalo's Hilbert pair: two chains of four second-order allpass sections in z^-2, one path a sample late, 90
  * degrees apart from ~20 Hz to ~20 kHz. p0 the shift, 5 Hz .. 2 kHz (log); p1 the feedback through 25 ms, damped;
- * p2 the direction: down below 45, up above 55, both (ring modulation) between; p3 a slow wobble of the shift */
+ * p2 the direction: down below 45, up above 55, both (ring modulation) between; p3 the feedback's tone, 1 .. 8 kHz.
+ * The shift is fixed while it sounds: nothing sweeps */
 static const int32_t HB_A[4] = {128688190, 235208111, 262153419, 267764168};   /* a^2, Q28 */
 static const int32_t HB_B[4] = {43421716, 196770956, 253765378, 265911936};
 #define SHF_N 1104u              /* 25 ms */
@@ -181,11 +193,8 @@ AINL int32_t hb_sec(int32_t c, int32_t x, int32_t *xs, int32_t *ys)   /* y = c (
 static void m_shf(const uint8_t *p, m_shf_t *s, int32_t *x)
 {
     int32_t oct = 152000 + p[0] * (8 * 65536 / 100 + 3932), fb = p[1] * (27853 / 100), hz8, dir;
+    int32_t tone = 4600 + p[3] * (26000 - 4600) / 100;
     uint32_t inc, i, k;
-    if (p[3] > 10) {
-        s->lfo += 200000u + (uint32_t)p[3] * 6000u;
-        oct += mulq15(sin_ph(s->lfo), p[3] * (65536 / 100));
-    }
     hz8 = (int32_t)(exp2_q16(clampi(oct, 2 << 16, 11 << 16)) >> 8);
     inc = hz8_inc(hz8);
     dir = p[2] < 45 ? -1 : p[2] > 55 ? 1 : 0;
@@ -205,7 +214,7 @@ static void m_shf(const uint8_t *p, m_shf_t *s, int32_t *x)
         if (++s->w >= SHF_N)
             s->w = 0;
         r = r >= SHF_N ? r - SHF_N : r;
-        s->lp += mulq15(s->line[r] - s->lp, 16000);     /* (the feedback's damping, ~4 kHz) */
+        s->lp += mulq15(s->line[r] - s->lp, tone);      /* (the feedback's damping) */
         x[i] = y;
     }
 }
@@ -298,62 +307,82 @@ static void m_vow(const uint8_t *p, m_vow_t *s, int32_t *x)
     }
 }
 
-/* ------------------------------------------------------------- FLANGE --- */
-#define FLG_N 1024u              /* 23 ms */
-typedef struct { int16_t line[FLG_N]; uint32_t w, lfo; } m_flg_t;
-static void m_flg(const uint8_t *p, m_flg_t *s, int32_t *x)
+/* -------------------------------------------------------------- DELAY --- */
+/* an 8-bit mu-law line at FS / 2 (a sample at the half rate, read with linear interpolation) */
+AINL int32_t mu_tap(const uint8_t *line, uint32_t n, uint32_t w, int32_t t8)   /* t8 samples ago, Q8 */
 {
-    int32_t c8 = 32 + p[0] * (838 * 256 - 32) / 100, depth = p[3] * (Q15 / 100), fb = p[2] * (28836 / 100);
-    uint32_t rate = (uint32_t)(exp2_q16(p[1] * (9 * 65536 / 100)) * 1948u >> 16), i;   /* 0.02 .. 10 Hz */
-    for (i = 0; i < CTL; i++) {
-        int32_t d8, y, f;
-        uint32_t q, i0, i1;
-        s->lfo += rate;
-        d8 = c8 + mulq15(mulq15(sin_ph(s->lfo), depth), c8 - 24);
-        d8 = clampi(d8, 24, (int32_t)(FLG_N - 4u) * 256);
-        q = (s->w << 8) + (FLG_N << 8) - (uint32_t)d8;
-        i0 = (q >> 8) % FLG_N;
-        i1 = i0 + 1u >= FLG_N ? 0u : i0 + 1u;
-        f = (int32_t)(q & 255u);
-        y = s->line[i0] + (((s->line[i1] - s->line[i0]) * f) >> 8);
-        s->line[s->w] = (int16_t)clampi(x[i] + mulq15(y, fb), -32767, 32767);
-        if (++s->w >= FLG_N)
+    uint32_t q = (w << 8) + (n << 8) - (uint32_t)t8, i0 = (q >> 8) % n, f = q & 255u;
+    int32_t y = mu_dec8(line[i0]);
+    return y + (((mu_dec8(line[i0 + 1u >= n ? 0u : i0 + 1u]) - y) * (int32_t)f) >> 8);
+}
+#define XF_PAIRS 512u            /* a change of time: the old head fades out, the new in, over 23 ms */
+/* Tonitor's delay: TIME 20 ms .. 1.5 s (p0, log), feedback 0 .. 0.92 (p1), damping (p2: the echoes' low-pass, none
+ * .. 0.12), level (p3: 0.25 .. 1). The echoes alone come out. A change of time cross-fades (no pitch slide) */
+#define DLY_N 33075u             /* 1.5 s at FS / 2 */
+typedef struct { uint8_t line[DLY_N]; uint32_t w; int32_t t, t0, xf, lp, prev; } m_dly_t;
+static void m_dly(const uint8_t *p, m_dly_t *s, int32_t *x)
+{
+    int32_t ms = (int32_t)((20u * exp2_q16(p[0] * (6229 * 65536 / 100000))) >> 16);   /* 20 x 75^(p / 100) */
+    int32_t want = clampi(ms * 2205 / 100 * 256, 2 * 256, (int32_t)(DLY_N - 4u) * 256);
+    int32_t fb = p[1] * (LV(0.92) / 100), damp = Q15 - p[2] * (LV(0.88) / 100), lvl = 8192 + p[3] * (24576 / 100);
+    uint32_t i;
+    if (!s->t)
+        s->t = want;
+    if (want != s->t && !s->xf) {
+        s->t0 = s->t;
+        s->t = want;
+        s->xf = XF_PAIRS;
+    }
+    for (i = 0; i + 1u < CTL; i += 2u) {
+        int32_t in = (x[i] + x[i + 1u]) >> 1, y = mu_tap(s->line, DLY_N, s->w, s->t), o0;
+        if (s->xf) {
+            int32_t yo = mu_tap(s->line, DLY_N, s->w, s->t0);
+            y = yo + (((y - yo) * (int32_t)(XF_PAIRS - (uint32_t)s->xf)) >> 9);
+            s->xf--;
+        }
+        s->lp += mulq15(y - s->lp, damp);
+        s->line[s->w] = mu_enc8(clampi(in + mulq15(s->lp, fb), -32767, 32767));
+        if (++s->w >= DLY_N)
             s->w = 0;
-        x[i] = (x[i] + y) >> 1;
+        y = mulq15(s->lp, lvl);
+        o0 = (s->prev + y) >> 1;
+        s->prev = y;
+        x[i] = o0;
+        x[i + 1u] = y;
     }
 }
 
 /* --------------------------------------------------------------- TAPE --- */
-/* an echo on an 8-bit mu-law line at FS / 2: time 25 .. 900 ms (p0), wow (p1: a slow wander of the time, up to
- * +-3 %, and a flutter), feedback 0 .. 0.94 (p2) through the head's saturation, age (p3: the loop's low-pass from 12
- * kHz down to 800 Hz). The echoes alone come out */
+/* an echo on an 8-bit mu-law line at FS / 2: time 25 .. 900 ms (p0), wow (p1: a slow wander of the time, at most
+ * +-0.25 % -- the tape's breath, not a bend), feedback 0 .. 0.94 (p2) through the head's saturation, age (p3: the
+ * loop's low-pass from 12 kHz down to 800 Hz). The echoes alone come out. A change of time cross-fades */
 #define TAP_N 19900u             /* 0.9 s at FS / 2 */
-typedef struct { uint8_t line[TAP_N]; uint32_t w, wph, fph; int32_t t, lp, prev, wn, wt; rnd_t r; } m_tap_t;
+typedef struct { uint8_t line[TAP_N]; uint32_t w; int32_t t, t0, xf, lp, prev, wn, wt; rnd_t r; } m_tap_t;
 static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
 {
     int32_t want = (25 + p[0] * 875 / 100) * 2205 / 100 * 256;   /* samples at FS / 2, Q8 */
-    int32_t fb = p[2] * (30802 / 100), age = 31000 - p[3] * (31000 - 3600) / 100, wow = p[1] * 10, mod;
+    int32_t fb = p[2] * (30802 / 100), age = 31000 - p[3] * (31000 - 3600) / 100;
     uint32_t i;
     if (!s->t)
         s->t = want;
+    if (want != s->t && !s->xf) {
+        s->t0 = s->t;
+        s->t = want;
+        s->xf = XF_PAIRS;
+    }
     if (!(s->r.s))
         rnd_seed(&s->r, 0x7A9Eu);
-    if ((rnd_next(&s->r) & 255u) < 3u)                 /* the wow: a new place every ~0.1 s, glided to */
-        s->wt = mulq15(rnd_bi(&s->r), wow);
-    s->wn += (s->wt - s->wn) >> 6;
-    s->fph += 380000u + (uint32_t)p[3] * 6000u;          /* the flutter, ~9 .. 26 Hz a block */
-    mod = s->wn + mulq15(sin_ph(s->fph), p[3] * 2);      /* (Q15 of the time: the wow up to +-3 %, the flutter 0.6 %) */
+    if ((rnd_next(&s->r) & 255u) < 2u)                 /* the wow: a new place every ~0.2 s, glided to */
+        s->wt = mulq15(rnd_bi(&s->r), p[1] * 82 / 100);  /* (Q15 of the time: at most 0.25 %) */
+    s->wn += (s->wt - s->wn) >> 7;
     for (i = 0; i + 1u < CTL; i += 2u) {
-        int32_t in = (x[i] + x[i + 1u]) >> 1, y, o0, tt;
-        uint32_t q, i0, f;
-        s->t += (want - s->t) >> 10;
-        tt = s->t + (int32_t)(((int64_t)s->t * mod) >> 15);
-        tt = clampi(tt, 4 << 8, (int32_t)(TAP_N - 4u) << 8);
-        q = (s->w << 8) + (TAP_N << 8) - (uint32_t)tt;
-        i0 = (q >> 8) % TAP_N;
-        f = q & 255u;
-        y = mu_dec8(s->line[i0]);
-        y += ((mu_dec8(s->line[i0 + 1u >= TAP_N ? 0u : i0 + 1u]) - y) * (int32_t)f) >> 8;
+        int32_t in = (x[i] + x[i + 1u]) >> 1, y, o0, tt = s->t + (int32_t)(((int64_t)s->t * s->wn) >> 15);
+        y = mu_tap(s->line, TAP_N, s->w, clampi(tt, 4 << 8, (int32_t)(TAP_N - 4u) << 8));
+        if (s->xf) {
+            int32_t yo = mu_tap(s->line, TAP_N, s->w, s->t0);
+            y = yo + (((y - yo) * (int32_t)(XF_PAIRS - (uint32_t)s->xf)) >> 9);
+            s->xf--;
+        }
         s->lp += mulq15(y - s->lp, age);
         s->line[s->w] = mu_enc8(tanh_q15((in + mulq15(s->lp, fb)) * 3 / 2) * 2 / 3);
         if (++s->w >= TAP_N)
@@ -366,15 +395,15 @@ static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
 }
 
 /* ------------------------------------------------------------ REVERSE --- */
-/* windows of 60 .. 400 ms (p0) read backwards: two heads half a window apart, each a triangle, so the sum stays
- * level; the read runs away from the write at a rate (p3: 1.5 .. 3; 2 = backwards at pitch); a third head at twice
- * the rate (an octave up, backwards) beside them (p2: its level); a low-pass on it all, 1.4 .. 13 kHz (p1). Its line:
- * 1.2 s at FS / 2, 8-bit mu-law */
+/* windows of 60 .. 400 ms (p0) read backwards at their own pitch: two heads half a window apart, each a triangle, so
+ * the sum stays level; a low-pass on it, 1.4 .. 13 kHz (p1); fed back into the line (p2: 0 .. 0.7: the reversed
+ * reversed again, smeared); p3 the windows' spread, how far back they reach (one to three windows). Its line: 1.2 s
+ * at FS / 2, 8-bit mu-law */
 #define RVS_N 26460u
-typedef struct { uint8_t line[RVS_N]; uint32_t w, ph[3]; int32_t lp, prev; } m_rvs_t;
-AINL int32_t rvs_head(const m_rvs_t *s, uint32_t ph, uint32_t span)   /* a head at phase ph (2^32 a window) */
+typedef struct { uint8_t line[RVS_N]; uint32_t w, ph; int32_t lp, prev; } m_rvs_t;
+AINL int32_t rvs_head(const m_rvs_t *s, uint32_t ph, uint32_t span, uint32_t back)   /* a head at phase ph */
 {
-    uint32_t d = (uint32_t)(((uint64_t)ph * span) >> 32) + 4u, q = s->w + RVS_N - d;
+    uint32_t d = back + (uint32_t)(((uint64_t)ph * span) >> 32) + 4u, q = s->w + RVS_N - d;
     int32_t tri = (int32_t)(ph >> 16), y;
     q = q >= RVS_N ? q - RVS_N : q;
     tri = tri < 32768 ? tri : 65535 - tri;              /* 0 .. 32767 .. 0 */
@@ -384,23 +413,17 @@ AINL int32_t rvs_head(const m_rvs_t *s, uint32_t ph, uint32_t span)   /* a head 
 static void m_rvs(const uint8_t *p, m_rvs_t *s, int32_t *x)
 {
     uint32_t win = (60u + (uint32_t)p[0] * 340u / 100u) * 2205u / 100u;   /* samples at FS / 2 */
-    uint32_t run16 = 98304u + (uint32_t)p[3] * 98304u / 100u;             /* 1.5 .. 3, Q16 */
-    uint32_t span = (uint32_t)(((uint64_t)win * run16) >> 16), span2, inc = 0xFFFFFFFFu / (win ? win : 1u), i;
-    int32_t oct = p[2] * (Q15 / 100), tone = 6400 + p[1] * (31000 - 6400) / 100;
-    if (span > RVS_N - 8u)
-        span = RVS_N - 8u;
-    span2 = span * 3u / 4u;                              /* (read twice as fast: the delay grows 1.5 x the run -- an octave up) */
+    uint32_t span = 2u * win, back = win * (uint32_t)p[3] / 50u, inc = 0xFFFFFFFFu / (win ? win : 1u), i;
+    int32_t tone = 6400 + p[1] * (31000 - 6400) / 100, fb = p[2] * (LV(0.7) / 100);
+    if (span + back > RVS_N - 8u)
+        back = RVS_N - 8u - span;
     for (i = 0; i + 1u < CTL; i += 2u) {
         int32_t y;
-        s->line[s->w] = mu_enc8((x[i] + x[i + 1u]) >> 1);
+        s->line[s->w] = mu_enc8(clampi(((x[i] + x[i + 1u]) >> 1) + mulq15(s->lp, fb), -32767, 32767));
         if (++s->w >= RVS_N)
             s->w = 0;
-        s->ph[0] += inc;
-        s->ph[1] = s->ph[0] + 0x80000000u;
-        s->ph[2] += inc * 2u;
-        y = rvs_head(s, s->ph[0], span) + rvs_head(s, s->ph[1], span);
-        if (oct)
-            y += mulq15(rvs_head(s, s->ph[2], span2), oct);
+        s->ph += inc;
+        y = rvs_head(s, s->ph, span, back) + rvs_head(s, s->ph + 0x80000000u, span, back);
         s->lp += mulq15(y - s->lp, tone);
         x[i] = (s->prev + s->lp) >> 1;
         x[i + 1u] = s->lp;
@@ -458,14 +481,15 @@ static m_shf_t m_shf_s POOL;
 static m_mdl_t m_mdl_s POOL;
 static m_str_t m_str_s POOL;
 static m_vow_t m_vow_s POOL;
-static m_flg_t m_flg_s POOL;
+static m_dly_t m_dly_s POOL;
 static m_tap_t m_tap_s POOL;
 static m_rvs_t m_rvs_s POOL;
 static m_spr_t m_spr_s POOL;
 static int32_t rm_env[NMOD], rm_g[NMOD];       /* each module's guard: the peak it follows, its gain */
 static volatile int32_t rm_meter[NMOD];        /* each module's output, its last peaks (the screen's) */
-static uint16_t rm_quiet[NMOD];                /* blocks its output has been near silence (a tail let go) */
+static uint16_t rm_quiet[NMOD];                /* blocks its output has been near silence */
 static uint8_t rm_plate_on;                    /* (the plate's parameters set: rv_param) */
+#define RM_TAIL 2756u            /* a module nothing feeds goes on until its output has been near silence 2 s */
 
 /* the guard: a peak rider (Tonitor's limiter: instant attack, ~200 ms release) to 0.5 */
 #define RM_CEIL 16384
@@ -494,10 +518,9 @@ static void rm_guard(uint32_t m, int32_t *x)
     rm_meter[m] = pk > rm_meter[m] ? pk : rm_meter[m] - (rm_meter[m] >> 4);
 }
 
-/* one module over x (mono, in place); the plate: into l, r (added) */
-static void rm_block(uint32_t m, int32_t *x, int32_t *l, int32_t *r)
+/* one module over x (mono, in place); the plate, when it goes to the master: into l, r (added) */
+static void rm_block(uint32_t m, const uint8_t *p, int32_t *x, int32_t *l, int32_t *r, int to_master)
 {
-    const uint8_t *p = (const uint8_t *)rack_p[m];
     switch (m) {
     case RM_FLT: m_flt(p, &m_flt_s, x); break;
     case RM_FLD: m_fld(p, &m_fld_s, x); break;
@@ -506,12 +529,12 @@ static void rm_block(uint32_t m, int32_t *x, int32_t *l, int32_t *r)
     case RM_MDL: m_mdl(p, &m_mdl_s, x); break;
     case RM_STR: m_str(p, &m_str_s, x); break;
     case RM_VOW: m_vow(p, &m_vow_s, x); break;
-    case RM_FLG: m_flg(p, &m_flg_s, x); break;
+    case RM_DLY: m_dly(p, &m_dly_s, x); break;
     case RM_TAP: m_tap(p, &m_tap_s, x); break;
     case RM_RVS: m_rvs(p, &m_rvs_s, x); break;
     case RM_SPR: m_spr(p, &m_spr_s, x); break;
-    default: {                                       /* the plate: stereo, added to the master */
-        int32_t pl[CTL], pr[CTL];
+    default: {                                       /* the plate: stereo */
+        int32_t pl[CTL], pr[CTL], g = 8192 + p[3] * (24576 / 100), pk = 0;   /* (its level: 0.25 .. 1) */
         uint32_t i;
         if (!rm_plate_on) {
             rv_param(p[0], p[1], p[2], 40);              /* (x 0.64: the tail sums over seconds) */
@@ -521,29 +544,85 @@ static void rm_block(uint32_t m, int32_t *x, int32_t *l, int32_t *r)
             pl[i] = pr[i] = 0;
         rv_block_fp(x, pl, pr, CTL);
         for (i = 0; i < CTL; i++) {
-            int32_t g = 8192 + p[3] * (24576 / 100);  /* (its level: 0.25 .. 1) */
-            l[i] += mulq15(pl[i], g);
-            r[i] += mulq15(pr[i], g);
-            x[i] = (pl[i] + pr[i]) >> 1;               /* (mono, for what follows it: nothing does, it is last) */
+            pl[i] = mulq15(pl[i], g);
+            pr[i] = mulq15(pr[i], g);
+            if (to_master) {
+                l[i] += pl[i];
+                r[i] += pr[i];
+            }
+            x[i] = (pl[i] + pr[i]) >> 1;               /* (mono, for the modules after it) */
+            pk = maxi(pk, absi(x[i]));
         }
-        {
-            int32_t pk = 0;
-            for (i = 0; i < CTL; i++)
-                pk = maxi(pk, absi(x[i]));
-            rm_meter[m] = pk > rm_meter[m] ? pk : rm_meter[m] - (rm_meter[m] >> 4);
-        }
+        rm_meter[m] = pk > rm_meter[m] ? pk : rm_meter[m] - (rm_meter[m] >> 4);
         return;
     }
     }
     rm_guard(m, x);
 }
 
-/* the modules' values drawn anew: each at its home one time in five, else moved by 15 .. 55 either way */
-static void rack_draw(uint32_t seed)
+/* the rack's patch published, taken at a block's start */
+static void rack_take(void)
+{
+    if (r_pub != r_use) {
+        r_use = r_pub;
+        rm_plate_on = 0;                             /* (the plate's values taken at its next block) */
+    }
+}
+/* one block of the rack: mbus holds what the slots send into each module, fed which of them they feed; each
+ * module, in the patch's order, runs if something reaches it or its tail still sounds; its output goes down its
+ * cables and, as wired, out to the master at its column's place */
+static void rack_block(uint32_t fed, int32_t *l, int32_t *r)
+{
+    const rack_patch_t *rk = &rbuf[r_use];
+    uint32_t has = fed, j, i, n;
+    for (j = 0; j < NMOD; j++) {
+        uint32_t m = rk->order[j], to_master = (rk->out >> m) & 1u;
+        if (!((has >> m) & 1u) && rm_quiet[m] >= RM_TAIL)
+            continue;                                /* (nothing reaches it, and it is silent) */
+        rm_block(m, rk->p[m], mbus[m], l, r, (int)to_master);
+        if (rm_meter[m] < 8) {
+            if (rm_quiet[m] < 0xFFFFu)
+                rm_quiet[m]++;
+        } else
+            rm_quiet[m] = 0;
+        if (rm_quiet[m] >= RM_TAIL)
+            continue;                                /* (silent: nothing to pass on) */
+        if (to_master && m != RM_PLT) {
+            int32_t pl, pr;
+            uint32_t ph = (uint32_t)(RM_PAN[m % RM_COLS] + Q15) * 16384u;   /* (equal power) */
+            pl = sin_ph(ph + 0x40000000u);
+            pr = sin_ph(ph);
+            for (i = 0; i < CTL; i++) {
+                l[i] += mulq15(mbus[m][i], pl);
+                r[i] += mulq15(mbus[m][i], pr);
+            }
+        }
+        for (n = 0; n < NMOD; n++)
+            if ((rk->to[m] >> n) & 1u) {
+                for (i = 0; i < CTL; i++)
+                    mbus[n][i] += mbus[m][i];
+                has |= 1u << n;
+            }
+    }
+}
+
+/* SAVE: the rack's patch drawn anew, into the buffer the ISR is not using:
+ *   - every module's values: each at its home one time in five, else moved by 15 .. 55 either way (Vascular's)
+ *   - the order: by character, mostly -- colour and destruction first, then modulation and resonance, then time,
+ *     then space -- but shuffled across those lines often enough that a plate may feed a fold
+ *   - from each module, in that order: no cable on (0.55), one (0.38) or two (0.07) to the next four modules; with
+ *     none it goes to the master, with one or more it also does, one time in three
+ * Returns 0 if the ISR had not taken the patch before (the main loop then tries again) */
+static uint32_t rack_serial;
+static void rack_draw_into(rack_patch_t *rk, uint32_t seed)
 {
     rnd_t r;
-    uint32_t m, k;
+    uint32_t m, k, j;
+    int32_t key[NMOD];
+    static const uint8_t NTO[3] = {55, 38, 7};
     rnd_seed(&r, seed ^ 0x5241434Bu);
+    rk->seed = seed;
+    rk->serial = ++rack_serial;
     for (m = 0; m < NMOD; m++)
         for (k = 0; k < 4u; k++) {
             int32_t v = RM_HOME[m][k];
@@ -551,13 +630,48 @@ static void rack_draw(uint32_t seed)
                 int32_t d = rnd_in(&r, 15, 55);
                 v += rnd_chance(&r, 50) ? d : -d;
             }
-            rack_p[m][k] = (uint8_t)clampi(v, 0, 100);
+            rk->p[m][k] = (uint8_t)clampi(v, 0, 100);
         }
-    rm_plate_on = 0;                                 /* (the plate's values taken at its next block) */
+    for (m = 0; m < NMOD; m++) {
+        rk->order[m] = (uint8_t)m;
+        key[m] = RM_RANK[RM_CHAR[m]] * 40 + rnd_in(&r, 0, 70);
+    }
+    for (m = 0; m < NMOD; m++)
+        for (k = m + 1u; k < NMOD; k++)
+            if (key[rk->order[k]] < key[rk->order[m]]) {
+                uint8_t t = rk->order[m];
+                rk->order[m] = rk->order[k];
+                rk->order[k] = t;
+            }
+    rk->out = 0;
+    for (j = 0; j < NMOD; j++) {
+        uint32_t mm = rk->order[j], left = NMOD - 1u - j, nto = left ? rnd_weighted(&r, NTO, 3) : 0u, reach = left < 4u ? left : 4u;
+        rk->to[mm] = 0;
+        for (k = 0; k < nto && k < reach; k++) {
+            uint32_t t = rk->order[j + 1u + (uint32_t)rnd_below(&r, (int32_t)reach)];
+            rk->to[mm] |= (uint16_t)(1u << t);
+        }
+        if (!rk->to[mm] || rnd_chance(&r, 33))
+            rk->out |= (uint16_t)(1u << mm);
+    }
+}
+static int rack_draw(uint32_t seed)
+{
+    uint32_t t0 = fm1_ms;
+    while (r_pub != r_use) {                         /* (the ISR takes the last one at a block's start) */
+        if ((uint32_t)(fm1_ms - t0) > 40u)
+            return 0;
+        fm1_wdt_feed();
+    }
+    rack_draw_into(&rbuf[r_use ^ 1u], seed);
+    RING_PUBLISH();
+    r_pub = (uint8_t)(r_use ^ 1u);
+    return 1;
 }
 
 static void rack_init(void)
 {
+    uint32_t m;
     memset(&m_flt_s, 0, sizeof m_flt_s);
     memset(&m_fld_s, 0, sizeof m_fld_s);
     memset(&m_mu_s, 0, sizeof m_mu_s);
@@ -565,22 +679,21 @@ static void rack_init(void)
     memset(&m_mdl_s, 0, sizeof m_mdl_s);
     memset(&m_str_s, 0, sizeof m_str_s);
     memset(&m_vow_s, 0, sizeof m_vow_s);
-    memset(&m_flg_s, 0, sizeof m_flg_s);
+    memset(&m_dly_s, 0, sizeof m_dly_s);
+    memset(m_dly_s.line, 0x80, sizeof m_dly_s.line);   /* (mu-law's silence) */
     memset(&m_tap_s, 0, sizeof m_tap_s);
-    memset(m_tap_s.line, 0x80, sizeof m_tap_s.line);   /* (mu-law's silence) */
+    memset(m_tap_s.line, 0x80, sizeof m_tap_s.line);
     memset(&m_rvs_s, 0, sizeof m_rvs_s);
     memset(m_rvs_s.line, 0x80, sizeof m_rvs_s.line);
     memset(&m_spr_s, 0, sizeof m_spr_s);
     m_mdl_s.key = m_vow_s.key = m_spr_s.key = -1;
     memset(rm_env, 0, sizeof rm_env);
-    {
-        uint32_t m;
-        for (m = 0; m < NMOD; m++) {
-            rm_g[m] = Q15;
-            rm_meter[m] = 0;
-            rm_quiet[m] = 0xFFFFu;
-        }
+    for (m = 0; m < NMOD; m++) {
+        rm_g[m] = Q15;
+        rm_meter[m] = 0;
+        rm_quiet[m] = 0xFFFFu;
     }
     rv_init();
-    rack_draw(0x4D4F4Cu);
+    r_pub = r_use = 0;
+    rack_draw_into(&rbuf[0], 0x4D4F4Cu);
 }

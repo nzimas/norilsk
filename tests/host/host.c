@@ -283,7 +283,7 @@ static int cmd_render(int argc, char **argv)
             uint32_t seed = 1000u + (uint32_t)f * 101u + (uint32_t)s;
             int32_t bright;
             stat_t st;
-            mo_design(&design, f, seed, (uint32_t)path, 0);
+            mo_design(&design, f, seed, (uint32_t)path, GEN_NOW);
             bright = mo_measure(&design);
             st = play(&design, 60, 4.0, 8.0, 0, wav);
             snprintf(name, sizeof name, "%s/%s-%s-%u.wav", dir, MF_NAME[f], PATH_NAME[path], seed);
@@ -306,7 +306,7 @@ static int cmd_one(int argc, char **argv)
     for (k = 0; k < MF_N; k++)
         if (!strcmp(argv[3], MF_NAME[k]))
             f = k;
-    mo_design(&design, f, seed, (uint32_t)path, 0);
+    mo_design(&design, f, seed, (uint32_t)path, GEN_NOW);
     bright = mo_measure(&design);
     print_design(&design);
     st = play(&design, 60, 4.0, 8.0, 0, wav);
@@ -327,7 +327,7 @@ static int cmd_check(void)
             for (s = 0; s < 40; s++) {
                 uint32_t seed = 5000u + (uint32_t)f * 211u + (uint32_t)s * 7u + (uint32_t)path * 977u;
                 stat_t st;
-                mo_design(&design, f, seed, (uint32_t)path, 0);
+                mo_design(&design, f, seed, (uint32_t)path, GEN_NOW);
                 mo_measure(&design);
                 st = play(&design, 60, 3.0, 30.0, 0, 0);
                 n++;
@@ -357,7 +357,7 @@ static int cmd_check(void)
     /* a note far up and far down: nothing breaks */
     for (f = 0; f < MF_N; f++) {
         stat_t st;
-        mo_design(&design, f, 77u + (uint32_t)f, 0, 0);
+        mo_design(&design, f, 77u + (uint32_t)f, 0, GEN_NOW);
         mo_measure(&design);
         st = play(&design, 108, 1.0, 6.0, 0, 0);
         if (st.peak > 3 * 32768)
@@ -371,7 +371,7 @@ static int cmd_check(void)
     return fails ? 1 : 0;
 }
 
-static int cmd_golden(void)
+static int cmd_golden(uint32_t gen)
 {
     int f, s, path;
     int32_t blk[CTL];
@@ -379,7 +379,7 @@ static int cmd_golden(void)
         for (f = 0; f < MF_N; f++)
             for (s = 0; s < 8; s++) {
                 uint32_t seed = 100u + (uint32_t)f * 31u + (uint32_t)s + (uint32_t)path * 503u, h, b;
-                mo_design(&design, f, seed, (uint32_t)path, 0);
+                mo_design(&design, f, seed, (uint32_t)path, gen);
                 mo_measure(&design);
                 h = fnv(2166136261u, &design, sizeof design);
                 memset(&voice, 0, sizeof voice - MO_GR_N);
@@ -405,7 +405,7 @@ static int cmd_bench(void)
         static const int8_t G[4] = {0, 0, 64, 0};
         for (s = 0; s < 6; s++) {
             stat_t st;
-            mo_design(&design, f, 300u + (uint32_t)s, 0, 0);
+            mo_design(&design, f, 300u + (uint32_t)s, 0, GEN_NOW);
             mo_measure(&design);
             st = play(&design, 60, 2.0, 0.0, 0, 0);
             t += st.ns_blk;
@@ -466,9 +466,9 @@ static void print_slot(uint32_t l)
     printf("slot %u%s: %s, %s (body %s, %s), lvl %d pan %d, dry %d%%:", l + 1, slot_on[l] ? "" : " (off)",
            SC_NAME[p->scene], MF_NAME[p->gen.family], MF_NAME[p->gen.body], PATH_NAME[p->gen.path], slot_lvl[l], slot_pan[l],
            p->dry * 100 / Q15);
-    for (i = 0; i < p->nch; i++)
-        printf(" %s", RM_NAME[p->chain[i]]);
-    if (!p->nch)
+    for (i = 0; i < p->nent; i++)
+        printf(" %s", RM_NAME[p->ent[i]]);
+    if (!p->nent)
         printf(" direct");
     if (p->xsrc < NSLOT)
         printf("; %s from slot %u, %d", XM_NAME[p->xkind], p->xsrc + 1, p->xdepth);
@@ -550,7 +550,7 @@ static int cmd_patches(int argc, char **argv)
             fw_run(4);
             print_slot((uint32_t)l);
         }
-        press(B_SEQ, 50);
+        press(B_SAVE, 50);
         fw_frames = 0;
         fw_peak = 0;
         fw_rms = 0;
@@ -599,8 +599,10 @@ static int cmd_modules(int argc, char **argv)
             slot_draw(0, rep == 0 ? MF_IMPACT : rep == 1 ? MF_DRONE : MF_GLASS, 4242u + rep);
             fw_run(4);
             p = &sbuf[0][s_use[0]];
-            p->nch = 1;
-            p->chain[0] = (uint8_t)m;
+            p->nent = 1;
+            p->ent[0] = (uint8_t)m;
+            rbuf[r_use].out |= (uint16_t)(1u << m);       /* (alone: straight out, wired to nothing after it) */
+            rbuf[r_use].to[m] = 0;
             p->send = Q15;
             p->dry = 0;
             fw_frames = 0;
@@ -618,7 +620,7 @@ static int cmd_modules(int argc, char **argv)
                 snprintf(name, sizeof name, "%s/module-%s.wav", dir, RM_NAME[m]);
                 wav_write2(name, wav2, fw_frames);
             }
-            p->nch = 0;                                 /* (the same, dry, for the comparison) */
+            p->nent = 0;                                /* (the same, dry, for the comparison) */
             p->dry = Q15;
             fw_frames = 0;
             fw_rms = 0;
@@ -693,6 +695,46 @@ static int cmd_flows(void)
             printf("FAIL flows: a note held after its key was lifted\n");
             fails++;
         }
+    /* latching: SHIFT and a key latch it; the key let go, it sounds on; SHIFT and it again let it go */
+    press(B_FX, 50);
+    key(KEY_SHIFT, 1);
+    key(9, 1);
+    key(9, 0);
+    key(KEY_SHIFT, 0);
+    fw_run(200);
+    {
+        int on = 0;
+        for (k = 0; k < NVOICE; k++)
+            on |= vox[k].sounding && vox[k].gate && vox[k].latched && vox[k].slot == 0;
+        if (!on || !(ui.latch[0] & (1u << 9))) {
+            printf("FAIL flows: SHIFT and a key did not latch its note\n");
+            fails++;
+        }
+    }
+    press(B_HOME, 50);                                   /* a new patch: the latched note goes on, on the new sound */
+    fw_run(200);
+    {
+        int on = 0;
+        for (k = 0; k < NVOICE; k++)
+            on |= vox[k].sounding && vox[k].gate && vox[k].latched && vox[k].slot == 0 && vox[k].dsg == s_use[0];
+        if (!on) {
+            printf("FAIL flows: a latched note did not move to the new patch\n");
+            fails++;
+        }
+    }
+    key(9, 1);                                           /* the key alone: nothing */
+    key(9, 0);
+    key(KEY_SHIFT, 1);                                   /* SHIFT and it again: let go */
+    key(9, 1);
+    key(9, 0);
+    key(KEY_SHIFT, 0);
+    fw_run(20);
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding && vox[k].gate && vox[k].slot == 0) {
+            printf("FAIL flows: a latched note was not let go\n");
+            fails++;
+        }
+    press(B_SEL, 50);
     press(B_SEL, 900);                                   /* slot 2 held again: off */
     if (slot_on[1]) {
         printf("FAIL flows: a long press did not turn slot 2 off\n");
@@ -713,7 +755,8 @@ static int cmd_flows(void)
     for (n = 0; n < NSLOT; n++) {
         press(SLOT_BTN[n], 50);
         for (k = 0; k < NKEY; k++)
-            key(k, 1);
+            if (k != KEY_SHIFT)                          /* (SHIFT would latch the keys after it) */
+                key(k, 1);
         fw_run(100);
         for (k = 0; k < NKEY; k++)
             key(k, 0);
@@ -721,6 +764,11 @@ static int cmd_flows(void)
     for (n = 0; n < 1378u * 40u && slots_sounding(); n += 64u)
         fw_run(64);
     if (slots_sounding()) {
+        for (k = 0; k < NVOICE; k++)
+            if (vox[k].sounding)
+                printf("  voice %u: slot %u note %u gate %u latched %u fade %u pend %u live %u frozen %u down %u fm_done %u genv %d\n", k, vox[k].slot,
+                       vox[k].note, vox[k].gate, vox[k].latched, vox[k].fade, vox[k].pend, vmem[k].live, vmem[k].frozen, vmem[k].n.down,
+                       vmem[k].fm_done, vmem[k].genv);
         printf("FAIL flows: a voice still sounds 40 s after every key was let go\n");
         fails++;
     }
@@ -728,7 +776,7 @@ static int cmd_flows(void)
         press(SLOT_BTN[n % NSLOT], 30);
         key(0, 1);
         fw_run(20);
-        press(n & 1u ? B_HOME : B_SEQ, 30);
+        press(n & 1u ? B_HOME : B_SAVE, 30);
         key(0, 0);
         fw_run(20);
     }
@@ -813,7 +861,7 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "check"))
         return cmd_check();
     if (!strcmp(argv[1], "golden"))
-        return cmd_golden();
+        return cmd_golden(argc > 2 ? (uint32_t)atoi(argv[2]) : 0u);
     if (!strcmp(argv[1], "bench"))
         return cmd_bench();
     fprintf(stderr, "host: unknown command\n");
