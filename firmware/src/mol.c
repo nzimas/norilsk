@@ -336,7 +336,10 @@ static FAST void mo_grains(mo_voice_t *v, const mo_gr_t *gr, const int32_t *y, i
             int32_t inc24 = fm6_freq(fm6_note_logfreq(v->note * 16, 0));   /* the note's step (Q24 cycles a sample) */
             uint32_t per;
             per = inc24 > 0 ? (uint32_t)((1u << 24) / (uint32_t)inc24) : 4096u;   /* samples a period */
-            interval = (uint32_t)(((uint64_t)per * 4u * Q16) / ((uint32_t)(gr->rate ? gr->rate : 4u) * (uint32_t)rate16));
+            {   /* per x 4 / (rate / 4 x rate16 / 2^16): in 32 bits (per < 2^22, the divisor < 2^15) */
+                uint32_t den = ((uint32_t)(gr->rate ? gr->rate : 4u) * (uint32_t)rate16) >> 8;
+                interval = (per * 1024u) / (den ? den : 1u);
+            }
             if (interval < 24u)
                 interval = 24u;
             back = ms_samples2(gr->back_ms);

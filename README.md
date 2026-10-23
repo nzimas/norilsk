@@ -3,9 +3,29 @@
 A firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: the engine stage.** There is no installable build yet. What exists is the sound engine, MOLECULE,
-with a host harness that renders, checks and benches it on the computer. The board layer, boot, USB, screen,
-sessions and the module system come next, from Tonitor.
+**State: the first working version (0.01).** An installable build: HOME draws a patch -- one generator (the
+MOLECULE engine) and a chain of processors, after Vascular's abstract path -- and the white keys play it in the
+scale chosen. The network is drawn on the screen. No sessions, no patterns, no internal clocks yet: those come
+next, one area at a time. `CHANGELOG.md` says what each version does.
+
+## Playing it
+
+| Control | What it does |
+|---|---|
+| **HOME** | a new patch: a sound, its place, a chain of processors (the screen shows the network) |
+| the white keys | play the patch in the scale chosen: the first key is the root, every white key the next note of the scale. Six voices |
+| **ARP** | the SCALE page: SELECT the scale (23), ALGORITHM the root |
+| **OCT- / OCT+** | the octave, -3 .. +3 |
+| **MASTER** | the level |
+| USB MIDI notes | as the keys |
+| **OCT-** held at power-on | the rescue mode (install again); **OCT- and OCT+** held 5 s: the chip's own updater |
+
+## Installing
+
+`./setup.sh` once (a Python environment, JieLi's toolchain, three files of the AC79 SDK; on macOS Docker Desktop
+must be running to build), then `./install.sh` (builds, then installs over USB), or `./install.sh FILE.fwsc`.
+`./install.sh --info` says what the connected FM-1 runs. Installing replaces the firmware the FM-1 runs; see the
+disclaimer.
 
 ## MOLECULE, the engine
 
@@ -29,13 +49,19 @@ measured as it is made and brought to one level. `docs/ENGINE.md` has the design
 
 | Path | What |
 |---|---|
-| `firmware/src/molecular.c` | the single compilation unit (the HAL comes later) |
+| `firmware/src/molecular.c` | the single compilation unit: the HAL, then the sources in order |
+| `firmware/hal/`, `crt0.S`, `app.ld`, `loader/` | the board layer, boot, memory map and update loader (Tonitor's, from Felucca and SLOOP) |
+| `firmware/src/main.c`, `usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c` | boot and ISRs, USB, the installer's handshake, the rescue mode, the screen |
+| `firmware/src/patch.c` | the patch: the draw (scene, budget, chain), the six voices, the mix |
+| `firmware/src/nodes.c`, `reverb.c` | the processors |
+| `firmware/src/ui.c` | the panel and the screen |
 | `firmware/src/dsp.h` | fixed-point helpers (Q15 samples, 2^32 phases; no float, no 64-bit division) |
 | `firmware/src/wt.c` | the band-limited single cycles, copied to RAM at start-up |
 | `firmware/src/fm6_core.c` | the FM core (msfa, Apache-2.0), with waves in its operators |
 | `firmware/src/mol.c` | the engine: the voice, the grains, the macros, the families, the measurement |
 | `tools/gen_tables.py` | the lookup tables (`build/gen/molecular_tables.h`) |
-| `tests/host/host.c` | the host harness: `render`, `one`, `check`, `golden`, `bench` |
+| `tests/host/host.c` | the host harness: the engine's `render`, `one`, `check`, `golden`, `bench`; the firmware's `patches`, `flows`, `screens` |
+| `docs/ENGINE.md`, `docs/PROCESSORS.md` | the engine's design; Vascular's processors judged for this chip |
 | `tests/run_tests.sh` | the tests; `tests/check_target_ir.sh` fails on anything the chip's runtime lacks |
 | `tests/golden/gen0.txt` | the sounds of generation 0, as hashes: they must never change |
 
@@ -45,8 +71,9 @@ measured as it is made and brought to one level. `docs/ENGINE.md` has the design
 tests/run_tests.sh
 ```
 
-Needs `clang` and `python3`. Renders land in `build/sounds` (a WAV a sound, with `stats-*.txt`). One sound,
-with its voice printed:
+Needs `clang` and `python3` with Pillow (the fonts). Renders land in `build/sounds` (a WAV a sound and a WAV a
+patch, with `stats-*.txt` and `patches.txt`), the screens in `build/screens` (PNG). One sound, with its voice
+printed:
 
 ```bash
 build/host one build/sounds FREEZE 2112

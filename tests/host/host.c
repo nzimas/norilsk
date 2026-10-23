@@ -21,10 +21,106 @@
 
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
+/* the firmware above the HAL: what main.c and the HAL give it, as the host has them */
+#define RING_PUBLISH() __asm__ volatile("" ::: "memory")
+static volatile uint32_t fm1_ms;
+static uint32_t host_ticks;
+static uint32_t fm1_ticks(void) { return host_ticks += 24000u; }
+static void fm1_wdt_feed(void) {}
+static unsigned str_len(const char *s) { return (unsigned)strlen(s); }
+static void str_cpy(char *d, const char *s, unsigned max)
+{
+    unsigned i = 0;
+    while (s[i] && i + 1 < max) {
+        d[i] = s[i];
+        i++;
+    }
+    d[i] = 0;
+}
+static void fmt_fix(char *b, int32_t v, int decimals)
+{
+    char t[12];
+    int n = 0, neg = v < 0, i;
+    uint32_t u = (uint32_t)(neg ? -v : v);
+    do {
+        t[n++] = (char)('0' + u % 10u);
+        u /= 10u;
+        if (n == decimals)
+            t[n++] = '.';
+    } while (u || n <= decimals);
+    if (neg)
+        t[n++] = '-';
+    for (i = 0; i < n; i++)
+        b[i] = t[n - 1 - i];
+    b[n] = 0;
+}
+static void fmt_int(char *b, int32_t v) { fmt_fix(b, v, 0); }
+/* the screen: a framebuffer instead of the panel */
+static uint16_t fb[240 * 240];
+static void lcd_sync(void) {}
+static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px)
+{
+    uint32_t i, j;
+    for (j = 0; j < h; j++)
+        for (i = 0; i < w; i++)
+            if (x + i < 240u && y + j < 240u) {
+                uint16_t c = px[j * w + i];
+                fb[(y + j) * 240u + x + i] = (uint16_t)((c >> 8) | (c << 8));
+            }
+}
+static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
+{
+    uint32_t i, j;
+    for (j = 0; j < h; j++)
+        for (i = 0; i < w; i++)
+            if (x + i < 240u && y + j < 240u)
+                fb[(y + j) * 240u + x + i] = c;
+}
+static void screen_save(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    uint32_t i;
+    if (!f)
+        return;
+    fprintf(f, "P6 240 240 255\n");
+    for (i = 0; i < 240u * 240u; i++) {
+        uint16_t c = fb[i];
+        uint8_t rgb[3] = {(uint8_t)(((c >> 11) & 31) * 255 / 31), (uint8_t)(((c >> 5) & 63) * 255 / 63), (uint8_t)((c & 31) * 255 / 31)};
+        fwrite(rgb, 1, 3, f);
+    }
+    fclose(f);
+}
+/* the panel, as the tests press it */
+static struct { uint32_t notes, buttons, pressed; int32_t enc[7]; } fm1_in;
+static uint32_t fm1_input_edges(uint32_t *rel)
+{
+    uint32_t p = fm1_in.pressed;
+    fm1_in.pressed = 0;
+    if (rel)
+        *rel = 0;
+    return p;
+}
+static uint32_t fm1_input_note_edges(void) { return 0; }
+static int32_t fm1_enc_take(uint32_t e)
+{
+    int32_t s = fm1_in.enc[e];
+    fm1_in.enc[e] = 0;
+    return s;
+}
+static void fm1_led_key(uint32_t id, int on) { (void)id; (void)on; }
+/* usb.c's MIDI in ring, as the tests fill it */
+#define MQ 64u
+static uint32_t midi_in_q[MQ];
+static volatile uint32_t mi_w, mi_r;
+
 #include "dsp.h"
+#include "gfx.c"
 #include "wt.c"
 #include "fm6_core.c"
 #include "mol.c"
+#include "nodes.c"
+#include "patch.c"
+#include "ui.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
 
@@ -319,11 +415,236 @@ static int cmd_bench(void)
     return 0;
 }
 
+/* ---------------------------------------------------------- the firmware's --- */
+/* a stereo WAV */
+static void wav_write2(const char *path, const int16_t *x, uint32_t frames)
+{
+    FILE *f = fopen(path, "wb");
+    uint32_t v;
+    uint16_t w;
+    if (!f)
+        return;
+    fwrite("RIFF", 1, 4, f);
+    v = 36 + frames * 4;
+    fwrite(&v, 4, 1, f);
+    fwrite("WAVEfmt ", 1, 8, f);
+    v = 16;
+    fwrite(&v, 4, 1, f);
+    w = 1;
+    fwrite(&w, 2, 1, f);
+    w = 2;
+    fwrite(&w, 2, 1, f);
+    v = FS;
+    fwrite(&v, 4, 1, f);
+    v = FS * 4;
+    fwrite(&v, 4, 1, f);
+    w = 4;
+    fwrite(&w, 2, 1, f);
+    w = 16;
+    fwrite(&w, 2, 1, f);
+    fwrite("data", 1, 4, f);
+    v = frames * 4;
+    fwrite(&v, 4, 1, f);
+    fwrite(x, 4, frames, f);
+    fclose(f);
+}
+static int16_t wav2[FS * 12 * 2];
+static void fw_init(void)
+{
+    patch_init();
+    ui_init();
+    master_q12 = 4096;
+}
+static void print_patch(const patch_t *p)
+{
+    uint32_t i;
+    printf("patch %u: scene %s, %s (body %s, path %s), at x %u y %u; chain:", p->serial, SC_NAME[p->scene],
+           MF_NAME[p->gen.family], MF_NAME[p->gen.body], PATH_NAME[p->gen.path], p->gx, p->gy);
+    for (i = 0; i < p->nnd; i++)
+        printf(" %s(%u %u %u %u)", PK_NAME[p->nd[i].kind], p->nd[i].p[0], p->nd[i].p[1], p->nd[i].p[2], p->nd[i].p[3]);
+    printf("%s\n", p->nnd ? "" : " direct");
+}
+/* the keys: a few notes, held, let go; blocks run between; the output into wav2 */
+static uint32_t fw_frames;
+static int32_t fw_peak;
+static double fw_rms;
+static void fw_run(uint32_t blocks)
+{
+    int32_t out[2 * CTL];
+    uint32_t b, i;
+    for (b = 0; b < blocks; b++) {
+        mix_block(out);
+        for (i = 0; i < 2u * CTL; i++) {
+            int32_t a = out[i] < 0 ? -out[i] : out[i];
+            if (a > fw_peak)
+                fw_peak = a;
+            fw_rms += (double)out[i] * out[i];
+            if (fw_frames * 2u + i < sizeof wav2 / sizeof wav2[0])
+                wav2[fw_frames * 2u + i] = (int16_t)clampi(out[i], -32767, 32767);
+        }
+        fw_frames += CTL;
+        fm1_ms += (b & 1u) ? 1u : 0u;                   /* (~0.73 ms a block) */
+    }
+}
+static void key(uint32_t k, int down)
+{
+    if (down)
+        fm1_in.notes |= 1u << k;
+    else
+        fm1_in.notes &= ~(1u << k);
+    ui_input();
+}
+static int cmd_patches(int argc, char **argv)
+{
+    const char *dir = argc > 2 ? argv[2] : ".";
+    int n = argc > 3 ? atoi(argv[3]) : 8, i, fails = 0;
+    char name[512];
+    fw_init();
+    for (i = 0; i < n; i++) {
+        uint32_t seed = 777u + (uint32_t)i * 7919u;
+        double t0, ns;
+        if (!patch_new(seed)) {
+            printf("FAIL patch %d: the slot was not free\n", i);
+            fails++;
+        }
+        fw_run(2);                                      /* (the ISR takes it) */
+        print_patch(&pbuf[p_use]);
+        fw_frames = 0;
+        fw_peak = 0;
+        fw_rms = 0;
+        t0 = now_ns();
+        key(0, 1);
+        fw_run(1378);
+        key(4, 1);
+        key(7, 1);
+        fw_run(1378 * 2);
+        key(0, 0);
+        key(4, 0);
+        key(7, 0);
+        fw_run(1378 * 3);
+        ns = (now_ns() - t0) / (1378.0 * 6);
+        snprintf(name, sizeof name, "%s/patch-%u.wav", dir, seed);
+        wav_write2(name, wav2, fw_frames);
+        printf("  peak %.2f rms %.3f, %.0f ns a block\n", fw_peak / 32768.0, __builtin_sqrt(fw_rms / (fw_frames * 2.0)) / 32768.0, ns);
+        if (fw_rms / (fw_frames * 2.0) < 100.0 * 100.0) {
+            printf("FAIL patch %u: silent\n", seed);
+            fails++;
+        }
+        if (fw_peak > 32767) {
+            printf("FAIL patch %u: past full scale (%d)\n", seed, fw_peak);
+            fails++;
+        }
+    }
+    printf("patches: %d, %d failures\n", n, fails);
+    return fails ? 1 : 0;
+}
+/* the flows: notes through a patch change, HOME under held notes, no voice left sounding */
+static int cmd_flows(void)
+{
+    int fails = 0;
+    uint32_t k, n;
+    fw_init();
+    patch_new(1234);
+    fw_run(2);
+    key(0, 1);
+    key(2, 1);
+    fw_run(400);
+    fm1_in.pressed |= 1u << PANEL_BTN[B_HOME];          /* HOME under held notes */
+    ui_input();
+    fw_run(400);
+    if (p_use != p_pub) {
+        printf("FAIL flows: the new patch was not taken\n");
+        fails++;
+    }
+    key(4, 1);                                           /* a note on the new patch */
+    fw_run(400);
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding && vox[k].gate && vox[k].dsg != p_use) {
+            printf("FAIL flows: a held voice on the old patch\n");
+            fails++;
+        }
+    key(0, 0);
+    key(2, 0);
+    key(4, 0);
+    /* every key at once, twice over: the pool steals, nothing sticks */
+    for (k = 0; k < NKEY; k++)
+        key(k, 1);
+    fw_run(200);
+    for (k = 0; k < NKEY; k++)
+        key(k, 0);
+    for (n = 0; n < 1378u * 32u && patch_sounding(); n += 64u)
+        fw_run(64);
+    if (patch_sounding()) {
+        printf("FAIL flows: a voice still sounds 32 s after every key was let go\n");
+        fails++;
+    }
+    /* HOME forty times, fast: each taken, the slot always freed */
+    for (n = 0; n < 40u; n++) {
+        key(0, 1);
+        fw_run(20);
+        fm1_in.pressed |= 1u << PANEL_BTN[B_HOME];
+        ui_input();
+        fw_run(40);
+        key(0, 0);
+        fw_run(20);
+    }
+    fw_run(2000);
+    if (p_use != p_pub) {
+        printf("FAIL flows: a patch left untaken\n");
+        fails++;
+    }
+    printf("flows: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+/* the screens: the patch view for a few patches, the scale page, a message */
+static int cmd_screens(int argc, char **argv)
+{
+    const char *dir = argc > 2 ? argv[2] : ".";
+    char name[512];
+    int i;
+    fw_init();
+    for (i = 0; i < 6; i++) {
+        patch_new(31u + (uint32_t)i * 101u);
+        fw_run(2);
+        ui.force = 1;
+        ui_draw();
+        snprintf(name, sizeof name, "%s/screen-patch-%d.ppm", dir, i);
+        screen_save(name);
+        print_patch(&pbuf[p_use]);
+    }
+    ui.oct = 2;
+    say("NEW PATCH", 1000);
+    ui.force = 1;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-message.ppm", dir);
+    screen_save(name);
+    ui.msg_until = 0;
+    ui.sc_page = 1;
+    ui.scale = 15;
+    ui.root = 6;
+    ui.force = 1;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-scale.ppm", dir);
+    screen_save(name);
+    ui.sc_touched = 1;
+    ui.sc_touch_until = fm1_ms + 1000;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-scale-touched.ppm", dir);
+    screen_save(name);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     wt_init();
+    if (argc >= 2 && !strcmp(argv[1], "patches"))
+        return cmd_patches(argc, argv);
+    if (argc >= 2 && !strcmp(argv[1], "flows"))
+        return cmd_flows();
+    if (argc >= 2 && !strcmp(argv[1], "screens"))
+        return cmd_screens(argc, argv);
     if (argc < 2) {
-        fprintf(stderr, "host render DIR [SEEDS] [PATH] | one DIR FAMILY SEED [PATH] | check | golden | bench\n");
+        fprintf(stderr, "host render DIR [SEEDS] [PATH] | one DIR FAMILY SEED [PATH] | check | golden | bench | patches DIR [N] | flows | screens DIR\n");
         return 2;
     }
     if (!strcmp(argv[1], "render"))

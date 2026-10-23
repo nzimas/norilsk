@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/check
 clang --target=i686-unknown-linux-gnu -O2 -std=gnu99 -ffreestanding -fno-builtin -Wall -Wno-unused-function \
-    -Werror -Ifirmware/src -Ibuild/gen -S -emit-llvm firmware/src/molecular.c -o build/check/molecular.ll
+    -Werror -Ifirmware/hal -Ifirmware/src -Ibuild/gen -S -emit-llvm firmware/src/molecular.c -o build/check/molecular.ll
 bad=$(grep -nE "\b(udiv|sdiv|urem|srem) i64|\bf(add|sub|mul|div|cmp|neg)\b|fptosi|fptoui|sitofp|uitofp|fpext|fptrunc|\bdouble\b|\bfloat\b|(shl|lshr|ashr) i64 %[a-z0-9._]+, %" build/check/molecular.ll || true)
 if [ -n "$bad" ]; then
     echo "check_target_ir: the engine needs a runtime the FM-1 does not have:"

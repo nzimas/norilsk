@@ -26,6 +26,7 @@
 
 #define Q15 32768
 #define Q16 65536
+#define LV(x) ((int32_t)((x) * 32768.0 + 0.5))   /* a level as a Q15 constant (folded at compile time: no float at run time) */
 
 /* a layer's generative path: what HOME's draws lean towards, on every engine (the open path: no leaning) */
 enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
