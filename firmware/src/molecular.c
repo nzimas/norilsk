@@ -11,7 +11,7 @@
 #define MOLECULAR_ID "FM-1_700"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef MOLECULAR_VERSION
-#define MOLECULAR_VERSION "0.01"
+#define MOLECULAR_VERSION "0.02"
 #endif
 #define FELUCCA_ID MOLECULAR_ID
 #define FELUCCA_OTA 1            /* the update entry (the installer), and the rescue mode */
@@ -50,8 +50,8 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "wt.c"
 #include "fm6_core.c"
 #include "mol.c"
-#include "nodes.c"
 #include "usb.c"
-#include "patch.c"
+#include "rack.c"
+#include "slots.c"
 #include "ui.c"
 #include "main.c"

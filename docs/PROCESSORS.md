@@ -3,7 +3,8 @@
 A survey of Vascular's 71 processors (`vascular-ios`, `Core/Sources/VascularCore/Generated/ProcessorKind.swift`,
 `Resources/vascular.csd`, `Sources/CVascularOpcodes`), judged for this chip: no FPU, int32 Q15 at 44.1 kHz in
 32-sample blocks, about 160 MHz, mono nodes, roughly 130 KiB of pool for effect lines once the voices and the
-waves have theirs. The nodes Molecular has now are marked **[node]**.
+waves have theirs. The twelve in Molecular's rack (0.02): FILTER, FOLD, MULAW, SHIFT (sideband), MODAL, STRING,
+VOWEL, FLANGE, TAPE, REVERSE, SPRING, PLATE. The **[node]** marks below are 0.01's chain processors.
 
 Two of Vascular's own rules carry over whole: every processor exits through a guard (an RMS gain rider with a
 ceiling, a NaN kill, a clip), which is what keeps feedback paths from pinning the bus; and a loop gain is clamped

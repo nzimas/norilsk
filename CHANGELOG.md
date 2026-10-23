@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.02 (2026-10-23): six slots and a rack
+
+The owner's design after trying 0.01.
+
+- **Six slots**, a MOLECULE generator each, on the top row's six buttons: pressed, the slot chosen; held 0.8 s, the
+  slot on, or off again. Only slot 1 is on at the start. The keys play the slot chosen; a key lifted ends its note
+  on the slot it was played on. Six voices shared by the slots.
+- **A rack of twelve modules**, always there, in the signal's order: FILTER, FOLD, MULAW, SHIFT (a frequency
+  shifter), MODAL, STRING, VOWEL, FLANGE, TAPE, REVERSE, SPRING, PLATE (`rack.c`, after `docs/PROCESSORS.md`).
+  Where a module sits is where it sounds: the left column at the left, the right at the right. Each passes a guard
+  (a level rider and a ceiling). MODAL and STRING are tuned to the scale's root.
+- **A patch is a slot's**: HOME draws the chosen slot's sound, its chain through one to three modules (in rack
+  order: each feeds the next, the last goes out), its dry share, its level and pan, and now and then a modulation by
+  another slot that is on (ring, amplitude, or a filter its level opens). SHIFT + HOME: a new one of the same
+  family. HOME held 0.8 s: every slot that is on, anew. The draw follows Vascular's abstract path as 0.01's did.
+  Modules fed by several slots hear their sum; a module's output goes to the next module of every chain through
+  it, as a mult would. A module no slot feeds any more rings out where it went.
+- **SEQ** draws new values for the twelve modules (each at its home one time in five, else moved), keeping the
+  wiring.
+- **SELECT and ALGORITHM**: the chosen slot's level and pan (said on the screen).
+- **The screen**: the load at the top left (red from 85 %), the battery at the top right, large; the six slots, a
+  block each in its own colour (filled when on, an outline when off, white frame when chosen, brighter as it sounds,
+  a corner square in the colour of the slot that modulates it); the rack as twelve named tiles, three across, lit as
+  sound passes, a bar along each tile's foot in the colour of every slot wired into it, the chosen slot's chain
+  framed in its colour. No cables. No family names.
+- Tests: `host modules` (every module alone, its level against the dry), the flows of the slots' buttons.
+
 ## 0.01 (2026-10-23): the first working version
 
 The first installable build: a patch played from the keys.

@@ -15,7 +15,9 @@ clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-
     -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
 build/host check
 build/host flows
+build/host modules build/sounds > build/sounds/modules.txt
 build/host patches build/sounds 12 > build/sounds/patches.txt
+rm -f build/screens/*.png
 build/host screens build/screens > build/screens/patches.txt
 $PY tools/ppm2png.py build/screens/*.ppm
 build/host golden > build/golden.txt

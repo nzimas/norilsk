@@ -42,7 +42,7 @@ void fm1_alnk0_irq(void)         /* via isr_alnk0 (hal/fm1_isr.S) */
             uint32_t pc = all / FM1_TICKS_PER_US * 100u / (HALF_FRAMES * 1000000u / FS);
             dbg.over = (uint8_t)(dbg.over << 1 | (pc > 90u));
             if (pc >= 100u)
-                shed_req = 2;                    /* late: something goes, a held note if it must (patch.c) */
+                shed_req = 2;                    /* late: something goes, a held note if it must (slots.c) */
             else if ((dbg.over & 3u) == 3u && !shed_req)
                 shed_req = 1;                    /* two near the edge in a row: a tail goes */
             load_pct = (uint8_t)(pc > 255u ? 255u : pc);
@@ -250,9 +250,10 @@ static void fm1_main(void)
     splash();
     fm1_input_init();
     fm1_adc_init();
-    patch_init();
+    slots_init();
     ui_init();
-    patch_new(ui.seed);                              /* the first patch (~0.3 s: its sound measured) */
+    slot_draw(0, -1, ui.seed);                       /* slot 1's first patch (~0.3 s: its sound measured), on */
+    slot_on[0] = 1;
     fm1_guard_enable(FM1_GUARD_PC);
     audio_init();
     usb_start();
@@ -296,7 +297,7 @@ static void fm1_main(void)
         ota_service();                               /* the installer's handshake */
         if (usb.ota_req) {
             usb.ota_req = 0;
-            ev_post(EV_STOP, 0);
+            ev_post(EV_STOP, 0, 0);
             if (flash_ok)
                 ota_session();                       /* returns only if nothing was committed */
             lcd_fill(0, 0, 240, 240, C_BLACK);
