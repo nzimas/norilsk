@@ -2,6 +2,28 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 6 (2026-10-24): the looper; nothing lingers
+
+- **Nothing sounds on once no note is held or latched** (the owner's rule). A voice let go sounds as it will for
+  1 s, then fades 60 dB in 2 s and ends (it could ring up to 30 s). The effect slots close, over 0.5 s, 2 s after
+  the last voice has ended and while no loop goes round; a note opens them at once. Measured through the mixer on 24
+  patches: silence (under -60 dB FS) at most 5.5 s after the last key. A new test, `host tails`.
+- **Effects that rang on by themselves, fixed**: MODAL, VOWEL, SPRING (the resonator now carries the fraction each
+  result drops into the next: a truncated high-Q resonator rang on as a tone or a DC level -- MODAL up to -10 dB FS
+  of DC); STRING and SHIFT (their loops round towards zero, so they die out). Every effect slot's output goes
+  through a DC blocker (~8 Hz). A new test, `host fxtails`: every effect, 24 draws each, silent 10 s after its
+  input.
+- **The looper, Tonitor's** (`loop.c`), one a generator, on the generator the keys play: up to ten free loops each
+  (no tempo, no grid; each overdub its own length), about 500 notes a generator. REC arms, the first note starts,
+  REC ends (a note still held is tied over the end: a drone stays one note), REC again overdubs; REC held 1 s
+  empties; SHIFT + REC: VARY. PLAY stops or starts; PLAY held: the loops on the white keys (and the screen), each
+  in or out; SHIFT + PLAY: every generator's loops. The 4th to 8th black keys: REVERSE, PENDULUM, RANDOM, HALF and
+  DOUBLE speed. SHIFT + OCT: every loop a step of the scale (a generator's button held too: its loops only; held with
+  SHIFT, a button no longer mutes). The keys' and the loops' notes never end each other's. A test, `host looper`.
+- **The screen**: in a generator's block, at the left, a white disc while its looper records, a ring blinking while
+  armed, a ring while its loops play. PLAY held: the LOOPS page (Tonitor's), a numbered box a loop, in its
+  generator's colour when in, a grey frame when out. REC and PLAY light as on Tonitor.
+
 ## Build 5 (2026-10-24): textures and drones only
 
 The owner's direction: Molecular is for evolving soundscapes. Nothing struck, plucked or pulsed; nothing that needs a

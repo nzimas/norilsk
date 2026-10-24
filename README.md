@@ -3,7 +3,7 @@
 A firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: build 5.** Textures and drones only: every sound swells in, holds and keeps moving. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
+**State: build 6.** Textures and drones only: every sound swells in, holds and keeps moving, and nothing sounds on once no note is held, latched or looped. Each generator has Tonitor's looper. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
 share a pedalboard. HOME on a generator draws its sound and its cables into the effects; HOME on an effect slot draws
 its chain of two or three effects from a recipe, their values and its cables across to the other effect slots. The
 white keys play the generator chosen last, in the scale chosen. The second core runs the effects. No sessions, no
@@ -22,6 +22,14 @@ patterns, no internal clocks yet. `CHANGELOG.md` says what each build does.
 | a white key held, then **SHIFT** | its note latched (the key stays lit); **SHIFT** held, then the lit key: let go |
 | **SELECT / ALGORITHM** | the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right |
 | **ARP** | the SCALE page: SELECT the scale (23), ALGORITHM the root |
+| **REC** | the looper of the generator the keys play: arm a loop (the first note starts it), end it (it plays at once), again to overdub; up to 10 loops |
+| **REC** held 1 s | empty that generator's loops |
+| **SHIFT + REC** | VARY: each loop note drawn anew (level, length, now and then changed or joined) |
+| **PLAY** | stop that generator's loops, or start them again from their starts |
+| **PLAY** held | its loops on the white keys: press one to take it out or bring it in |
+| **SHIFT + PLAY** | every generator's loops stopped, or all started together |
+| 4th to 8th black keys | its loops REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED (again: as recorded) |
+| **SHIFT + OCT- / OCT+** | every loop a step of the scale down / up (a generator's button held too: its loops only) |
 | **OCT- / OCT+** | the octave, -3 .. +3 |
 | **MASTER** | the level |
 | USB MIDI notes | as the keys, on the generator chosen last |

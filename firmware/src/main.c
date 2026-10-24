@@ -302,7 +302,7 @@ static void fm1_main(void)
         ota_service();                               /* the installer's handshake */
         if (usb.ota_req) {
             usb.ota_req = 0;
-            ev_post(EV_STOP, 0, 0);
+            ev_post(EV_STOP, 0, 0, 0);
             if (flash_ok)
                 ota_session();                       /* returns only if nothing was committed */
             lcd_fill(0, 0, 240, 240, C_BLACK);

@@ -143,6 +143,7 @@ static int audio_worker_join(void)
 static void audio_worker_check(void) {}
 #include "rack.c"
 #include "gens.c"
+#include "loop.c"
 #include "ui.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
@@ -924,6 +925,150 @@ static int cmd_modules(int argc, char **argv)
     return fails ? 1 : 0;
 }
 /* the flows: choosing, muting, HOME on both kinds of slot, latching, every key at once, no voice left sounding */
+/* the loopers (Tonitor's), through the panel as a hand would: a loop recorded, an overdub, a note tied over the end,
+ * PLAY, PLAY held and a loop taken out, the direction and speed keys, SHIFT + OCT, a generator's own move, VARY,
+ * SHIFT + PLAY, REC held -- and nothing sounding on once the loops stop */
+static uint32_t loop_voices(uint32_t slot)
+{
+    uint32_t k, n = 0;
+    for (k = 0; k < NVOICE; k++)
+        n += vox[k].sounding && vox[k].gate && vox[k].src == SRC_LOOP && vox[k].slot == slot;
+    return n;
+}
+static void hold_btn(uint32_t label, int down)
+{
+    if (down) {
+        fm1_in.pressed |= 1u << PANEL_BTN[label];
+        fm1_in.buttons |= 1u << PANEL_BTN[label];
+    } else
+        fm1_in.buttons &= ~(1u << PANEL_BTN[label]);
+    ui_input();
+}
+static int cmd_looper(void)
+{
+    int fails = 0;
+    uint32_t b, seen, gaps, len, tn;
+#define LFAIL(...) do { printf("FAIL looper: " __VA_ARGS__); printf("\n"); fails++; } while (0)
+    fw_init();
+    press(B_FX, 50);
+    press(B_REC, 50);
+    if (loop[0].rec != LR_ARMED)
+        LFAIL("REC did not arm");
+    fw_run(300);                                         /* (armed: nothing until the first note) */
+    key(0, 1);
+    fw_run(300);
+    if (loop[0].rec != LR_REC)
+        LFAIL("the first note did not start the recording");
+    key(0, 0);
+    fw_run(300);
+    key(2, 1);
+    fw_run(300);
+    key(2, 0);
+    fw_run(400);
+    press(B_REC, 50);
+    if (loop[0].ntrk != 1 || !loop[0].play)
+        LFAIL("REC again did not end the loop (%u loops, play %u)", loop[0].ntrk, loop[0].play);
+    len = loop[0].trk[0].len;
+    for (b = 0, seen = 0; b < 2u * len + 50u; b++) {
+        fw_run(1);
+        seen |= loop_voices(0) != 0;
+    }
+    if (!seen)
+        LFAIL("the loop played no note");
+    press(B_REC, 50);                                    /* an overdub, a note held over its end: tied */
+    key(4, 1);
+    tn = ui.key_note[4];
+    fw_run(500);
+    press(B_REC, 50);
+    if (loop[0].ntrk != 2)
+        LFAIL("the overdub was not kept (%u loops)", loop[0].ntrk);
+    key(4, 0);
+    for (b = 0, gaps = 0; b < 2u * loop[0].trk[1].len; b++) {   /* the tied note never lets go as it goes round */
+        uint32_t k, on = 0;
+        fw_run(1);
+        for (k = 0; k < NVOICE; k++)
+            on |= vox[k].sounding && vox[k].gate && vox[k].src == SRC_LOOP && vox[k].note == tn;
+        gaps += !on;
+    }
+    if (gaps > 2u)
+        LFAIL("the tied note was let go %u blocks as the loop went round", gaps);
+    press(B_PLAY, 50);                                   /* PLAY: stopped */
+    fw_run(10);
+    if (loop[0].play || loop_voices(0))
+        LFAIL("PLAY did not stop the loops");
+    press(B_PLAY, 50);                                   /* .. and again */
+    fw_run(10);
+    if (!loop[0].play)
+        LFAIL("PLAY did not start the loops again");
+    hold_btn(B_PLAY, 1);                                 /* PLAY held: loop 1 out with the first white key */
+    fw_run(700);
+    ui_input();
+    if (!ui.ovd)
+        LFAIL("PLAY held did not bring the loops onto the keys");
+    key(0, 1);
+    fw_run(20);
+    key(0, 0);
+    hold_btn(B_PLAY, 0);
+    fw_run(10);
+    if (!(loop[0].mute & 1u) || ui.ovd || !loop[0].play)
+        LFAIL("PLAY held and the first key did not take loop 1 out (mute %x)", loop[0].mute);
+    key(KEY_REV, 1);
+    fw_run(5);
+    key(KEY_REV, 0);
+    fw_run(5);
+    if (loop[0].dmode != LD_REV)
+        LFAIL("the 4th black key did not turn the loops round");
+    key(KEY_HALF, 1);
+    fw_run(5);
+    key(KEY_HALF, 0);
+    fw_run(400);
+    if (loop[0].rate != LS_HALF)
+        LFAIL("the 7th black key did not halve the speed");
+    key(KEY_SHIFT, 1);                                   /* SHIFT + OCT+: every loop a step up */
+    press(B_OCTUP, 50);
+    if (ui.lx != 1 || lx_steps != 1)
+        LFAIL("SHIFT + OCT+ did not move the loops (%d, %d)", ui.lx, lx_steps);
+    hold_btn(B_SEL, 1);                                  /* SHIFT + generator 2 held + OCT-: its own, and not muted */
+    press(B_OCTDN, 50);
+    fw_run(1200);
+    hold_btn(B_SEL, 0);
+    if (ui.lxt[1] != -1 || gen_mute[1])
+        LFAIL("SHIFT + generator 2 + OCT- (own move %d, muted %u)", ui.lxt[1], gen_mute[1]);
+    press(B_FX, 50);
+    press(B_REC, 50);                                    /* SHIFT + REC: VARY */
+    key(KEY_SHIFT, 0);
+    if (!loop[0].vary)
+        LFAIL("SHIFT + REC did not turn VARY on");
+    fw_run(1378 * 4);
+    key(KEY_SHIFT, 1);                                   /* SHIFT + PLAY: every loop stopped */
+    press(B_PLAY, 50);
+    key(KEY_SHIFT, 0);
+    if (loop[0].play)
+        LFAIL("SHIFT + PLAY did not stop every loop");
+    {   /* nothing on, once they stop */
+        uint32_t last = 0;
+        for (b = 0; b < 1378u * 10u; b++) {
+            int32_t pk = fw_peak;
+            fw_peak = 0;
+            fw_run(1);
+            if (fw_peak > 33)
+                last = b;
+            fw_peak = pk;
+        }
+        if (last > 1378u * 6u)
+            LFAIL("sound goes on %.1f s after the loops stopped", last / 1378.0);
+    }
+    hold_btn(B_REC, 1);                                  /* REC held 1 s: emptied */
+    fw_run(1500);
+    ui_input();
+    hold_btn(B_REC, 0);
+    fw_run(10);
+    if (loop[0].ntrk)
+        LFAIL("REC held did not empty the looper (%u loops)", loop[0].ntrk);
+    printf("looper: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -1125,6 +1270,40 @@ static int cmd_screens(int argc, char **argv)
     ui.scale = 15;
     ui.root = 6;
     SHOT("scale");
+    /* the looper: recording on generator 1, armed on generator 2, loops playing; PLAY held */
+    fm1_in.notes = 0;                                    /* (the keys above let go) */
+    fm1_in.buttons = 0;
+    fw_init();
+    press(B_FX, 50);
+    press(B_REC, 50);
+    key(0, 1);
+    fw_run(400);
+    key(0, 0);
+    fw_run(400);
+    press(B_REC, 50);
+    press(B_REC, 50);
+    key(2, 1);
+    fw_run(300);
+    SHOT("looper-rec");
+    key(2, 0);
+    press(B_REC, 50);
+    press(B_SEL, 50);
+    press(B_REC, 50);
+    ui.msg_until = 0;
+    SHOT("looper-armed");
+    press(B_REC, 50);
+    press(B_FX, 50);
+    fm1_in.pressed |= 1u << PANEL_BTN[B_PLAY];
+    fm1_in.buttons |= 1u << PANEL_BTN[B_PLAY];
+    ui_input();
+    fw_run(700);
+    ui_input();
+    key(0, 1);
+    fw_run(10);
+    key(0, 0);
+    SHOT("loops");
+    fm1_in.buttons &= ~(1u << PANEL_BTN[B_PLAY]);
+    ui_input();
 #undef SHOT
     return 0;
 }
@@ -1157,6 +1336,8 @@ int main(int argc, char **argv)
         return cmd_check();
     if (!strcmp(argv[1], "fxtails"))
         return cmd_fxtails();
+    if (!strcmp(argv[1], "looper"))
+        return cmd_looper();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

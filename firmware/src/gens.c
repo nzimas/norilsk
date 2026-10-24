@@ -52,10 +52,12 @@ static uint8_t gen_drawn[NGEN];
 static volatile int8_t gen_lvl[NGEN], gen_pan[NGEN];   /* the level (0 .. LEVEL_MAX) and pan (-PAN_MAX .. PAN_MAX) */
 static volatile int32_t gen_meter[NGEN];      /* each generator's sound, its last peaks (the screen's) */
 
+enum { SRC_KEY, SRC_LOOP };      /* who plays a note: the keys (and MIDI), or the looper (loop.c) */
 typedef struct {
     uint8_t note, gate, sounding, slot, latched;
+    uint8_t src, vel;            /* SRC_*; its level, 1 .. 127 (127 full: the keys; less: the looper's VARY) */
     uint8_t fade;                /* blocks of a fade left (a steal, a patch change), 0 = none */
-    uint8_t pend, pend_note, pend_slot, pend_latched;   /* the fade ends in a note-on */
+    uint8_t pend, pend_note, pend_slot, pend_latched, pend_src, pend_vel;   /* the fade ends in a note-on */
     uint8_t dsg;                 /* the buffer of its slot it plays */
     uint32_t age, pk, rel_at;
     int32_t lvl;
@@ -83,24 +85,27 @@ static int32_t gbus[NGEN][CTL], graw[NGEN][CTL];
 #define REL_FADE 2756u           /* .. 60 dB in 2 s, and ends: nothing lingers once no key is held or latched */
 
 /* ------------------------------------------------------------ the events --- */
-enum { EV_ON, EV_OFF, EV_LATCH, EV_STOP };
-typedef struct { uint8_t type, slot, note; } ev_t;
+enum { EV_ON, EV_OFF, EV_LATCH, EV_STOP,
+       EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE };   /* (loop.c's) */
+typedef struct { uint8_t type, slot, note, val; } ev_t;
 #define EVQ 64u
 static ev_t evq[EVQ];
 static volatile uint32_t ev_w, ev_r;
-static void ev_post(uint32_t type, uint32_t slot, uint32_t note)
+static void ev_post(uint32_t type, uint32_t slot, uint32_t note, uint32_t val)
 {
     if (ev_w - ev_r >= EVQ)
         return;
     evq[ev_w % EVQ].type = (uint8_t)type;
     evq[ev_w % EVQ].slot = (uint8_t)slot;
     evq[ev_w % EVQ].note = (uint8_t)note;
+    evq[ev_w % EVQ].val = (uint8_t)val;
     RING_PUBLISH();
     ev_w++;
 }
 
 /* ------------------------------------------------------------ the voices --- */
-static void voice_start(uint32_t k, uint32_t slot, uint32_t note, uint32_t latched)
+static uint8_t note_vel = 127;   /* the level of the note about to start (the looper's VARY sets it) */
+static void voice_start(uint32_t k, uint32_t slot, uint32_t note, uint32_t latched, uint32_t src, uint32_t vel)
 {
     voice_t *v = &vox[k];
     mo_note_on(&vmem[k], &gbuf[slot][g_use[slot]].gen, (int32_t)note, 1);
@@ -108,6 +113,8 @@ static void voice_start(uint32_t k, uint32_t slot, uint32_t note, uint32_t latch
     v->slot = (uint8_t)slot;
     v->gate = 1;
     v->latched = (uint8_t)latched;
+    v->src = (uint8_t)src;
+    v->vel = (uint8_t)vel;
     v->sounding = 1;
     v->fade = 0;
     v->pend = 0;
@@ -138,17 +145,20 @@ static uint32_t voice_pick(void)
             best = k;
     return best == NVOICE ? 0 : best;
 }
-static void note_on(uint32_t slot, uint32_t note)
+/* a note on slot slot, from the keys or the looper: theirs are told apart, so neither ends the other's */
+static void note_on(uint32_t slot, uint32_t note, uint32_t src)
 {
     uint32_t k;
     for (k = 0; k < NVOICE; k++)                          /* the same note again on the slot: its voice retriggers */
-        if (vox[k].sounding && vox[k].gate && vox[k].slot == slot && vox[k].note == note && !vox[k].fade) {
+        if (vox[k].sounding && vox[k].gate && vox[k].slot == slot && vox[k].note == note && vox[k].src == src &&
+            !vox[k].fade) {
             mo_note_on(&vmem[k], &gbuf[slot][vox[k].dsg].gen, (int32_t)note, 0);
+            vox[k].vel = note_vel;
             return;
         }
     k = voice_pick();
     if (!vox[k].sounding) {
-        voice_start(k, slot, note, 0);
+        voice_start(k, slot, note, 0, src, note_vel);
         return;
     }
     vox[k].gate = 0;                                      /* stolen: faded, then the new note */
@@ -158,18 +168,20 @@ static void note_on(uint32_t slot, uint32_t note)
     vox[k].pend_note = (uint8_t)note;
     vox[k].pend_slot = (uint8_t)slot;
     vox[k].pend_latched = 0;
+    vox[k].pend_src = (uint8_t)src;
+    vox[k].pend_vel = note_vel;
 }
-static void note_off(uint32_t slot, uint32_t note)
+static void note_off(uint32_t slot, uint32_t note, uint32_t src)
 {
     uint32_t k;
     for (k = 0; k < NVOICE; k++) {
         voice_t *v = &vox[k];
-        if (v->sounding && v->gate && v->slot == slot && v->note == note) {
+        if (v->sounding && v->gate && v->slot == slot && v->note == note && v->src == src) {
             v->gate = 0;
             v->latched = 0;
             v->rel_at = blk_clock;
             mo_note_off(&vmem[k], &gbuf[slot][v->dsg].gen);
-        } else if (v->sounding && v->pend && v->pend_slot == slot && v->pend_note == note)
+        } else if (v->sounding && v->pend && v->pend_slot == slot && v->pend_note == note && v->pend_src == src)
             v->pend = 0;                                  /* (a note let go while its voice still fades for it) */
     }
 }
@@ -178,9 +190,9 @@ static void note_latch(uint32_t slot, uint32_t note)      /* a note held, latche
     uint32_t k;
     for (k = 0; k < NVOICE; k++) {
         voice_t *v = &vox[k];
-        if (v->sounding && v->gate && v->slot == slot && v->note == note)
+        if (v->sounding && v->gate && v->slot == slot && v->note == note && v->src == SRC_KEY)
             v->latched = 1;
-        else if (v->sounding && v->pend && v->pend_slot == slot && v->pend_note == note)
+        else if (v->sounding && v->pend && v->pend_slot == slot && v->pend_note == note && v->pend_src == SRC_KEY)
             v->pend_latched = 1;
     }
 }
@@ -196,20 +208,30 @@ static void all_fade(void)
                 vox[k].fade = FADE;
         }
 }
+/* the looper (loop.c, after this file) */
+static void loop_hear(uint32_t l, uint32_t on, uint32_t note);
+static void loop_event(const ev_t *e);
+static void loops_run(void);
+static uint32_t loops_playing(void);
+static void loops_init(void);
 static void events_take(void)
 {
     while (ev_r != ev_w) {
         ev_t e = evq[ev_r % EVQ];
         RING_PUBLISH();
         ev_r++;
-        if (e.type == EV_ON)
-            note_on(e.slot, e.note);
-        else if (e.type == EV_OFF)
-            note_off(e.slot, e.note);
-        else if (e.type == EV_LATCH)
+        if (e.type == EV_ON) {
+            loop_hear(e.slot, 1, e.note);                /* (a looper recording keeps the keys' notes) */
+            note_on(e.slot, e.note, SRC_KEY);
+        } else if (e.type == EV_OFF) {
+            loop_hear(e.slot, 0, e.note);
+            note_off(e.slot, e.note, SRC_KEY);
+        } else if (e.type == EV_LATCH)
             note_latch(e.slot, e.note);
-        else
+        else if (e.type == EV_STOP)
             all_fade();
+        else
+            loop_event(&e);
     }
 }
 /* each generator's patch published, taken: its voices fade; the notes held or latched on it start again on the new
@@ -228,6 +250,8 @@ static void gens_take(void)
                     v->pend_note = v->note;
                     v->pend_slot = (uint8_t)l;
                     v->pend_latched = v->latched;
+                    v->pend_src = v->src;
+                    v->pend_vel = v->vel;
                 }
                 v->gate = 0;
                 v->latched = 0;
@@ -280,14 +304,19 @@ static void voice_post(uint32_t k)
         if (!--v->fade) {
             alive = 0;
             if (v->pend) {
-                uint32_t n = v->pend_note, s = v->pend_slot, lt = v->pend_latched;
+                uint32_t n = v->pend_note, s = v->pend_slot, lt = v->pend_latched, sr = v->pend_src, vl = v->pend_vel;
                 v->sounding = 0;
                 for (i = 0; i < CTL; i++)
                     x[i] += vb[i];
-                voice_start(k, s, n, lt);
+                voice_start(k, s, n, lt, sr, vl ? vl : 127u);
                 return;                                  /* (its first block next time) */
             }
         }
+    }
+    if (v->vel && v->vel < 127u) {                       /* (a looper's VARY note: its level) */
+        int32_t g = (int32_t)v->vel * 258;
+        for (i = 0; i < CTL; i++)
+            vb[i] = mulq15(vb[i], g);
     }
     if (!v->gate && !v->fade && blk_clock - v->rel_at > REL_HOLD) {   /* let go a while: faded out */
         uint32_t t = blk_clock - v->rel_at - REL_HOLD;
@@ -473,6 +502,7 @@ static void mix_block(int32_t *out)
     int32_t l_[CTL], r_[CTL], pk[NGEN];
     uint32_t i, l, k;
     events_take();
+    loops_run();                                        /* (the loops' notes for this block) */
     gens_take();
     if (shed_req) {
         shed(shed_req > 1u);
@@ -482,10 +512,10 @@ static void mix_block(int32_t *out)
     ebus_fed_run = ebus_fed;
     memset(gbus, 0, sizeof gbus);
     {   /* (the effect slots' gate: open while a voice sounds; rack.c) */
-        uint32_t any = 0;
+        uint32_t any = loops_playing();                 /* (loops going round keep it open between their notes) */
         for (k = 0; k < NVOICE; k++)
             any |= vox[k].sounding;
-        rack_voices = (uint8_t)any;
+        rack_voices = (uint8_t)(any != 0);
     }
     blk_render();                                       /* the effects and the voices, on the two cores */
     memset(ebus_next, 0, sizeof ebus_next);
@@ -682,6 +712,7 @@ static void gens_init(uint32_t seed)
     rack_ticks = 0;
     wt_init();
     rack_init(seed);
+    loops_init();
     for (l = 0; l < NGEN; l++) {
         g_pub[l] = g_use[l] = 0;
         gen_mute[l] = 0;

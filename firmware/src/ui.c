@@ -17,7 +17,16 @@
  *                             page aside)
  *   ARP                       the SCALE page (its light: on it): SELECT the scale, ALGORITHM the root
  *   OCT- / OCT+               the octave, -3 .. +3
- *   SAVE, SEQ, PLAY, REC      nothing yet
+ *   REC                       the looper of the generator the keys play (Tonitor's, loop.c): pressed, a new loop
+ *                             armed (the first note starts it); again, ended (it plays at once); again while they
+ *                             play, an overdub. Held 1 s: its loops emptied. SHIFT + REC: VARY on or off
+ *   PLAY                      pressed: its loops stopped, or played again from their starts. Held: its loops on the
+ *                             white keys (and the screen), each brought in or taken out. SHIFT + PLAY: every
+ *                             generator's loops stopped, or all started together
+ *   the 4th .. 8th black keys its loops REVERSE, PENDULUM, RANDOM; HALF, DOUBLE speed (pressed again: as recorded)
+ *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
+ *                             only. The white keys and the latched notes move with them
+ *   SAVE, SEQ                 nothing yet
  *   USB MIDI notes            as the keys, on the generator chosen last
  *   MASTER (knob)             the level
  *
@@ -41,6 +50,11 @@ static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO
 #define KEY_SHIFT 25u            /* the rightmost black key */
 #define KEY_NONE 0xFFu
 #define HOLD_MS 800u             /* a long press */
+#define KEY_REV 8u               /* the 4th black key: the loops backwards (again: forwards) */
+#define KEY_PEND 10u             /* the 5th: PENDULUM, forwards and backwards in turn */
+#define KEY_RAND 13u             /* the 6th: RANDOM, forwards from a note drawn at random each time the next is due */
+#define KEY_HALF 15u             /* the 7th: half speed (again: normal) */
+#define KEY_DOUBLE 17u           /* the 8th: double speed */
 
 /* the scales: the white keys play their degrees, from the root, up (Tonitor's) */
 #define NSCALE 23
@@ -124,6 +138,11 @@ static struct {
     uint32_t latch[NGEN];        /* each generator's keys latched */
     uint8_t latch_note[NGEN][NKEY];
     uint8_t was_on;              /* (CPU1 running, last time: its loss said once) */
+    /* the loopers (Tonitor's gestures) */
+    uint8_t rec_down, rec_done, play_down, ovd;   /* REC, PLAY down; held: done; PLAY held: the loops on the keys */
+    uint32_t rec_t0, play_t0;
+    int8_t lx, lxt[NGEN];        /* the loops moved along the scale: all of them, and each generator's own */
+    int32_t shown_ovd;
 } ui;
 static int32_t batt_raw;                         /* the battery's divider, smoothed (main.c), 0 .. 1023; 0 none yet */
 
@@ -166,6 +185,57 @@ static uint32_t scale_note(int32_t w, int32_t oct)
     return (uint32_t)clampi(SCALE_BASE + ui.root + 12 * oct + 12 * q + SCALE_STEP[ui.scale][w - q * n], 12, 120);
 }
 
+/* the scale's pitch classes, a mask from C */
+static uint32_t scale_mask(void)
+{
+    uint32_t k, m = 0;
+    for (k = 0; k < SCALE_N[ui.scale]; k++)
+        m |= 1u << ((ui.root + SCALE_STEP[ui.scale][k]) % 12u);
+    return m;
+}
+/* the loops' transposition and the scale it walks, to the ISR (which moves the notes sounding) */
+static void lx_post(void)
+{
+    uint32_t k;
+    lx_want_mask = (uint16_t)scale_mask();
+    lx_want_steps = ui.lx;
+    for (k = 0; k < NGEN; k++)
+        lx_want_tr[k] = ui.lxt[k];
+    RING_PUBLISH();
+    ev_post(EV_LOOP_XP, 0, 0, 0);
+}
+/* generator g's latched notes moved d steps of the scale, with the loops: each let go and struck at its new note,
+ * and its lit key moved as the hand would, d white keys along (unless that is off the keyboard or taken) */
+static void latch_move(uint32_t g, int32_t d)
+{
+    uint32_t k, m = scale_mask(), latch = 0;
+    uint8_t note[NKEY];
+    if (!d)
+        return;
+    for (k = 0; k < NKEY; k++)
+        if ((ui.latch[g] >> k) & 1u) {
+            uint32_t was = ui.latch_note[g][k], now = lx_map(was, d, m), k2;
+            ev_post(EV_OFF, g, was, 0);
+            ev_post(EV_ON, g, now, 0);
+            ev_post(EV_LATCH, g, now, 0);
+            for (k2 = 0; k2 < NKEY && white_ix(k2) != white_ix(k) + d; k2++)
+                ;
+            if (k2 == NKEY || ((latch >> k2) & 1u))
+                k2 = k;
+            if ((latch >> k2) & 1u)
+                for (k2 = 0; k2 < NKEY && (white_ix(k2) < 0 || ((latch >> k2) & 1u)); k2++)
+                    ;                            /* (a free white key, should two meet at an edge) */
+            if (k2 < NKEY) {
+                latch |= 1u << k2;
+                note[k2] = (uint8_t)now;
+            }
+        }
+    for (k = 0; k < NKEY; k++)
+        if ((latch >> k) & 1u)
+            ui.latch_note[g][k] = note[k];
+    ui.latch[g] = latch;
+}
+
 static uint32_t next_seed(void)
 {
     ui.seed = ui.seed * 1664525u + 1013904223u + fm1_ticks();
@@ -199,12 +269,12 @@ static void midi_take(void)
         RING_PUBLISH();
         mi_r++;
         if (cin == 9u && d2) {
-            ev_post(EV_ON, ui.gen, d1);
+            ev_post(EV_ON, ui.gen, d1, 0);
             ui.midi_note[d1] = 1;
             ui.midi_slot[d1] = ui.gen;
         } else if (cin == 8u || (cin == 9u && !d2)) {
             if (ui.midi_note[d1]) {
-                ev_post(EV_OFF, ui.midi_slot[d1], d1);
+                ev_post(EV_OFF, ui.midi_slot[d1], d1, 0);
                 ui.midi_note[d1] = 0;
             }
         }
@@ -225,7 +295,7 @@ static void ui_input(void)
             if (l < NGEN)
                 ui.gen = (uint8_t)l;
             ui.btn_down[l] = 1;
-            ui.btn_done[l] = 0;
+            ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_t0[l] = fm1_ms;
             if (ui.sc_page) {
                 ui.sc_page = 0;
@@ -262,14 +332,103 @@ static void ui_input(void)
         ui.sc_page ^= 1u;
         ui.force = 1;
     }
-    if (btn_bit(press, B_OCTDN) && ui.oct > -3)
-        ui.oct--;
-    if (btn_bit(press, B_OCTUP) && ui.oct < 3)
-        ui.oct++;
+    if ((btn_bit(press, B_OCTDN) || btn_bit(press, B_OCTUP)) && shift_held()) {
+        int32_t lim = 2 * SCALE_N[ui.scale], t = -1, x;   /* SHIFT and OCT: every loop a step of the scale down or */
+        for (l = 0; l < NGEN; l++)                         /* up; a generator's button held too: its loops only */
+            if (btn_bit(fm1_in.buttons, SLOT_BTN[l]))
+                t = (int32_t)l;
+        if (t >= 0) {
+            x = clampi(ui.lxt[t] + (btn_bit(press, B_OCTUP) ? 1 : -1), -lim, lim);
+            latch_move((uint32_t)t, x - ui.lxt[t]);
+            ui.lxt[t] = (int8_t)x;
+            ui.btn_done[t] = 1;                  /* (its button held for this: not muted) */
+            {   /* GEN 2 +3 */
+                char g[16] = "GEN 1 ";
+                g[4] = (char)('1' + t);
+                if (x > 0)
+                    g[6] = '+';
+                fmt_int(g + str_len(g), x);
+                say(g, 1200);
+            }
+        } else {
+            x = clampi(ui.lx + (btn_bit(press, B_OCTUP) ? 1 : -1), -lim, lim);
+            for (l = 0; l < NGEN; l++)
+                latch_move(l, x - ui.lx);
+            ui.lx = (int8_t)x;
+            say_n(x > 0 ? "MOVE +" : "MOVE ", x, "", 1200);
+        }
+        lx_post();
+    } else {
+        if (btn_bit(press, B_OCTDN) && ui.oct > -3)
+            ui.oct--;
+        if (btn_bit(press, B_OCTUP) && ui.oct < 3)
+            ui.oct++;
+    }
+    /* the looper of the generator the keys play (Tonitor's) */
+    if (btn_bit(press, B_REC) && shift_held()) {  /* SHIFT and REC: its loops VARY (or as played) */
+        uint32_t v = !loop[ui.gen].vary;
+        ev_post(EV_LOOP_MODE, ui.gen, 2, v);
+        say(v ? "VARY" : "VARY OFF", 1200);
+    } else if (btn_bit(press, B_REC)) {          /* at once: the loop ends exactly here */
+        const looper_t *p = &loop[ui.gen];
+        ev_post(EV_LOOP_REC, ui.gen, 0, 0);
+        ui.rec_t0 = fm1_ms;
+        ui.rec_down = 1;
+        ui.rec_done = 0;
+        if (p->rec == LR_REC)
+            say_n("LOOP ", (int32_t)p->ntrk + 1, "", 1200);
+        else if (p->rec == LR_ARMED)
+            say("REC OFF", 900);
+        else if (p->ntrk >= LOOP_TRK)
+            say("10 LOOPS", 1500);           /* full: not armed */
+        else
+            say("ARMED", 1200);
+    }
+    if (ui.rec_down && !btn_bit(fm1_in.buttons, B_REC))
+        ui.rec_down = 0;
+    if (ui.rec_down && !ui.rec_done && (uint32_t)(fm1_ms - ui.rec_t0) >= 1000u) {   /* held: emptied */
+        ev_post(EV_LOOP_CLEAR, ui.gen, 0, 0);
+        ui.lxt[ui.gen] = 0;                      /* (emptied: its own move gone too) */
+        lx_post();
+        ui.rec_done = 1;
+        say_n("LOOPS ", (int32_t)ui.gen + 1, " EMPTY", 1500);
+    }
+    if (btn_bit(press, B_PLAY)) {
+        if (shift_held()) {                      /* SHIFT and PLAY: every loop stops if one plays, else all start */
+            uint32_t playing = 0, kept = 0;
+            for (l = 0; l < NGEN; l++) {
+                playing |= loop[l].play && loop[l].ntrk;
+                kept |= loop[l].ntrk != 0u;
+            }
+            if (playing || kept)
+                ev_post(EV_LOOPS, 0, 0, (uint32_t)!playing);
+            say(playing ? "ALL STOPPED" : kept ? "ALL PLAYING" : "NO LOOPS", 1200);
+        } else {                                 /* PLAY: let go soon, the loops; held, the overdubs */
+            ui.play_down = 1;
+            ui.play_t0 = fm1_ms;
+        }
+    }
+    if (ui.play_down) {
+        if (!btn_bit(fm1_in.buttons, B_PLAY)) {
+            ui.play_down = 0;
+            if (ui.ovd) {
+                ui.ovd = 0;
+                ui.force = 1;
+            } else {
+                const looper_t *p = &loop[ui.gen];
+                ev_post(EV_LOOP_PLAY, ui.gen, 0, 0);
+                say(!p->ntrk ? "NO LOOPS" : p->play ? "STOP" : "PLAY", 900);
+            }
+        } else if (!ui.ovd && (uint32_t)(fm1_ms - ui.play_t0) >= 450u) {
+            ui.ovd = 1;                          /* held: the loops on the white keys */
+            ui.force = 1;
+        }
+    }
     if (ui.sc_page) {                            /* the SCALE page: SELECT the scale, ALGORITHM the root */
         s = fm1_enc_take(PANEL_ENC[EN_SELECT]);
         if (s) {
             ui.scale = (uint8_t)clampi((int32_t)ui.scale + s, 0, NSCALE - 1);
+            lx_post();                           /* (the loops moved walk the new scale) */
             ui.sc_touched = 1;
             ui.sc_touch_until = fm1_ms + 700u;
         }
@@ -277,6 +436,7 @@ static void ui_input(void)
         if (s) {
             ui.root = (uint8_t)(((int32_t)ui.root + s + 1200) % 12);
             rack_root = SCALE_BASE + ui.root;
+            lx_post();
             ui.sc_touched = 0;
             ui.sc_touch_until = fm1_ms + 700u;
         }
@@ -307,33 +467,57 @@ static void ui_input(void)
     keys = fm1_in.notes;
     (void)fm1_input_note_edges();
     ch = keys ^ ui.keys;
+    {   /* the loops' direction (REVERSE, PENDULUM, RANDOM) and speed (HALF, DOUBLE); pressed again, as recorded */
+        const looper_t *p = &loop[ui.gen];
+        uint32_t dn = ch & keys;
+        if ((dn >> KEY_REV & 1u) || (dn >> KEY_PEND & 1u) || (dn >> KEY_RAND & 1u)) {
+            uint32_t want = (dn >> KEY_REV & 1u) ? LD_REV : (dn >> KEY_PEND & 1u) ? LD_PEND : LD_RAND;
+            want = p->dmode == want ? LD_FWD : want;
+            ev_post(EV_LOOP_MODE, ui.gen, 0, want);
+            say(want == LD_REV ? "REVERSE" : want == LD_PEND ? "PENDULUM" : want == LD_RAND ? "RANDOM" : "FORWARD", 1200);
+        }
+        if ((dn >> KEY_HALF & 1u) || (dn >> KEY_DOUBLE & 1u)) {
+            uint32_t want = (dn >> KEY_HALF & 1u) ? LS_HALF : LS_DOUBLE;
+            want = p->rate == want ? LS_NORMAL : want;
+            ev_post(EV_LOOP_MODE, ui.gen, 1, want);
+            say(want == LS_HALF ? "HALF SPEED" : want == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
+        }
+    }
     if ((ch & keys) >> KEY_SHIFT & 1u)           /* SHIFT pressed: the keys held latched */
         for (k = 0; k < NKEY; k++)
             if (((keys >> k) & 1u) && k != KEY_SHIFT && ui.key_note[k] != KEY_NONE) {
                 uint32_t g = ui.key_slot[k];
                 ui.latch[g] |= 1u << k;
                 ui.latch_note[g][k] = ui.key_note[k];
-                ev_post(EV_LATCH, g, ui.key_note[k]);
+                ev_post(EV_LATCH, g, ui.key_note[k], 0);
                 ui.key_note[k] = KEY_NONE;       /* (letting go of the key no longer ends it) */
             }
     for (k = 0; ch && k < NKEY; k++) {
         if (!((ch >> k) & 1u) || white_ix(k) < 0)
             continue;                            /* (the black keys: no notes) */
-        if ((keys >> k) & 1u) {
-            uint32_t note = scale_note(white_ix(k), ui.oct), bit = 1u << k;
+        if (((keys >> k) & 1u) && ui.ovd) {      /* PLAY held: white key w, loop w in or out */
+            uint32_t w = (uint32_t)white_ix(k);
+            const looper_t *p = &loop[ui.gen];
+            ui.key_note[k] = KEY_NONE;
+            if (w < p->ntrk)
+                ev_post(EV_LOOP_TRK, ui.gen, w, (p->mute >> w) & 1u);
+            ui.force = 1;
+        } else if ((keys >> k) & 1u) {
+            /* (moved as the generator's loops are -- all of them, and its own -- so what is added fits them) */
+            uint32_t note = scale_note(white_ix(k) + ui.lx + ui.lxt[ui.gen], ui.oct), bit = 1u << k;
             ui.key_note[k] = KEY_NONE;
             if ((ui.latch[ui.gen] & bit) && ((keys >> KEY_SHIFT) & 1u)) {   /* SHIFT held, a lit key: let go */
                 ui.latch[ui.gen] &= ~bit;
-                ev_post(EV_OFF, ui.gen, ui.latch_note[ui.gen][k]);
+                ev_post(EV_OFF, ui.gen, ui.latch_note[ui.gen][k], 0);
                 continue;
             }
             if (ui.latch[ui.gen] & bit)
                 continue;                        /* (a latched key alone: nothing) */
             ui.key_note[k] = (uint8_t)note;
             ui.key_slot[k] = ui.gen;
-            ev_post(EV_ON, ui.gen, note);
+            ev_post(EV_ON, ui.gen, note, 0);
         } else if (ui.key_note[k] != KEY_NONE) {
-            ev_post(EV_OFF, ui.key_slot[k], ui.key_note[k]);
+            ev_post(EV_OFF, ui.key_slot[k], ui.key_note[k], 0);
             ui.key_note[k] = KEY_NONE;
         }
     }
@@ -351,10 +535,25 @@ static void ui_leds(void)
     }
     fm1_led_key(PANEL_BTN[B_HOME], (int32_t)(ui.home_until - fm1_ms) > 0);
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
+    {
+        const looper_t *p = &loop[ui.gen];
+        fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
+        fm1_led_key(PANEL_BTN[B_PLAY], p->play && p->ntrk);
+    }
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct > 0);
-    for (k = 0; k < NKEY; k++)                   /* a key held, or latched on the generator the keys play */
-        fm1_led_key(14u + k, white_ix(k) >= 0 && (((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u)));
+    for (k = 0; k < NKEY; k++) {                 /* a key held, or latched on the generator the keys play */
+        int32_t w = white_ix(k);
+        const looper_t *p = &loop[ui.gen];
+        if (ui.ovd)                              /* PLAY held: the loops that play, lit */
+            fm1_led_key(14u + k, w >= 0 && (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
+        else if (w >= 0)
+            fm1_led_key(14u + k, ((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u));
+        else                                     /* the loops' direction and speed keys, lit while on */
+            fm1_led_key(14u + k, p->ntrk && ((k == KEY_REV && p->dmode == LD_REV) || (k == KEY_PEND && p->dmode == LD_PEND) ||
+                                             (k == KEY_RAND && p->dmode == LD_RAND) || (k == KEY_HALF && p->rate == LS_HALF) ||
+                                             (k == KEY_DOUBLE && p->rate == LS_DOUBLE)));
+    }
     fm1_led_key(14u + KEY_SHIFT, shift_held());
 }
 
@@ -461,7 +660,10 @@ static int32_t gen_key(uint32_t l)
 {
     const gen_patch_t *p = &gbuf[l][g_use[l]];
     int32_t xm = p->xsrc < NGEN ? p->xsrc + 1 : 0, fr = ui.sel == l ? 2 : ui.gen == l ? 1 : 0;
-    return level_step(gen_mute[l] ? 0 : gen_meter[l]) | gen_mute[l] << 2 | fr << 3 | xm << 5;
+    const looper_t *q = &loop[l];
+    int32_t lr = q->rec == LR_REC ? 3 : q->rec == LR_ARMED ? 1 + (int32_t)((fm1_ms / 250u) & 1u) : 0;
+    return level_step(gen_mute[l] ? 0 : gen_meter[l]) | gen_mute[l] << 2 | fr << 3 | xm << 5 | lr << 7 |
+           (int32_t)(q->play && q->ntrk) << 9;
 }
 static void draw_gen(uint32_t l, int32_t key)
 {
@@ -482,7 +684,19 @@ static void draw_gen(uint32_t l, int32_t key)
         cv_frame(0, 0, w, GEN_H, 4, C_WHITE);
     else if (fr == 1)
         cv_frame(0, 0, w, GEN_H, 2, C_GREY);
-    cv_text((w - text_w(&FONT_M, d)) / 2, (GEN_H - FONT_M.h) / 2, &FONT_M, d, fg);
+    cv_text((w - text_w(&FONT_M, d)) / 2 + ((key >> 7) & 7 ? 8 : 0), (GEN_H - FONT_M.h) / 2, &FONT_M, d, fg);   /* (moved
+                                                                                * right by the looper's mark) */
+    {   /* its looper, at the left: recording, a red disc; armed, a red ring blinking; its loops playing, a ring */
+        int32_t lr = (key >> 7) & 3, cy = GEN_H / 2;   /* (white and black: seen on every generator's colour) */
+        if (lr == 3) {
+            cv_disc(15, cy, 11, C_BLACK);
+            cv_disc(15, cy, 8, C_WHITE);
+        } else if (lr == 1) {
+            cv_disc(15, cy, 11, C_BLACK);
+            cv_ring(15, cy, 8, 3, C_WHITE);
+        } else if ((key >> 9) & 1)
+            cv_ring(15, cy, 10, 4, fg);
+    }
     if (xm) {                                    /* modulated by another generator */
         cv_rect(w - 20, 4, 16, 16, C_BLACK);
         cv_rect(w - 18, 6, 12, 12, GEN_COL[xm - 1]);
@@ -571,9 +785,58 @@ static void draw_tile(uint32_t inst, int32_t key)
     cv_text_fit((h - FONT_S.h) / 2 + 1, &FONT_S, RM_TILE[kind], fg);
     cv_blit(3u + k * (uint32_t)pitch + 1u, FXR_Y + s * FXR_H + 3u);
 }
+/* PLAY held: the loops of the generator the keys play, 1 .. 10 as the white keys have them -- in, its colour; out, a
+ * grey frame (Tonitor's) */
+static void draw_ovd_page(void)
+{
+    const looper_t *p = &loop[ui.gen];
+    int32_t key = p->ntrk | p->mute << 4 | (int32_t)ui.gen << 16;
+    uint32_t r, c;
+    uint16_t col = GEN_COL[ui.gen];
+    char t[12] = "LOOPS ";
+    if (!ui.force && ui.shown_ovd == key)
+        return;
+    ui.shown_ovd = key;
+    t[6] = (char)('1' + ui.gen);
+    t[7] = 0;
+    cv_begin(240, 52, C_BLACK);
+    cv_text_c((52 - FONT_M.h) / 2, &FONT_M, p->ntrk ? t : "NO LOOPS", col);
+    cv_blit(0, 0);
+    for (r = 0; r < 2u; r++)
+        CV_AREA(0, 52 + 94 * r, 240, 94, C_BLACK)
+        for (c = 0; c < 5u; c++) {
+            uint32_t k = r * 5u + c;
+            int32_t x = 4 + (int32_t)c * 47;
+            char n[4];
+            const font_t *f = k < 9u ? &FONT_M : &FONT_S;
+            if (k >= p->ntrk)
+                continue;
+            fmt_int(n, (int32_t)k + 1);
+            if (!((p->mute >> k) & 1u)) {
+                cv_rect(x, 6, 43, 82, col);
+                cv_bg_set(col);
+                cv_text(x + (43 - text_w(f, n)) / 2, 6 + (82 - f->h) / 2, f, n, C_BLACK);
+                cv_bg_set(C_BLACK);
+            } else {
+                cv_frame(x, 6, 43, 82, 3, C_GREY);
+                cv_text(x + (43 - text_w(f, n)) / 2, 6 + (82 - f->h) / 2, f, n, C_GREY);
+            }
+        }
+}
+
 static void ui_draw(void)
 {
     uint32_t l, n = 0, mods[NGEN];
+    if (ui.ovd) {
+        if (ui.shown_page != 2u) {
+            ui.force = 1;
+            lcd_fill(0, 0, 240, 240, C_BLACK);
+        }
+        ui.shown_page = 2;
+        draw_ovd_page();
+        ui.force = 0;
+        return;
+    }
     if (ui.sc_page) {
         if (ui.shown_page != 1u)
             ui.force = 1;
