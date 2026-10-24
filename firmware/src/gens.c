@@ -214,6 +214,10 @@ static void loop_event(const ev_t *e);
 static void loops_run(void);
 static uint32_t loops_playing(void);
 static void loops_init(void);
+/* the master delay and reverb (master.c, after this file) */
+static void master_init(void);
+static void master_block(int32_t *l, int32_t *r, const int32_t *dlin, int32_t *rvin, int open);
+static volatile int32_t gen_rsend[NGEN], gen_dsend[NGEN];   /* each generator's sends to them, Q15 (KNOB 4, KNOB 3) */
 static void events_take(void)
 {
     while (ev_r != ev_w) {
@@ -499,7 +503,7 @@ static uint32_t ent_inst(uint32_t e)
  * generators, their sends for the next block, the master (Q15 stereo, interleaved) */
 static void mix_block(int32_t *out)
 {
-    int32_t l_[CTL], r_[CTL], pk[NGEN];
+    int32_t l_[CTL], r_[CTL], pk[NGEN], dlin[CTL], rvin[CTL];
     uint32_t i, l, k;
     events_take();
     loops_run();                                        /* (the loops' notes for this block) */
@@ -517,12 +521,33 @@ static void mix_block(int32_t *out)
             any |= vox[k].sounding;
         rack_voices = (uint8_t)(any != 0);
     }
+    for (k = 0; k < NFX; k++) {                         /* each slot's sends: the mean of its generators' */
+        int32_t rs = 0, ds = 0, n = 0;
+        for (l = 0; l < NGEN; l++) {
+            const gen_patch_t *p = &gbuf[l][g_use[l]];
+            uint32_t e;
+            if (gen_mute[l])
+                continue;
+            for (e = 0; e < p->nent; e++)
+                if (p->ent[e] / FX_N == k)
+                    break;
+            if (e < p->nent) {
+                rs += gen_rsend[l];
+                ds += gen_dsend[l];
+                n++;
+            }
+        }
+        fx_rsend[k] = n ? rs / n : 0;
+        fx_dsend[k] = n ? ds / n : 0;
+    }
     blk_render();                                       /* the effects and the voices, on the two cores */
     memset(ebus_next, 0, sizeof ebus_next);
     ebus_fed = 0;
     for (i = 0; i < CTL; i++) {
         l_[i] = fx_l[i];                                /* (the effects' output) */
         r_[i] = fx_r[i];
+        dlin[i] = fx_mdl[i];                            /* (.. and their sends to the master delay and reverb) */
+        rvin[i] = fx_mrv[i];
     }
     for (k = 0; k < NVOICE; k++)
         if (vox[k].sounding)
@@ -563,6 +588,8 @@ static void mix_block(int32_t *out)
             s = mulq15(s, p->dry);
             l_[i] += mulq15(s, gl_pl[l]);
             r_[i] += mulq15(s, gl_pr[l]);
+            dlin[i] += mulq15(s, gen_dsend[l]);          /* (its dry share on to the master delay and reverb) */
+            rvin[i] += mulq15(s, gen_rsend[l]);
         }
         gl_gg[l] = g;
         gl_pl[l] = pl;
@@ -575,6 +602,7 @@ static void mix_block(int32_t *out)
                 ebus_fed |= 1u << e;
             }
     }
+    master_block(l_, r_, dlin, rvin, rack_voices);      /* the master delay and reverb, last */
     for (i = 0; i < CTL; i++) {
         out[2u * i] = ceiling(mulq12(l_[i], master_q12));
         out[2u * i + 1u] = ceiling(mulq12(r_[i], master_q12));
@@ -713,6 +741,7 @@ static void gens_init(uint32_t seed)
     wt_init();
     rack_init(seed);
     loops_init();
+    master_init();
     for (l = 0; l < NGEN; l++) {
         g_pub[l] = g_use[l] = 0;
         gen_mute[l] = 0;

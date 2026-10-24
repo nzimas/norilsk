@@ -482,7 +482,7 @@ static void m_spr(const uint8_t *p, m_spr_t *s, int32_t *x)
 #define NFX 3                    /* effect slots */
 #define FX_N 3                   /* effects in one: 2 or 3 */
 #define NINST (NFX * FX_N)       /* effect instances, slot by slot (inst = slot x FX_N + place) */
-#define FX_ARENA 61440u          /* a slot's memory */
+#define FX_ARENA 51200u          /* a slot's memory (50 KiB from build 7: the master delay took the rest) */
 #define FX_CLEAR 6144u           /* .. cleared this much a block when a new patch comes (10 blocks) */
 #define FX_FADE 12u              /* blocks of a slot's fade out before a new patch (~9 ms) */
 #define RM_TAIL 2756u            /* an effect nothing reaches goes on until its output has been near silence 2 s */
@@ -567,6 +567,8 @@ static uint8_t rm_plate_on[NINST];
 static int32_t ebus_next[NINST][CTL] POOL __attribute__((aligned(32)));
 static int32_t ebus_run[NINST][CTL] POOL __attribute__((aligned(32)));
 static int32_t fx_l[CTL], fx_r[CTL];
+static int32_t fx_mdl[CTL], fx_mrv[CTL];   /* the slots' sends to the master delay and reverb (master.c), this block */
+static volatile int32_t fx_rsend[NFX], fx_dsend[NFX];   /* each slot's sends, Q15: the mean of its generators' (gens.c) */
 static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was sent into) */
 static uint32_t rack_ticks;                    /* what the last block of the rack took */
 
@@ -706,7 +708,7 @@ static void rack_job(void)
     uint32_t t0 = fm1_ticks();
     fx_take();
     for (i = 0; i < CTL; i++)
-        fx_l[i] = fx_r[i] = 0;
+        fx_l[i] = fx_r[i] = fx_mdl[i] = fx_mrv[i] = 0;
     for (s = 0; s < NFX; s++) {
         const fx_patch_t *f = &fbuf[s][f_use[s]];
         int32_t sl[CTL], sr[CTL], g, gl, gr, dg, dgl, dgr, gw;
@@ -804,6 +806,8 @@ static void rack_job(void)
             /* (the mono parts went into both sides alike: panned here, the plate's two sides with them) */
             fx_l[i] += mulq15(a, fx_gl[s]);
             fx_r[i] += mulq15(b, fx_gr[s]);
+            fx_mdl[i] += mulq15((a + b) >> 1, fx_dsend[s]);   /* (on to the master delay and reverb) */
+            fx_mrv[i] += mulq15((a + b) >> 1, fx_rsend[s]);
         }
         fx_g[s] = g;
         fx_gl[s] = gl;

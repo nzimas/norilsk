@@ -26,7 +26,11 @@
  *   the 4th .. 8th black keys its loops REVERSE, PENDULUM, RANDOM; HALF, DOUBLE speed (pressed again: as recorded)
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
- *   SAVE, SEQ                 nothing yet
+ *   KNOB 3, KNOB 4            the delay send and the reverb send of the generator the keys play, 0 .. 100 (Tonitor's
+ *                             KNOB 4 and SHIFT + KNOB 4): to the master delay and reverb, at the end of the chain
+ *   SEQ                       the DELAY page, again the REVERB page, again back (Tonitor's): KNOB 1 .. 4 set them
+ *                             (TIME FEEDBACK DAMP MIX; SIZE DECAY DAMP MIX), each a row, the one turned black on white
+ *   SAVE                      nothing yet
  *   USB MIDI notes            as the keys, on the generator chosen last
  *   MASTER (knob)             the level
  *
@@ -143,7 +147,26 @@ static struct {
     uint32_t rec_t0, play_t0;
     int8_t lx, lxt[NGEN];        /* the loops moved along the scale: all of them, and each generator's own */
     int32_t shown_ovd;
+    /* the master delay and reverb (master.c) */
+    int8_t rsend[NGEN], dsend[NGEN];   /* each generator's sends, 0 .. 100 (KNOB 4, KNOB 3) */
+    int8_t rvp[4], dlp[4];       /* the reverb's SIZE DECAY DAMP MIX, the delay's TIME FEEDBACK DAMP MIX, 0 .. 100 */
+    uint8_t fx_page;             /* 0 none, 1 the DELAY page, 2 the REVERB page (SEQ) */
+    int8_t fx_touched;           /* the row just turned (-1 none), until fx_touch_until */
+    uint32_t fx_touch_until;
+    int8_t shown_fxp[4], shown_fx_touch;
 } ui;
+static const int8_t RV_DEF[4] = {70, 65, 40, 50};      /* Tonitor's: lush, present, not overdone */
+static const char *const RV_NAME[4] = {"SIZE", "DECAY", "DAMP", "MIX"};
+static const int8_t DL_DEF[4] = {65, 40, 40, 50};      /* Tonitor's: 400 ms, a few repeats, a little darker each */
+static const char *const DL_NAME[4] = {"TIME", "FEEDBACK", "DAMP", "MIX"};
+#define RSEND_DEF 40             /* (Tonitor's send) */
+#define C_SEND RGB(140, 190, 255)
+#define C_DELAY RGB(255, 170, 90)
+static void sends_apply(uint32_t g)
+{
+    gen_rsend[g] = ui.rsend[g] * 32767 / 100;
+    gen_dsend[g] = ui.dsend[g] * 32767 / 100;
+}
 static int32_t batt_raw;                         /* the battery's divider, smoothed (main.c), 0 .. 1023; 0 none yet */
 
 static void say(const char *s, uint32_t ms)
@@ -297,8 +320,8 @@ static void ui_input(void)
             ui.btn_down[l] = 1;
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_t0[l] = fm1_ms;
-            if (ui.sc_page) {
-                ui.sc_page = 0;
+            if (ui.sc_page || ui.fx_page) {
+                ui.sc_page = ui.fx_page = 0;
                 ui.force = 1;
             }
         }
@@ -330,6 +353,13 @@ static void ui_input(void)
     }
     if (btn_bit(press, B_ARP)) {
         ui.sc_page ^= 1u;
+        ui.fx_page = 0;
+        ui.force = 1;
+    }
+    if (btn_bit(press, B_SEQ)) {                 /* SEQ, again and again: DELAY, REVERB, back to playing */
+        ui.fx_page = (uint8_t)(ui.fx_page >= 2u ? 0u : ui.fx_page + 1u);
+        ui.fx_touched = -1;
+        ui.sc_page = 0;
         ui.force = 1;
     }
     if ((btn_bit(press, B_OCTDN) || btn_bit(press, B_OCTUP)) && shift_held()) {
@@ -461,6 +491,35 @@ static void ui_input(void)
                 say_n(p < 0 ? "PAN L" : "PAN R", p < 0 ? -p : p, "", 800);
         }
     }
+    if (ui.fx_page) {                            /* KNOB 1 .. 4: the delay, or the reverb */
+        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        int8_t *pv = ui.fx_page == 1u ? ui.dlp : ui.rvp;
+        for (k = 0; k < 4u; k++) {
+            s = fm1_enc_take(PANEL_ENC[K[k]]);
+            if (s) {
+                pv[k] = (int8_t)clampi(pv[k] + 2 * s, 0, 100);
+                if (ui.fx_page == 1u)
+                    mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+                else
+                    rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+                ui.fx_touched = (int8_t)k;
+                ui.fx_touch_until = fm1_ms + 1500u;
+            }
+        }
+    } else {                                     /* KNOB 3, KNOB 4: the generator's delay and reverb sends */
+        s = fm1_enc_take(PANEL_ENC[EN_K3]);
+        if (s) {
+            ui.dsend[ui.gen] = (int8_t)clampi(ui.dsend[ui.gen] + 2 * s, 0, 100);
+            sends_apply(ui.gen);
+            say_n("DELAY ", ui.dsend[ui.gen], "", 1000);
+        }
+        s = fm1_enc_take(PANEL_ENC[EN_K4]);
+        if (s) {
+            ui.rsend[ui.gen] = (int8_t)clampi(ui.rsend[ui.gen] + 2 * s, 0, 100);
+            sends_apply(ui.gen);
+            say_n("REVERB ", ui.rsend[ui.gen], "", 1000);
+        }
+    }
     for (k = 0; k < NE; k++)                     /* (the other knobs: nothing yet; their steps dropped) */
         fm1_enc_take(PANEL_ENC[k]);
     /* the keys: the generator chosen last; a key lifted ends its note on the slot it was played on */
@@ -535,6 +594,7 @@ static void ui_leds(void)
     }
     fm1_led_key(PANEL_BTN[B_HOME], (int32_t)(ui.home_until - fm1_ms) > 0);
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
+    fm1_led_key(PANEL_BTN[B_SEQ], ui.fx_page != 0u);
     {
         const looper_t *p = &loop[ui.gen];
         fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
@@ -824,6 +884,57 @@ static void draw_ovd_page(void)
         }
 }
 
+/* the DELAY and REVERB pages (Tonitor's): the title, large; a row a parameter -- its name, its value (TIME in ms),
+ * a bar; the row just turned black on white */
+static void draw_fx_title(void)
+{
+    cv_begin(240, 52, C_BLACK);
+    cv_text_c(3, &FONT_L, ui.fx_page == 1u ? "DELAY" : "REVERB", ui.fx_page == 1u ? C_DELAY : C_SEND);
+    cv_blit(0, 0);
+}
+static void draw_fx_row(uint32_t j, int touched)
+{
+    char v[12];
+    const int8_t *pv = ui.fx_page == 1u ? ui.dlp : ui.rvp;
+    uint16_t bg = touched ? C_WHITE : C_BLACK, fg = touched ? C_BLACK : C_WHITE, c = ui.fx_page == 1u ? C_DELAY : C_SEND;
+    const char *name = ui.fx_page == 1u ? DL_NAME[j] : RV_NAME[j];
+    const font_t *f = &FONT_M;
+    int32_t y = 1;
+    cv_begin(240, 47, bg);
+    if (ui.fx_page == 1u && j == 0u) {           /* (the delay's TIME in ms) */
+        fmt_int(v, mdl_ms(pv[0]));
+        str_cpy(v + str_len(v), " MS", 4);
+    } else
+        fmt_int(v, pv[j]);
+    if (text_w(f, name) + text_w(f, v) > 220) {   /* (FEEDBACK 60, TIME 400 MS: a size smaller) */
+        f = &FONT_S;
+        y = 1 + (FONT_M.h - FONT_S.h) / 2;
+    }
+    cv_text(6, y, f, name, fg);
+    cv_text(234 - text_w(f, v), y, f, v, fg);
+    cv_rect(6, 38, 228, 6, touched ? C_GREY : RGB(60, 60, 60));
+    cv_rect(6, 38, pv[j] * 228 / 100, 6, touched ? C_BLACK : c);
+    cv_blit(0, 52 + 47 * j);
+    ui.shown_fxp[j] = pv[j];
+}
+static void draw_fx_page(void)
+{
+    uint32_t j;
+    int32_t t = (int32_t)(ui.fx_touch_until - fm1_ms) > 0 ? ui.fx_touched : -1;
+    const int8_t *pv = ui.fx_page == 1u ? ui.dlp : ui.rvp;
+    if (ui.force) {
+        draw_fx_title();
+        for (j = 0; j < 4u; j++)
+            draw_fx_row(j, (int32_t)j == t);
+        ui.shown_fx_touch = (int8_t)t;
+        return;
+    }
+    for (j = 0; j < 4u; j++)
+        if (ui.shown_fxp[j] != pv[j] || (((int32_t)j == t) != ((int32_t)j == ui.shown_fx_touch)))
+            draw_fx_row(j, (int32_t)j == t);
+    ui.shown_fx_touch = (int8_t)t;
+}
+
 static void ui_draw(void)
 {
     uint32_t l, n = 0, mods[NGEN];
@@ -834,6 +945,16 @@ static void ui_draw(void)
         }
         ui.shown_page = 2;
         draw_ovd_page();
+        ui.force = 0;
+        return;
+    }
+    if (ui.fx_page) {
+        if (ui.shown_page != 2u + ui.fx_page) {
+            ui.force = 1;
+            lcd_fill(0, 0, 240, 240, C_BLACK);
+        }
+        ui.shown_page = (uint8_t)(2u + ui.fx_page);
+        draw_fx_page();
         ui.force = 0;
         return;
     }
@@ -897,4 +1018,16 @@ static void ui_init(void)
     ui.shown_top = -0x7FFFFFFF;
     ui.force = 1;
     ui.was_on = (uint8_t)audio_worker_online;
+    for (k = 0; k < NGEN; k++) {                 /* the master's sends and settings (Tonitor's defaults) */
+        ui.rsend[k] = RSEND_DEF;
+        ui.dsend[k] = 0;
+        sends_apply(k);
+    }
+    for (k = 0; k < 4u; k++) {
+        ui.rvp[k] = RV_DEF[k];
+        ui.dlp[k] = DL_DEF[k];
+    }
+    rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+    mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    ui.fx_touched = -1;
 }

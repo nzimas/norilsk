@@ -144,6 +144,7 @@ static void audio_worker_check(void) {}
 #include "rack.c"
 #include "gens.c"
 #include "loop.c"
+#include "master.c"
 #include "ui.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
@@ -1069,6 +1070,76 @@ static int cmd_looper(void)
     return fails ? 1 : 0;
 }
 
+/* the master delay and reverb: sends at 0 add nothing; a generator's reverb send, and its delay send, are heard;
+ * a generator heard only through an effect slot reaches them through the slot's send */
+static int16_t mst_a[FS * 6 * 2];
+static double mst_run(int rs, int ds, int dry0)
+{
+    uint32_t l;
+    double d = 0;
+    fm1_in.notes = 0;
+    fm1_in.buttons = 0;
+    ui_init();
+    ui.seed = 4242u;                                     /* (the same patches every run) */
+    gens_init(ui.seed);
+    master_q12 = 4096;
+    for (l = 0; l < NGEN; l++) {
+        ui.rsend[l] = (int8_t)rs;
+        ui.dsend[l] = (int8_t)ds;
+        sends_apply(l);
+        gen_mute[l] = l != 0;
+    }
+    if (dry0) {                                          /* (generator 1 heard only through its effect slots) */
+        gen_patch_t *p = &gbuf[0][g_use[0]];
+        if (!p->nent) {
+            p->nent = 1;
+            p->ent[0] = 0;
+        }
+        p->dry = 0;
+    }
+    ui.dlp[1] = 0;                                       /* (one echo: the delay's return plain) */
+    ui.dlp[3] = 100;
+    mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    fw_frames = 0;
+    press(B_FX, 50);
+    key(0, 1);
+    fw_run(1378 * 3);
+    key(0, 0);
+    fw_run(1378 * 2);
+    if (rs < 0)
+        return 0;
+    for (l = 0; l < fw_frames * 2u && l < sizeof mst_a / sizeof mst_a[0]; l++) {
+        double x = (double)wav2[l] - mst_a[l];
+        d += x * x;
+    }
+    return __builtin_sqrt(d / (fw_frames * 2.0)) / 32768.0;
+}
+static int cmd_master(void)
+{
+    int fails = 0;
+    double r, e, z, v;
+    mst_run(0, 0, 0);
+    memcpy(mst_a, wav2, sizeof mst_a);                   /* (the reference: sends at 0) */
+    z = mst_run(0, 0, 0);
+    r = mst_run(100, 0, 0);
+    e = mst_run(0, 100, 0);
+    printf("master: against sends at 0 -- again %.6f, reverb send %.4f, delay send %.4f\n", z, r, e);
+    if (z != 0.0)
+        printf("FAIL master: the same run twice differs\n"), fails++;
+    if (r < 0.002)
+        printf("FAIL master: the reverb send is not heard\n"), fails++;
+    if (e < 0.002)
+        printf("FAIL master: the delay send is not heard\n"), fails++;
+    mst_run(0, 0, 1);
+    memcpy(mst_a, wav2, sizeof mst_a);
+    v = mst_run(100, 0, 1);
+    printf("master: generator 1 through its slots only, reverb send %.4f\n", v);
+    if (v < 0.001)
+        printf("FAIL master: an effect slot does not pass its generators' send on\n"), fails++;
+    printf("master: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -1304,6 +1375,13 @@ static int cmd_screens(int argc, char **argv)
     SHOT("loops");
     fm1_in.buttons &= ~(1u << PANEL_BTN[B_PLAY]);
     ui_input();
+    press(B_SEQ, 50);                                    /* the DELAY page, a knob just turned */
+    fm1_in.enc[PANEL_ENC[EN_K2]] = 5;
+    ui_input();
+    SHOT("delay");
+    press(B_SEQ, 50);                                    /* the REVERB page */
+    SHOT("reverb");
+    press(B_SEQ, 50);
 #undef SHOT
     return 0;
 }
@@ -1338,6 +1416,8 @@ int main(int argc, char **argv)
         return cmd_fxtails();
     if (!strcmp(argv[1], "looper"))
         return cmd_looper();
+    if (!strcmp(argv[1], "master"))
+        return cmd_master();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

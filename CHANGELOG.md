@@ -2,6 +2,25 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 7 (2026-10-24): the master delay and reverb
+
+- **Tonitor's master delay and reverb** (`master.c`), at the end of the chain, after the three effect slots. They hear
+  what the mix holds: each generator's dry share, after its level, at its sends; and each effect slot's output at
+  the mean send of the generators wired into it. The delay first (mono; its echoes to both sides, half of them into
+  the reverb), then the plate (mono in, stereo out). Their returns follow the owner's rule: 2 s after the last voice
+  (no loop going round) they fade out in 0.5 s.
+- **KNOB 3**: the delay send of the generator the keys play; **KNOB 4**: its reverb send (0 .. 100; Tonitor's KNOB 4
+  and SHIFT + KNOB 4). At power-on every reverb send 40, every delay send 0.
+- **SEQ**: the DELAY page (TIME 20 ms .. 2 s, FEEDBACK, DAMP, MIX), again the REVERB page (SIZE, DECAY, DAMP, MIX),
+  again back; KNOB 1 .. 4 set the four rows. Tonitor's defaults and pages.
+- Differences from Tonitor: a change of the delay's TIME cross-fades instead of gliding (no bend of pitch); the
+  plate's SIZE goes to 1.0, not 1.25 (memory).
+- Memory: the delay's 2 s line (44 100 B) in the pool, paid by each effect slot's memory, 60 KiB to 50 KiB (the
+  largest recipe drawn needs 43 KiB; a slot no longer holds its own reverb with a delay or tape beside it); the
+  master plate (34 KiB) in RAM (RAM 63 of 96 KiB).
+- A new test, `host master`: sends at 0 add nothing (bit for bit); each send is heard; a generator heard only
+  through an effect slot reaches the master through the slot.
+
 ## Build 6 (2026-10-24): the looper; nothing lingers
 
 - **Nothing sounds on once no note is held or latched** (the owner's rule). A voice let go sounds as it will for

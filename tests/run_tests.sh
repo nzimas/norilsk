@@ -19,6 +19,7 @@ build/host fxtails | tail -1
 build/host tails 24 | tail -1
 build/host flows
 build/host looper
+build/host master
 build/host cores
 build/host modules build/sounds > build/sounds/modules.txt
 build/host patches build/sounds 12 > build/sounds/patches.txt
