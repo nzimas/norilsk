@@ -1,0 +1,681 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * MOLECULAR: the three generator slots -- a MOLECULE generator each (mol.c) -- the voices they share, their wiring
+ * into the effect slots (rack.c) and to each other, the two cores, and the mix.
+ *
+ * A generator slot's patch is drawn whole by HOME (gen_draw, the main loop): the generator's sound; the effects it
+ * is wired into -- one, two or three, in any effect slot, mostly at the head of its chain, often shared with the
+ * other generators, as synthesizers share a pedalboard -- and how much it sends them; the share of it heard dry;
+ * its level and pan; and, now and then, a modulation by another generator (ring, amplitude, or a filter the other's
+ * level opens), as Vascular's generators modulate each other. The draw follows Vascular's abstract path: a scene
+ * leans the family, a harshness budget pays for what is rough; it leans to the inharmonic and the non-melodic.
+ *
+ * Four voices for the three generators (the engine is dear: a voice is an instance of it): a note takes a free
+ * voice, whatever its slot; all four busy, the quietest release goes, else the oldest note not latched. The keys
+ * play the generator chosen last; a key lifted ends its note on the slot it was played on. A key held and SHIFT
+ * pressed: its note latched (it sounds on with the key let go); SHIFT held and the latched key pressed: let go. A
+ * new patch on a generator moves the notes held and latched on it over to the new sound. A muted generator is not
+ * heard and sends nothing; its notes go on, silent, and are heard again when it is unmuted.
+ *
+ * The audio ISR sees each generator's patch through two buffers, as Tonitor's layers: the main loop writes the one
+ * the ISR is not using and publishes it; the ISR takes it at a block's start, its voices fading (they finish on the
+ * old buffer) and starting again on the new.
+ *
+ * The two cores (Tonitor's, after BIGORNA build 32 and Melodee): each block CPU1 runs the effects (on what the
+ * generators sent the block before: 0.73 ms later, so one core and two give the same sound) and the voices dealt to
+ * it, the dearest first, each to the core with less so far; CPU0 the rest, then everything after. A CPU1 fault, stall
+ * or misread retires it until power-off; CPU0 renders alone from then on ("1 CORE" on the screen). */
+
+#define NGEN 3
+#define NVOICE 4
+#define NENT 3
+#define FADE 12u                 /* blocks of a fade (~9 ms) */
+#define LEVEL_MAX 23
+#define LEVEL_UNITY 20
+#define PAN_MAX 20
+enum { XM_RING, XM_AM, XM_FILTER, XM_N };
+static const char *const XM_NAME[XM_N] = {"RING", "AM", "FILTER"};
+#define XM_NONE 0xFFu
+
+typedef struct {
+    mo_design_t gen;
+    uint8_t ent[NENT], nent;     /* the effects it is wired into: slot x FX_N + place (a place past the slot's last: its
+                                  * last) */
+    int32_t send, dry;           /* into them; heard directly (Q15) */
+    uint8_t xsrc, xkind, xdepth; /* modulated by generator xsrc (XM_NONE: none), how, how deep (0 .. 100) */
+    uint8_t scene;
+    uint32_t seed, serial;
+} gen_patch_t;
+static gen_patch_t gbuf[NGEN][2];
+static volatile uint8_t g_pub[NGEN], g_use[NGEN];
+static volatile uint8_t gen_mute[NGEN];
+static uint8_t gen_drawn[NGEN];
+static volatile int8_t gen_lvl[NGEN], gen_pan[NGEN];   /* the level (0 .. LEVEL_MAX) and pan (-PAN_MAX .. PAN_MAX) */
+static volatile int32_t gen_meter[NGEN];      /* each generator's sound, its last peaks (the screen's) */
+
+typedef struct {
+    uint8_t note, gate, sounding, slot, latched;
+    uint8_t fade;                /* blocks of a fade left (a steal, a patch change), 0 = none */
+    uint8_t pend, pend_note, pend_slot, pend_latched;   /* the fade ends in a note-on */
+    uint8_t dsg;                 /* the buffer of its slot it plays */
+    uint32_t age, pk, rel_at;
+    int32_t lvl;
+    uint16_t quiet;
+    uint32_t cost;               /* what a block of it took, of late (ticks) */
+} voice_t;
+static voice_t vox[NVOICE];
+static mo_voice_t vmem[NVOICE] POOL;
+static int32_t vr_buf[NVOICE][CTL] POOL __attribute__((aligned(32)));   /* each voice's sound, this block */
+static uint8_t vr_core[NVOICE], vr_alive[NVOICE], rack_core;
+static uint32_t vr_ticks[NVOICE];
+static uint32_t blk_clock, age_clock;
+static volatile int32_t master_q12 = 4096;
+static volatile uint8_t load_pct, shed_req;
+static int32_t gl_env[NGEN], gl_g[NGEN];      /* each generator's limiter */
+static int32_t gl_gg[NGEN], gl_pl[NGEN], gl_pr[NGEN];   /* its level and pan as the last block ended (they glide) */
+static int32_t xm_env[NGEN];
+static svf_t xm_f[NGEN];
+static int32_t gbus[NGEN][CTL], graw[NGEN][CTL];
+
+#define TAIL_FLOOR 11u           /* let go, a voice 66 dB (2^11) under its loudest .. */
+#define TAIL_QUIET 276u          /* .. for 0.2 s ends; */
+#define TAIL_MAX 41340u          /* .. and none rings on more than 30 s after it was let go */
+
+/* ------------------------------------------------------------ the events --- */
+enum { EV_ON, EV_OFF, EV_LATCH, EV_STOP };
+typedef struct { uint8_t type, slot, note; } ev_t;
+#define EVQ 64u
+static ev_t evq[EVQ];
+static volatile uint32_t ev_w, ev_r;
+static void ev_post(uint32_t type, uint32_t slot, uint32_t note)
+{
+    if (ev_w - ev_r >= EVQ)
+        return;
+    evq[ev_w % EVQ].type = (uint8_t)type;
+    evq[ev_w % EVQ].slot = (uint8_t)slot;
+    evq[ev_w % EVQ].note = (uint8_t)note;
+    RING_PUBLISH();
+    ev_w++;
+}
+
+/* ------------------------------------------------------------ the voices --- */
+static void voice_start(uint32_t k, uint32_t slot, uint32_t note, uint32_t latched)
+{
+    voice_t *v = &vox[k];
+    mo_note_on(&vmem[k], &gbuf[slot][g_use[slot]].gen, (int32_t)note, 1);
+    v->note = (uint8_t)note;
+    v->slot = (uint8_t)slot;
+    v->gate = 1;
+    v->latched = (uint8_t)latched;
+    v->sounding = 1;
+    v->fade = 0;
+    v->pend = 0;
+    v->dsg = g_use[slot];
+    v->age = ++age_clock;
+    v->pk = 0;
+    v->lvl = 0;
+    v->quiet = 0;
+}
+static uint32_t voice_pick(void)
+{
+    uint32_t k, best = NVOICE;
+    for (k = 0; k < NVOICE; k++)
+        if (!vox[k].sounding)
+            return k;
+    for (k = 0; k < NVOICE; k++)                          /* the quietest release */
+        if (!vox[k].gate && !vox[k].pend && (best == NVOICE || vox[k].lvl < vox[best].lvl))
+            best = k;
+    if (best != NVOICE)
+        return best;
+    for (k = 0; k < NVOICE; k++)                          /* the oldest note not latched */
+        if (!vox[k].pend && !vox[k].latched && (best == NVOICE || vox[k].age < vox[best].age))
+            best = k;
+    if (best != NVOICE)
+        return best;
+    for (k = 0; k < NVOICE; k++)                          /* (all latched: the oldest) */
+        if (!vox[k].pend && (best == NVOICE || vox[k].age < vox[best].age))
+            best = k;
+    return best == NVOICE ? 0 : best;
+}
+static void note_on(uint32_t slot, uint32_t note)
+{
+    uint32_t k;
+    for (k = 0; k < NVOICE; k++)                          /* the same note again on the slot: its voice retriggers */
+        if (vox[k].sounding && vox[k].gate && vox[k].slot == slot && vox[k].note == note && !vox[k].fade) {
+            mo_note_on(&vmem[k], &gbuf[slot][vox[k].dsg].gen, (int32_t)note, 0);
+            return;
+        }
+    k = voice_pick();
+    if (!vox[k].sounding) {
+        voice_start(k, slot, note, 0);
+        return;
+    }
+    vox[k].gate = 0;                                      /* stolen: faded, then the new note */
+    vox[k].latched = 0;
+    vox[k].fade = FADE;
+    vox[k].pend = 1;
+    vox[k].pend_note = (uint8_t)note;
+    vox[k].pend_slot = (uint8_t)slot;
+    vox[k].pend_latched = 0;
+}
+static void note_off(uint32_t slot, uint32_t note)
+{
+    uint32_t k;
+    for (k = 0; k < NVOICE; k++) {
+        voice_t *v = &vox[k];
+        if (v->sounding && v->gate && v->slot == slot && v->note == note) {
+            v->gate = 0;
+            v->latched = 0;
+            v->rel_at = blk_clock;
+            mo_note_off(&vmem[k], &gbuf[slot][v->dsg].gen);
+        } else if (v->sounding && v->pend && v->pend_slot == slot && v->pend_note == note)
+            v->pend = 0;                                  /* (a note let go while its voice still fades for it) */
+    }
+}
+static void note_latch(uint32_t slot, uint32_t note)      /* a note held, latched */
+{
+    uint32_t k;
+    for (k = 0; k < NVOICE; k++) {
+        voice_t *v = &vox[k];
+        if (v->sounding && v->gate && v->slot == slot && v->note == note)
+            v->latched = 1;
+        else if (v->sounding && v->pend && v->pend_slot == slot && v->pend_note == note)
+            v->pend_latched = 1;
+    }
+}
+static void all_fade(void)
+{
+    uint32_t k;
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding) {
+            vox[k].gate = 0;
+            vox[k].pend = 0;
+            vox[k].latched = 0;
+            if (!vox[k].fade)
+                vox[k].fade = FADE;
+        }
+}
+static void events_take(void)
+{
+    while (ev_r != ev_w) {
+        ev_t e = evq[ev_r % EVQ];
+        RING_PUBLISH();
+        ev_r++;
+        if (e.type == EV_ON)
+            note_on(e.slot, e.note);
+        else if (e.type == EV_OFF)
+            note_off(e.slot, e.note);
+        else if (e.type == EV_LATCH)
+            note_latch(e.slot, e.note);
+        else
+            all_fade();
+    }
+}
+/* each generator's patch published, taken: its voices fade; the notes held or latched on it start again on the new
+ * sound */
+static void gens_take(void)
+{
+    uint32_t l, k;
+    for (l = 0; l < NGEN; l++)
+        if (g_pub[l] != g_use[l]) {
+            for (k = 0; k < NVOICE; k++) {
+                voice_t *v = &vox[k];
+                if (!v->sounding || v->slot != l)
+                    continue;
+                if (v->gate && !v->fade) {
+                    v->pend = 1;
+                    v->pend_note = v->note;
+                    v->pend_slot = (uint8_t)l;
+                    v->pend_latched = v->latched;
+                }
+                v->gate = 0;
+                v->latched = 0;
+                if (!v->fade)
+                    v->fade = FADE;
+            }
+            g_use[l] = g_pub[l];
+        }
+}
+/* overload (main.c: a half late, or two near the edge): the quietest release goes; late, the oldest held note not
+ * latched too */
+static void shed(int held)
+{
+    uint32_t k, ok = NVOICE;
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding && !vox[k].fade && !vox[k].gate && (ok == NVOICE || vox[k].lvl < vox[ok].lvl))
+            ok = k;
+    if (ok == NVOICE && held)
+        for (k = 0; k < NVOICE; k++)
+            if (vox[k].sounding && !vox[k].fade && !vox[k].latched && (ok == NVOICE || vox[k].age < vox[ok].age))
+                ok = k;
+    if (ok != NVOICE) {
+        vox[ok].gate = 0;
+        vox[ok].pend = 0;
+        vox[ok].fade = FADE;
+    }
+}
+
+/* a voice's block, into vr_buf (either core: its own memory only) */
+static void voice_render(uint32_t k)
+{
+    uint32_t t0 = fm1_ticks();
+    vr_alive[k] = (uint8_t)mo_render_fp(&vmem[k], &gbuf[vox[k].slot][vox[k].dsg].gen, vr_buf[k], 0);
+    vr_ticks[k] = fm1_ticks() - t0;
+}
+/* .. then its fade, its bookkeeping, into its generator's bus (CPU0) */
+static void voice_post(uint32_t k)
+{
+    voice_t *v = &vox[k];
+    int32_t *vb = vr_buf[k], pk = 0, *x = gbus[v->slot];
+    uint32_t i;
+    int alive = vr_alive[k];
+    v->cost = (v->cost * 7u + vr_ticks[k]) / 8u;
+    if (v->fade) {                                       /* a fade: linear over FADE blocks */
+        int32_t g0 = (int32_t)v->fade * (Q15 / (int32_t)FADE), dg = -(Q15 / (int32_t)FADE) / (int32_t)CTL;
+        for (i = 0; i < CTL; i++) {
+            g0 += dg;
+            vb[i] = mulq15(vb[i], g0);
+        }
+        if (!--v->fade) {
+            alive = 0;
+            if (v->pend) {
+                uint32_t n = v->pend_note, s = v->pend_slot, lt = v->pend_latched;
+                v->sounding = 0;
+                for (i = 0; i < CTL; i++)
+                    x[i] += vb[i];
+                voice_start(k, s, n, lt);
+                return;                                  /* (its first block next time) */
+            }
+        }
+    }
+    for (i = 0; i < CTL; i++) {
+        int32_t a = absi(vb[i]);
+        if (a > pk)
+            pk = a;
+        x[i] += vb[i];
+    }
+    v->lvl = pk;
+    if ((uint32_t)pk > v->pk)
+        v->pk = (uint32_t)pk;
+    if (!v->gate && !v->fade) {                          /* let go: the tail reaper */
+        if ((uint32_t)pk < (v->pk >> TAIL_FLOOR))
+            v->quiet++;
+        else
+            v->quiet = 0;
+        if (v->quiet >= TAIL_QUIET || blk_clock - v->rel_at > TAIL_MAX)
+            alive = 0;
+    }
+    if (!alive)
+        v->sounding = 0;
+}
+
+/* CPU1's share of a block */
+static void blk_job(void *ctx)
+{
+    uint32_t k;
+    (void)ctx;
+    if (rack_core)
+        rack_job_fp();
+    for (k = 0; k < NVOICE; k++)
+        if (vr_core[k])
+            voice_render(k);
+}
+/* the work dealt: the effects to CPU1, the voices by their cost, the dearest first, each to the core with less so
+ * far; rendered on both, CPU1's joined. One core: all here */
+static void blk_render(void)
+{
+    uint32_t k, j, n = 0, s0 = 0, s1;
+    uint8_t ord[NVOICE];
+    int any1 = 0;
+    audio_worker_check();
+    for (k = 0; k < NVOICE; k++) {
+        vr_core[k] = 0;
+        if (!vox[k].sounding)
+            continue;
+        for (j = n; j > 0u && vox[ord[j - 1u]].cost < vox[k].cost; j--)
+            ord[j] = ord[j - 1u];
+        ord[j] = (uint8_t)k;
+        n++;
+    }
+    rack_core = 0;
+    if (audio_worker_online) {
+        rack_core = 1;
+        s1 = rack_ticks;
+        for (j = 0; j < n; j++) {
+            k = ord[j];
+            if (s1 <= s0) {
+                vr_core[k] = 1;
+                s1 += vox[k].cost;
+            } else
+                s0 += vox[k].cost;
+        }
+        any1 = audio_worker_submit(blk_job, 0);
+    }
+    if (!any1) {
+        memset(vr_core, 0, sizeof vr_core);
+        rack_core = 0;
+        rack_job_fp();
+    }
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding && !vr_core[k])
+            voice_render(k);
+    if (any1 && !audio_worker_join()) {          /* (CPU1 lost: retired; its share silent this block) */
+        for (k = 0; k < NVOICE; k++)
+            if (vr_core[k]) {
+                memset(vr_buf[k], 0, sizeof vr_buf[k]);
+                vr_alive[k] = 1;
+                vr_ticks[k] = 0;
+            }
+        if (rack_core) {
+            memset(fx_l, 0, sizeof fx_l);
+            memset(fx_r, 0, sizeof fx_r);
+        }
+    }
+}
+
+/* a generator's limiter, after its voices: never past LIM. The peak of a block sets the gain of the next (instant
+ * attack, released over ~200 ms) */
+#define LIM 19661                /* 0.6, Q15 */
+static void lim_block(int32_t *env, int32_t *g, int32_t *x, uint32_t n)
+{
+    int32_t pk = 0, want, g0 = *g, dg;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        int32_t a = absi(x[i]);
+        if (a > pk)
+            pk = a;
+    }
+    if (pk > *env)
+        *env = pk;
+    else
+        *env -= *env >> 8;
+    want = *env > LIM ? (int32_t)((uint32_t)LIM * 32768u / (uint32_t)*env) : Q15;
+    if (want > g0 && g0 < Q15)
+        want = g0 + ((want - g0) >> 3);
+    dg = (want - g0) / (int32_t)n;
+    for (i = 0; i < n; i++) {
+        g0 += dg;
+        x[i] = mulq15(x[i], g0);
+    }
+    *g = want;
+}
+/* above half scale, a soft knee into a ceiling at full scale */
+static inline int32_t ceiling(int32_t x)
+{
+    int32_t a = absi(x);
+    if (a <= Q15 / 2)
+        return x;
+    a = Q15 / 2 + (tanh_q15((a - Q15 / 2) * 2) >> 1);
+    return x < 0 ? -a : a;
+}
+#define GEN_GAIN 7373            /* Q12, x 1.8: one voice at 0.1 RMS reads -15 dBFS */
+
+/* the modulation of generator t by its source's sound (raw), as Vascular's: the source normalised by its level (so
+ * the depth means the same loud or soft); RING: t (1 - d) + t u 1.8 d; AM: t (1 + u d); FILTER: a low-pass on t from
+ * 340 Hz, opened up to 4 octaves by the source's level */
+static void xmod_block(uint32_t t, const gen_patch_t *p)
+{
+    const int32_t *u = graw[p->xsrc];
+    int32_t *x = gbus[t], d = p->xdepth * (Q15 / 100), pk = 0, nrm;
+    uint32_t i;
+    for (i = 0; i < CTL; i++)
+        pk = maxi(pk, absi(u[i]));
+    xm_env[t] = pk > xm_env[t] ? pk : xm_env[t] - (xm_env[t] >> 6);
+    nrm = (int32_t)((uint32_t)Q15 * 8192u / (uint32_t)maxi(xm_env[t], 1024));   /* Q13: u at full scale */
+    if (p->xkind == XM_FILTER) {
+        svf_c c;
+        int32_t oct = 551000 + mulq15(clampi(mulq15(pk, nrm << 2), 0, Q15), d) * 8;   /* log2 340 Hz, up to 4 octaves: the
+                                                          * source's level now against its loudest of late */
+        svf_coef(&c, (int32_t)(exp2_q16(oct) >> 16), 4096);
+        for (i = 0; i < CTL; i++)
+            x[i] = svf_run(&xm_f[t], &c, x[i], 1);
+        return;
+    }
+    for (i = 0; i < CTL; i++) {
+        int32_t uu = clampi((u[i] * (nrm >> 2)) >> 11, -Q15, Q15);   /* the source, normalised, Q15 */
+        if (p->xkind == XM_RING)
+            x[i] = mulq15(x[i], Q15 - d) + mulq15(mulq15(mulq15(x[i], uu), 58982), d);
+        else
+            x[i] += mulq15(mulq15(x[i], uu), d);
+    }
+}
+
+/* a pan as gains (equal power) */
+static void pan_gains(int32_t pan_q15, int32_t *pl, int32_t *pr)   /* -Q15 .. Q15 */
+{
+    uint32_t ph = (uint32_t)(pan_q15 + Q15) * 16384u;   /* 0 .. a quarter turn */
+    *pl = sin_ph(ph + 0x40000000u);
+    *pr = sin_ph(ph);
+}
+/* the effect a generator's cable reaches: its place, or its slot's last when the slot has fewer */
+static uint32_t ent_inst(uint32_t e)
+{
+    uint32_t s = e / FX_N, k = e % FX_N, n = fbuf[s][f_use[s]].n;
+    return s * FX_N + (k < n ? k : n - 1u);
+}
+
+/* one block: the events, the patches, the effects (on what the generators sent the block before), the voices, the
+ * generators, their sends for the next block, the master (Q15 stereo, interleaved) */
+static void mix_block(int32_t *out)
+{
+    int32_t l_[CTL], r_[CTL], pk[NGEN];
+    uint32_t i, l, k;
+    events_take();
+    gens_take();
+    if (shed_req) {
+        shed(shed_req > 1u);
+        shed_req = 0;
+    }
+    memcpy(ebus_run, ebus_next, sizeof ebus_run);       /* (what the generators sent the block before: the effects' input) */
+    ebus_fed_run = ebus_fed;
+    memset(gbus, 0, sizeof gbus);
+    blk_render();                                       /* the effects and the voices, on the two cores */
+    memset(ebus_next, 0, sizeof ebus_next);
+    ebus_fed = 0;
+    for (i = 0; i < CTL; i++) {
+        l_[i] = fx_l[i];                                /* (the effects' output) */
+        r_[i] = fx_r[i];
+    }
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding)
+            voice_post(k);
+    for (l = 0; l < NGEN; l++) {                        /* each generator: its gain and limiter, its raw sound kept */
+        pk[l] = 0;
+        for (i = 0; i < CTL; i++)
+            gbus[l][i] = mulq12(gbus[l][i], GEN_GAIN);
+        lim_block(&gl_env[l], &gl_g[l], gbus[l], CTL);
+        for (i = 0; i < CTL; i++)
+            pk[l] = maxi(pk[l], absi(gbus[l][i]));
+        gen_meter[l] = pk[l] > gen_meter[l] ? pk[l] : gen_meter[l] - (gen_meter[l] >> 4);
+    }
+    memcpy(graw, gbus, sizeof graw);
+    for (l = 0; l < NGEN; l++) {                        /* the generators' modulations of each other */
+        const gen_patch_t *p = &gbuf[l][g_use[l]];
+        if (p->xsrc < NGEN && p->xsrc != l)
+            xmod_block(l, p);
+    }
+    for (l = 0; l < NGEN; l++) {                        /* each: dry to the master, its sends to the effects */
+        const gen_patch_t *p = &gbuf[l][g_use[l]];
+        int32_t g, pl, pr, dg, dpl, dpr;
+        if (!pk[l] && !gl_gg[l])
+            continue;
+        g = gen_lvl[l] && !gen_mute[l] ? (int32_t)(exp2_q16((gen_lvl[l] - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a
+                                                         * step; muted: 0, gliding */
+        pan_gains(gen_pan[l] * (Q15 / PAN_MAX), &pl, &pr);
+        dg = (g - gl_gg[l]) / (int32_t)CTL;
+        dpl = (pl - gl_pl[l]) / (int32_t)CTL;
+        dpr = (pr - gl_pr[l]) / (int32_t)CTL;
+        for (i = 0; i < CTL; i++) {
+            int32_t s;
+            gl_gg[l] += dg;
+            gl_pl[l] += dpl;
+            gl_pr[l] += dpr;
+            s = (int32_t)(((int64_t)gbus[l][i] * gl_gg[l]) >> 14);
+            gbus[l][i] = s;                             /* (after the level: what the effects hear too) */
+            s = mulq15(s, p->dry);
+            l_[i] += mulq15(s, gl_pl[l]);
+            r_[i] += mulq15(s, gl_pr[l]);
+        }
+        gl_gg[l] = g;
+        gl_pl[l] = pl;
+        gl_pr[l] = pr;
+        if (pk[l] && gl_gg[l])                          /* (sounding, not muted: its cables carry it) */
+            for (k = 0; k < p->nent; k++) {
+                uint32_t e = ent_inst(p->ent[k]);
+                for (i = 0; i < CTL; i++)
+                    ebus_next[e][i] += mulq15(gbus[l][i], p->send);
+                ebus_fed |= 1u << e;
+            }
+    }
+    for (i = 0; i < CTL; i++) {
+        out[2u * i] = ceiling(mulq12(l_[i], master_q12));
+        out[2u * i + 1u] = ceiling(mulq12(r_[i], master_q12));
+    }
+    blk_clock++;
+}
+
+static int gens_sounding(void)
+{
+    uint32_t k;
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding)
+            return 1;
+    return 0;
+}
+/* the effects a generator is wired into, as a mask of instances (the screen's) */
+static uint32_t gen_mods(uint32_t l)
+{
+    const gen_patch_t *p = &gbuf[l][g_use[l]];
+    uint32_t k, m = 0;
+    for (k = 0; k < p->nent; k++)
+        m |= 1u << ent_inst(p->ent[k]);
+    return m;
+}
+
+/* ------------------------------------------------------- the draw (main loop) --- */
+/* after Vascular's abstract path:
+ *   - a SCENE leans the family (x 3) and sets the chance of a modulation by another generator:
+ *       FIELD      glass, formants, clouds          MATERIAL   metals, glass, reeds, impacts, pulsars
+ *       FEEDBACK   bruits, drones, pulses, reeds    EROSION    clouds, freezes, shatters, bruits
+ *   - a HARSHNESS budget of 0, 1 or 2 (0.4, 0.4, 0.2) pays for the rough families
+ *   - the lean to the inharmonic and the non-melodic (the owner's): metals, bruits, impacts, glass, clouds, shatters,
+ *     freezes up; formants and reeds down
+ *   - the effects it is wired into: none one time in twenty, else one (0.55), two (0.35) or three (0.1), each in an
+ *     effect slot of its own if it can, at the head of its chain mostly (0.7), else the second (0.2) or third place
+ *   - the dry share 0.15 .. 0.6 when wired (Vascular's processors are 0.62 wet), all of it when not
+ *   - the level a little under unity, the pan anywhere */
+enum { SC_FIELD, SC_MATERIAL, SC_FEEDBACK, SC_EROSION, SC_N };
+static const char *const SC_NAME[SC_N] = {"FIELD", "MATERIAL", "FEEDBACK", "EROSION"};
+static const uint8_t SC_PATH[SC_N] = {PATH_AMBIENT, PATH_OPEN, PATH_EXP, PATH_EXP};
+static const uint8_t SC_CROSS[SC_N] = {12, 18, 30, 12};    /* the chance of a modulation by another generator */
+static const uint8_t SC_FAM[SC_N][MF_N] = {
+    {0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0},
+    {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0},
+    {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0},
+    {0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1}};
+static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0};
+static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4};
+
+/* HOME on generator l: a new patch from a seed (family -1: any; else that family, on the scene it had: SHIFT + HOME).
+ * Published to the ISR. Returns 0 if the buffer was not free in time */
+static uint32_t gen_serial;
+static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
+{
+    uint32_t b = g_use[l] ^ 1u, k, path, t0 = fm1_ms;
+    gen_patch_t *p = &gbuf[l][b];
+    rnd_t rr, *r = &rr;
+    int32_t budget, f;
+    uint8_t w[MF_N], scene0 = gbuf[l][g_use[l]].scene;
+    for (;;) {                                           /* (no voice may still play the buffer about to be written) */
+        int busy = g_pub[l] != g_use[l];
+        for (k = 0; k < NVOICE; k++)
+            if (vox[k].sounding && vox[k].slot == l && vox[k].dsg == b)
+                busy = 1;
+        if (!busy)
+            break;
+        if ((uint32_t)(fm1_ms - t0) > 40u)
+            return 0;
+        fm1_wdt_feed();
+    }
+    memset(p, 0, sizeof *p);
+    rnd_seed(r, seed ^ 0x534C4F54u);
+    p->scene = family >= 0 && gen_drawn[l] ? scene0 : (uint8_t)rnd_below(r, SC_N);
+    p->seed = seed;
+    p->serial = ++gen_serial;
+    budget = rnd_chance(r, 40) ? 0 : rnd_chance(r, 67) ? 1 : 2;
+    path = SC_PATH[p->scene];
+    if (family >= 0 && family < MF_N)
+        f = family;
+    else {
+        for (k = 0; k < MF_N; k++)
+            w[k] = (uint8_t)((int32_t)MF_HARSH[k] <= budget ? MF_W[path][k] * (SC_FAM[p->scene][k] ? 3u : 1u) * MF_INH[k] / 2u : 0u);
+        f = (int32_t)rnd_weighted(r, w, MF_N);
+        if (!w[f])
+            f = MF_GLASS;
+    }
+    mo_design(&p->gen, f, rnd_next(r), path, GEN_NOW);
+    mo_measure(&p->gen);
+    {   /* the effects it is wired into */
+        static const uint8_t NE[3] = {55, 35, 10};
+        static const uint8_t PL[3] = {70, 20, 10};
+        uint32_t used = 0, n = rnd_chance(r, 5) ? 0u : 1u + rnd_weighted(r, NE, 3);
+        p->nent = 0;
+        for (k = 0; k < n; k++) {
+            uint32_t s = (uint32_t)rnd_below(r, NFX), tries;
+            for (tries = 0; tries < 6u && ((used >> s) & 1u); tries++)
+                s = (uint32_t)rnd_below(r, NFX);
+            used |= 1u << s;
+            p->ent[p->nent++] = (uint8_t)(s * FX_N + rnd_weighted(r, PL, 3));
+        }
+    }
+    p->send = rnd_in(r, LV(0.6), LV(1.0));
+    p->dry = p->nent ? rnd_in(r, LV(0.15), LV(0.6)) : Q15;
+    p->xsrc = XM_NONE;
+    if (rnd_chance(r, SC_CROSS[p->scene])) {             /* a modulation by another generator, now and then */
+        static const uint8_t XW[XM_N] = {22, 26, 26};
+        uint32_t o = (l + 1u + (uint32_t)rnd_below(r, NGEN - 1)) % NGEN;
+        p->xsrc = (uint8_t)o;
+        p->xkind = (uint8_t)rnd_weighted(r, XW, XM_N);
+        p->xdepth = (uint8_t)rnd_in(r, 35, 95);
+    }
+    gen_lvl[l] = (int8_t)rnd_in(r, LEVEL_UNITY - 5, LEVEL_UNITY - 1);
+    gen_pan[l] = (int8_t)rnd_in(r, -16, 16);
+    RING_PUBLISH();
+    g_pub[l] = (uint8_t)b;
+    gen_drawn[l] = 1;
+    return 1;
+}
+
+static void gens_init(uint32_t seed)
+{
+    uint32_t l;
+    memset(vox, 0, sizeof vox);
+    memset(vmem, 0, sizeof vmem);
+    memset(gbuf, 0, sizeof gbuf);
+    memset(xm_env, 0, sizeof xm_env);
+    memset(xm_f, 0, sizeof xm_f);
+    memset(gbus, 0, sizeof gbus);
+    memset(graw, 0, sizeof graw);
+    memset((void *)gen_meter, 0, sizeof gen_meter);
+    memset(vr_buf, 0, sizeof vr_buf);
+    memset(vr_core, 0, sizeof vr_core);
+    blk_clock = age_clock = 0;
+    ebus_fed = ebus_fed_run = 0;
+    rack_ticks = 0;
+    wt_init();
+    rack_init(seed);
+    for (l = 0; l < NGEN; l++) {
+        g_pub[l] = g_use[l] = 0;
+        gen_mute[l] = 0;
+        gen_drawn[l] = 0;
+        gen_lvl[l] = LEVEL_UNITY - 2;
+        gen_pan[l] = 0;
+        gl_g[l] = Q15;
+        gl_env[l] = 0;
+        gl_gg[l] = gl_pl[l] = gl_pr[l] = 0;
+        gbuf[l][0].xsrc = gbuf[l][1].xsrc = XM_NONE;
+    }
+    for (l = 0; l < NGEN; l++) {
+        gen_draw(l, -1, seed + 101u + l * 7907u);
+        g_use[l] = g_pub[l];                            /* (taken at once: nothing sounds yet) */
+    }
+}

@@ -120,8 +120,29 @@ static volatile uint32_t mi_w, mi_r;
 #include "mol.c"
 /* usb.c's state, as the screen reads it (no host: on battery) */
 static struct { uint8_t config, suspended; } usb;
+/* CPU1's mailbox (src/audio_worker.h), as one core sees it (Tonitor's host): a job posted runs at the join -- the
+ * units of work are apart, so the sound is the same as with the two cores at once. host_cores 1: CPU1 off */
+static int audio_worker_online;
+static void (*host_job)(void *);
+static void *host_job_ctx;
+static int audio_worker_submit(void (*fn)(void *), void *ctx)
+{
+    if (!audio_worker_online)
+        return 0;
+    host_job = fn;
+    host_job_ctx = ctx;
+    return 1;
+}
+static int audio_worker_join(void)
+{
+    if (host_job)
+        host_job(host_job_ctx);
+    host_job = 0;
+    return 1;
+}
+static void audio_worker_check(void) {}
 #include "rack.c"
-#include "slots.c"
+#include "gens.c"
 #include "ui.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
@@ -453,26 +474,39 @@ static void wav_write2(const char *path, const int16_t *x, uint32_t frames)
 static int16_t wav2[FS * 12 * 2];
 static void fw_init(void)
 {
-    slots_init();
     ui_init();
-    slot_draw(0, -1, ui.seed);
-    slot_on[0] = 1;
+    gens_init(ui.seed);
     master_q12 = 4096;
 }
-static void print_slot(uint32_t l)
+static void print_gen(uint32_t l)
 {
-    const slot_patch_t *p = &sbuf[l][s_pub[l]];
+    const gen_patch_t *p = &gbuf[l][g_pub[l]];
     uint32_t i;
-    printf("slot %u%s: %s, %s (body %s, %s), lvl %d pan %d, dry %d%%:", l + 1, slot_on[l] ? "" : " (off)",
-           SC_NAME[p->scene], MF_NAME[p->gen.family], MF_NAME[p->gen.body], PATH_NAME[p->gen.path], slot_lvl[l], slot_pan[l],
+    printf("gen %u%s: %s, %s (body %s, %s), lvl %d pan %d, dry %d%%:", l + 1, gen_mute[l] ? " (muted)" : "",
+           SC_NAME[p->scene], MF_NAME[p->gen.family], MF_NAME[p->gen.body], PATH_NAME[p->gen.path], gen_lvl[l], gen_pan[l],
            p->dry * 100 / Q15);
     for (i = 0; i < p->nent; i++)
-        printf(" %s", RM_NAME[p->ent[i]]);
+        printf(" %u.%u", p->ent[i] / FX_N + 4u, p->ent[i] % FX_N + 1u);
     if (!p->nent)
         printf(" direct");
-    if (p->xsrc < NSLOT)
-        printf("; %s from slot %u, %d", XM_NAME[p->xkind], p->xsrc + 1, p->xdepth);
+    if (p->xsrc < NGEN)
+        printf("; %s from %u, %d", XM_NAME[p->xkind], p->xsrc + 1, p->xdepth);
     printf("\n");
+}
+static void print_fx(uint32_t s)
+{
+    const fx_patch_t *f = &fbuf[s][f_pub[s]];
+    uint32_t k, j, mem = 0;
+    printf("fx %u%s: %s:", s + 4u, fx_mute[s] ? " (muted)" : "", FR_NAME[f->recipe]);
+    for (k = 0; k < f->n; k++) {
+        printf(" %s(%u %u %u %u)%s", RM_NAME[f->e[k].kind], f->e[k].p[0], f->e[k].p[1], f->e[k].p[2], f->e[k].p[3],
+               (f->out >> k) & 1u ? "+out" : "");
+        mem += rm_size(f->e[k].kind);
+        for (j = 0; j < NINST; j++)
+            if ((f->xto[k] >> j) & 1u)
+                printf("->%u.%u", j / FX_N + 4u, j % FX_N + 1u);
+    }
+    printf("  [%u B]\n", mem);
 }
 /* the keys: a few notes, held, let go; blocks run between; the output into wav2 */
 static uint32_t fw_frames;
@@ -519,46 +553,34 @@ static void press(uint32_t label, uint32_t ms)       /* a button pressed, held m
     fm1_in.buttons &= ~(1u << PANEL_BTN[label]);
     ui_input();
 }
-static void play_notes(uint32_t slot, double secs)    /* slot chosen; a chord held secs, let go, as long again */
-{
-    press(SLOT_BTN[slot], 50);
-    key(0, 1);
-    fw_run(400);
-    key(4, 1);
-    key(7, 1);
-    fw_run((uint32_t)(secs * 1378) - 400);
-    key(0, 0);
-    key(4, 0);
-    key(7, 0);
-}
 static int cmd_patches(int argc, char **argv)
 {
     const char *dir = argc > 2 ? argv[2] : ".";
     int n = argc > 3 ? atoi(argv[3]) : 8, i, fails = 0, l;
     char name[512];
     for (i = 0; i < n; i++) {
-        uint32_t seed = 777u + (uint32_t)i * 7919u, nsl = 1u + (uint32_t)i % 4u;
         double t0, ns;
         fw_init();
-        ui.seed = seed;
+        ui.seed = 777u + (uint32_t)i * 7919u;
         printf("patch %d:\n", i);
-        for (l = 0; l < (int)nsl; l++) {                /* slots on, a patch each */
-            if (l)
-                press(SLOT_BTN[l], 900);
+        for (l = 0; l < (int)NSLOT; l++) {              /* every slot anew */
             press(SLOT_BTN[l], 50);
             press(B_HOME, 50);
-            fw_run(4);
-            print_slot((uint32_t)l);
+            fw_run(30);
         }
-        press(B_SAVE, 50);
+        for (l = 0; l < (int)NGEN; l++)
+            print_gen((uint32_t)l);
+        for (l = 0; l < (int)NFX; l++)
+            print_fx((uint32_t)l);
         fw_frames = 0;
         fw_peak = 0;
         fw_rms = 0;
         t0 = now_ns();
-        for (l = 0; l < (int)nsl; l++) {                /* a chord on each, overlapping */
+        for (l = 0; l < (int)NGEN; l++) {               /* notes on each, overlapping (four voices) */
             press(SLOT_BTN[l], 50);
-            key(0 + 2u * (uint32_t)l, 1);
-            key(4 + 2u * (uint32_t)l, 1);
+            key(0u + 2u * (uint32_t)l, 1);
+            if (l == 0)
+                key(4, 1);
             fw_run(700);
         }
         fw_run(1378);
@@ -581,33 +603,44 @@ static int cmd_patches(int argc, char **argv)
     printf("patches: %d, %d failures\n", n, fails);
     return fails ? 1 : 0;
 }
-/* every module alone: a slot wired into it, a few notes; its level against the dry */
+/* every effect alone: generator 1 wired into it, a few notes; its level against the dry */
 static int cmd_modules(int argc, char **argv)
 {
     const char *dir = argc > 2 ? argv[2] : ".";
     uint32_t m, rep;
     int fails = 0;
     char name[512];
-    for (m = 0; m < NMOD; m++) {
+    for (m = 0; m < NKIND; m++) {
         double dry = 0, wet = 0;
         int32_t pk = 0;
         for (rep = 0; rep < 3u; rep++) {
-            slot_patch_t *p;
+            gen_patch_t *p;
+            fx_patch_t *f;
+            rnd_t r;
             uint32_t b;
             fw_init();
-            rack_draw(91u + rep * 17u + m);
-            slot_draw(0, rep == 0 ? MF_IMPACT : rep == 1 ? MF_DRONE : MF_GLASS, 4242u + rep);
+            gen_draw(0, rep == 0 ? MF_IMPACT : rep == 1 ? MF_DRONE : MF_GLASS, 4242u + rep);
             fw_run(4);
-            p = &sbuf[0][s_use[0]];
+            for (b = 1; b < NFX; b++)
+                fx_mute[b] = 1;
+            f = &fbuf[0][f_use[0]];                     /* effect slot 4: that effect alone (its memory was cleared) */
+            memset(f, 0, sizeof *f);
+            f->n = 1;
+            f->e[0].kind = (uint8_t)m;
+            rnd_seed(&r, 91u + rep * 17u + m);
+            fx_values(&f->e[0], &r);
+            memset(fx_arena[0], 0, FX_ARENA);
+            fx_start(0);
+            p = &gbuf[0][g_use[0]];
             p->nent = 1;
-            p->ent[0] = (uint8_t)m;
-            rbuf[r_use].out |= (uint16_t)(1u << m);       /* (alone: straight out, wired to nothing after it) */
-            rbuf[r_use].to[m] = 0;
+            p->ent[0] = 0;
             p->send = Q15;
             p->dry = 0;
+            p->xsrc = XM_NONE;
             fw_frames = 0;
             fw_peak = 0;
             fw_rms = 0;
+            press(B_FX, 50);
             key(0, 1);
             key(4, 1);
             fw_run(1378 * 2);
@@ -616,12 +649,16 @@ static int cmd_modules(int argc, char **argv)
             fw_run(1378 * 2);
             wet += fw_rms / (fw_frames * 2.0);
             pk = maxi(pk, fw_peak);
+            if (getenv("VERBOSE"))
+                printf("  %s rep %u values %u %u %u %u rms %.4f\n", RM_NAME[m], rep, f->e[0].p[0], f->e[0].p[1], f->e[0].p[2],
+                       f->e[0].p[3], __builtin_sqrt(fw_rms / (fw_frames * 2.0)) / 32768.0);
             if (rep == 0) {
                 snprintf(name, sizeof name, "%s/module-%s.wav", dir, RM_NAME[m]);
                 wav_write2(name, wav2, fw_frames);
             }
             p->nent = 0;                                /* (the same, dry, for the comparison) */
             p->dry = Q15;
+            fw_run(1378 * 3);
             fw_frames = 0;
             fw_rms = 0;
             key(0, 1);
@@ -629,13 +666,12 @@ static int cmd_modules(int argc, char **argv)
             fw_run(1378 * 2);
             key(0, 0);
             key(4, 0);
-            for (b = 0; b < 1378u * 2u; b += 64u)
-                fw_run(64);
+            fw_run(1378 * 2);
             dry += fw_rms / (fw_frames * 2.0);
         }
         {
             double db = 10.0 * __builtin_log10((wet + 1) / (dry + 1));
-            printf("%-8s %+6.1f dB against the dry, peak %.2f\n", RM_NAME[m], db, pk / 32768.0);
+            printf("%-8s %+6.1f dB against the dry, peak %.2f, %u B\n", RM_NAME[m], db, pk / 32768.0, rm_size(m));
             if (db < -18.0) {
                 printf("FAIL %s: hardly heard\n", RM_NAME[m]);
                 fails++;
@@ -646,68 +682,91 @@ static int cmd_modules(int argc, char **argv)
             }
         }
     }
+    {   /* every recipe fits its slot's memory, drawn many times */
+        uint32_t s, t, worst = 0;
+        fw_init();
+        for (t = 0; t < 400u; t++)
+            for (s = 0; s < NFX; s++) {
+                const fx_patch_t *f;
+                uint32_t k, mem = 0;
+                fw_run(30);                             /* (the last one taken) */
+                if (!fx_draw(s, (int32_t)(t % FR_N), 1000u + t * 3u + s)) {
+                    printf("FAIL fx_draw busy\n");
+                    fails++;
+                    continue;
+                }
+                f = &fbuf[s][f_pub[s]];
+                for (k = 0; k < f->n; k++)
+                    mem += rm_size(f->e[k].kind);
+                worst = mem > worst ? mem : worst;
+                if (mem > FX_ARENA || f->n < 2u || f->n > FX_N) {
+                    printf("FAIL recipe %s: %u effects, %u B\n", FR_NAME[f->recipe], f->n, mem);
+                    fails++;
+                }
+            }
+        printf("recipes: the largest slot %u B of %u\n", worst, FX_ARENA);
+    }
     printf("modules: %d failures\n", fails);
     return fails ? 1 : 0;
 }
-/* the flows: slots on and off, HOME under held notes, every key at once, no voice left sounding */
+/* the flows: choosing, muting, HOME on both kinds of slot, latching, every key at once, no voice left sounding */
 static int cmd_flows(void)
 {
     int fails = 0;
     uint32_t k, n;
     fw_init();
-    if (!slot_on[0] || slot_on[1]) {
-        printf("FAIL flows: slot 1 alone is not on at the start\n");
+    press(B_SEL, 900);                                   /* generator 2 held: muted */
+    if (!gen_mute[1] || ui.gen != 1) {
+        printf("FAIL flows: a long press did not mute generator 2\n");
         fails++;
     }
-    press(B_SEL, 900);                                   /* slot 2 held: on */
-    if (!slot_on[1] || ui.sel != 1) {
-        printf("FAIL flows: a long press did not turn slot 2 on\n");
-        fails++;
-    }
-    press(B_SEL, 100);                                   /* a short press: chosen, still on */
-    if (!slot_on[1]) {
-        printf("FAIL flows: a short press turned slot 2 off\n");
+    press(B_SEL, 900);                                   /* .. and heard again */
+    if (gen_mute[1]) {
+        printf("FAIL flows: a second long press did not unmute generator 2\n");
         fails++;
     }
     key(0, 1);
     key(2, 1);
     fw_run(400);
-    press(B_HOME, 50);                                   /* HOME under held notes */
-    fw_run(400);
-    if (s_use[1] != s_pub[1]) {
-        printf("FAIL flows: the new patch was not taken\n");
-        fails++;
-    }
-    key(4, 1);
+    press(B_HOME, 50);                                   /* HOME under held notes: they move to the new sound */
     fw_run(400);
     for (k = 0; k < NVOICE; k++)
-        if (vox[k].sounding && vox[k].gate && vox[k].slot == 1 && vox[k].dsg != s_use[1]) {
+        if (vox[k].sounding && vox[k].gate && vox[k].slot == 1 && vox[k].dsg != g_use[1]) {
             printf("FAIL flows: a held voice on the old patch\n");
             fails++;
         }
-    press(B_FX, 50);                                     /* slot 1 chosen: the keys held on slot 2 still end there */
+    press(B_EDIT, 50);                                   /* effect slot 5 chosen: the keys still play generator 2 */
+    if (ui.sel != 4 || ui.gen != 1) {
+        printf("FAIL flows: choosing an effect slot moved the keys\n");
+        fails++;
+    }
+    press(B_HOME, 50);                                   /* HOME on it: a new recipe, faded, cleared, started */
+    fw_run(60);
+    if (f_pub[1] != f_use[1] || fx_phase[1] != FS_ON) {
+        printf("FAIL flows: the effect slot's new patch was not taken\n");
+        fails++;
+    }
     key(0, 0);
     key(2, 0);
-    key(4, 0);
     fw_run(10);
     for (k = 0; k < NVOICE; k++)
         if (vox[k].sounding && vox[k].gate) {
             printf("FAIL flows: a note held after its key was lifted\n");
             fails++;
         }
-    /* latching: SHIFT and a key latch it; the key let go, it sounds on; SHIFT and it again let it go */
+    /* latching: a key held and SHIFT pressed: latched; the key let go, it sounds on */
     press(B_FX, 50);
-    key(KEY_SHIFT, 1);
     key(9, 1);
-    key(9, 0);
+    key(KEY_SHIFT, 1);
     key(KEY_SHIFT, 0);
+    key(9, 0);
     fw_run(200);
     {
         int on = 0;
         for (k = 0; k < NVOICE; k++)
             on |= vox[k].sounding && vox[k].gate && vox[k].latched && vox[k].slot == 0;
         if (!on || !(ui.latch[0] & (1u << 9))) {
-            printf("FAIL flows: SHIFT and a key did not latch its note\n");
+            printf("FAIL flows: a key held and SHIFT pressed did not latch\n");
             fails++;
         }
     }
@@ -716,7 +775,7 @@ static int cmd_flows(void)
     {
         int on = 0;
         for (k = 0; k < NVOICE; k++)
-            on |= vox[k].sounding && vox[k].gate && vox[k].latched && vox[k].slot == 0 && vox[k].dsg == s_use[0];
+            on |= vox[k].sounding && vox[k].gate && vox[k].latched && vox[k].slot == 0 && vox[k].dsg == g_use[0];
         if (!on) {
             printf("FAIL flows: a latched note did not move to the new patch\n");
             fails++;
@@ -724,7 +783,7 @@ static int cmd_flows(void)
     }
     key(9, 1);                                           /* the key alone: nothing */
     key(9, 0);
-    key(KEY_SHIFT, 1);                                   /* SHIFT and it again: let go */
+    key(KEY_SHIFT, 1);                                   /* SHIFT held and the lit key: let go */
     key(9, 1);
     key(9, 0);
     key(KEY_SHIFT, 0);
@@ -734,63 +793,82 @@ static int cmd_flows(void)
             printf("FAIL flows: a latched note was not let go\n");
             fails++;
         }
-    press(B_SEL, 50);
-    press(B_SEL, 900);                                   /* slot 2 held again: off */
-    if (slot_on[1]) {
-        printf("FAIL flows: a long press did not turn slot 2 off\n");
+    press(B_LFO, 900);                                   /* effect slot 4 held: muted */
+    if (!fx_mute[0]) {
+        printf("FAIL flows: a long press did not mute effect slot 4\n");
         fails++;
     }
-    press(B_SEL, 50);
-    key(0, 1);                                           /* a key on a slot that is off: nothing */
-    fw_run(50);
-    for (k = 0; k < NVOICE; k++)
-        if (vox[k].sounding && vox[k].gate && vox[k].slot == 1) {
-            printf("FAIL flows: a slot that is off played\n");
-            fails++;
-        }
-    key(0, 0);
-    for (n = 1; n < NSLOT; n++)                          /* every slot on, every key at once, on each */
-        press(SLOT_BTN[n], 900);
-    press(B_HOME, 900);                                  /* HOME held: every slot anew */
-    for (n = 0; n < NSLOT; n++) {
+    press(B_LFO, 900);
+    press(B_HOME, 900);                                  /* HOME held: all six anew */
+    fw_run(100);
+    for (n = 0; n < NGEN; n++) {                         /* every key at once, on each generator */
         press(SLOT_BTN[n], 50);
         for (k = 0; k < NKEY; k++)
-            if (k != KEY_SHIFT)                          /* (SHIFT would latch the keys after it) */
+            if (k != KEY_SHIFT)                          /* (SHIFT would latch the keys held) */
                 key(k, 1);
         fw_run(100);
         for (k = 0; k < NKEY; k++)
             key(k, 0);
     }
-    for (n = 0; n < 1378u * 40u && slots_sounding(); n += 64u)
+    for (n = 0; n < 1378u * 40u && gens_sounding(); n += 64u)
         fw_run(64);
-    if (slots_sounding()) {
+    if (gens_sounding()) {
         for (k = 0; k < NVOICE; k++)
             if (vox[k].sounding)
-                printf("  voice %u: slot %u note %u gate %u latched %u fade %u pend %u live %u frozen %u down %u fm_done %u genv %d\n", k, vox[k].slot,
-                       vox[k].note, vox[k].gate, vox[k].latched, vox[k].fade, vox[k].pend, vmem[k].live, vmem[k].frozen, vmem[k].n.down,
-                       vmem[k].fm_done, vmem[k].genv);
+                printf("  voice %u: slot %u note %u gate %u latched %u fade %u pend %u\n", k, vox[k].slot, vox[k].note,
+                       vox[k].gate, vox[k].latched, vox[k].fade, vox[k].pend);
         printf("FAIL flows: a voice still sounds 40 s after every key was let go\n");
         fails++;
     }
-    for (n = 0; n < 30u; n++) {                          /* HOME and SEQ thirty times, fast, under notes */
+    for (n = 0; n < 30u; n++) {                          /* HOME on every slot, fast, under notes */
         press(SLOT_BTN[n % NSLOT], 30);
+        press(SLOT_BTN[n % NGEN], 30);
         key(0, 1);
         fw_run(20);
-        press(n & 1u ? B_HOME : B_SAVE, 30);
+        press(SLOT_BTN[(n * 5u) % NSLOT], 30);
+        press(B_HOME, 30);
         key(0, 0);
         fw_run(20);
     }
     fw_run(2000);
-    for (n = 0; n < NSLOT; n++)
-        if (s_use[n] != s_pub[n]) {
-            printf("FAIL flows: a patch left untaken\n");
+    for (n = 0; n < NGEN; n++)
+        if (g_use[n] != g_pub[n]) {
+            printf("FAIL flows: a generator's patch left untaken\n");
+            fails++;
+        }
+    for (n = 0; n < NFX; n++)
+        if (f_use[n] != f_pub[n] || fx_phase[n] != FS_ON) {
+            printf("FAIL flows: an effect slot's patch left untaken\n");
             fails++;
         }
     printf("flows: %d failures\n", fails);
     return fails ? 1 : 0;
 }
-/* the screens: one slot; three slots playing through the rack; all six with one chosen and off; a message; the scale
- * page */
+/* the two cores and one: the same sound (the rack runs one block late on both) */
+static uint32_t cores_hash(int cores)
+{
+    uint32_t h = 2166136261u, b;
+    int32_t out[2 * CTL];
+    audio_worker_online = cores > 1;
+    host_ticks = 0;                                      /* (the same start: the seed comes from the clock) */
+    fm1_ms = 0;
+    fw_init();
+    press(B_FX, 50);
+    key(0, 1);
+    key(4, 1);
+    press(B_SEL, 50);
+    key(7, 1);
+    for (b = 0; b < 1378u * 3u; b++) {
+        mix_block(out);
+        h = fnv(h, out, sizeof out);
+    }
+    key(0, 0);
+    key(4, 0);
+    key(7, 0);
+    audio_worker_online = 0;
+    return h;
+}
+/* the screens: the start; three generators playing, one muted; an effect slot chosen and muted; a message; the scale */
 static int cmd_screens(int argc, char **argv)
 {
     const char *dir = argc > 2 ? argv[2] : ".";
@@ -799,37 +877,35 @@ static int cmd_screens(int argc, char **argv)
     batt_raw = 600;
     fw_init();
     load_pct = 23;
-#define SHOT(nm) do { ui.load_at = fm1_ms - 1000u; ui.force = 1; ui_draw(); ui_draw(); ui_draw(); \
+#define SHOT(nm) do { ui.load_at = fm1_ms - 1000u; ui.msg_until = 0; ui.force = 1; ui_draw(); ui_draw(); ui_draw(); \
     snprintf(name, sizeof name, "%s/screen-%s.ppm", dir, nm); screen_save(name); } while (0)
-    SHOT("one-slot");
-    print_slot(0);
-    press(B_SEL, 900);
-    press(B_SEL, 50);
-    press(B_HOME, 50);
-    press(B_LFO, 900);
-    press(B_LFO, 50);
-    press(B_HOME, 50);
-    fw_run(4);
-    for (n = 0; n < 3; n++)
-        print_slot(n == 2 ? 3 : n);
-    press(B_SEL, 50);
+    SHOT("start");
+    for (n = 0; n < NGEN; n++)
+        print_gen(n);
+    for (n = 0; n < NFX; n++)
+        print_fx(n);
+    press(B_FX, 50);
     key(0, 1);
     key(4, 1);
-    press(B_LFO, 50);
+    press(B_ENV, 50);
     key(7, 1);
+    press(B_SEL, 50);
+    key(9, 1);
     fw_run(800);
     load_pct = 47;
-    SHOT("three-slots");
-    for (n = 0; n < 6; n++)
-        if (!slot_on[n])
-            press(SLOT_BTN[n], 900);
-    press(B_EDIT, 900);                                  /* slot 5 off again, chosen */
-    fw_run(4);
+    SHOT("playing");
+    press(B_ENV, 900);                                   /* generator 3 muted */
+    press(B_GLO, 50);                                    /* effect slot 6 chosen */
+    fw_run(200);
+    SHOT("fx-chosen");
+    press(B_GLO, 900);                                   /* .. and muted */
     load_pct = 88;
-    ui.msg_until = 0;
-    SHOT("five-slots");
-    say("SLOT 5 OFF", 1000);
-    SHOT("message");
+    SHOT("fx-muted");
+    say("6 MUTED", 1000);
+    ui.force = 1;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-message.ppm", dir);
+    screen_save(name);
     ui.msg_until = 0;
     ui.sc_page = 1;
     ui.scale = 15;
@@ -848,10 +924,15 @@ int main(int argc, char **argv)
         return cmd_flows();
     if (argc >= 2 && !strcmp(argv[1], "modules"))
         return cmd_modules(argc, argv);
+    if (argc >= 2 && !strcmp(argv[1], "cores")) {
+        uint32_t h2 = cores_hash(2), h1 = cores_hash(1);
+        printf("cores: two %08x, one %08x\n", h2, h1);
+        return h1 != h2;
+    }
     if (argc >= 2 && !strcmp(argv[1], "screens"))
         return cmd_screens(argc, argv);
     if (argc < 2) {
-        fprintf(stderr, "host render DIR [SEEDS] [PATH] | one DIR FAMILY SEED [PATH] | check | golden | bench | patches DIR [N] | modules DIR | flows | screens DIR\n");
+        fprintf(stderr, "host render DIR [SEEDS] [PATH] | one DIR FAMILY SEED [PATH] | check | golden | bench | patches DIR [N] | modules DIR | flows | cores | screens DIR\n");
         return 2;
     }
     if (!strcmp(argv[1], "render"))

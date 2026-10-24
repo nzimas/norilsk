@@ -11,7 +11,7 @@
 #define MOLECULAR_ID "FM-1_700"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef MOLECULAR_VERSION
-#define MOLECULAR_VERSION "0.03"
+#define MOLECULAR_VERSION "0.04"
 #endif
 #define FELUCCA_ID MOLECULAR_ID
 #define FELUCCA_OTA 1            /* the update entry (the installer), and the rescue mode */
@@ -20,7 +20,8 @@
 #define FELUCCA_UAC 0            /* (USB audio out: later, from Tonitor's usb.c) */
 #define FELUCCA_UAC_48K 0
 #define HALF_FRAMES 256u         /* an I2S half buffer: 5.8 ms (main.c renders it) */
-#define FM1_CORE1 1              /* (the HAL's CPU1 hold at reset; CPU1 is never started: one core renders, for now) */
+#define FM1_CORE1 1              /* CPU1 runs the effects and some voices (hal/fm1_multicore.h; after Tonitor, BIGORNA build 32
+                                  * and Melodee 1.4.5) */
 
 #include "fm1_time.h"
 #include "fm1_sys.h"
@@ -28,7 +29,7 @@
 #include "fm1_irq.h"
 #include "fm1_core1_bar.h"
 #include "fm1_core1_stop.h"
-#include "fm1_multicore.h"       /* (crt0.S needs its entry; fm1_multicore_start is never called) */
+#include "fm1_multicore.h"
 #include "fm1_guard.h"
 #include "fm1_input.h"
 #include "fm1_timer.h"
@@ -52,6 +53,6 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "mol.c"
 #include "usb.c"
 #include "rack.c"
-#include "slots.c"
+#include "gens.c"
 #include "ui.c"
 #include "main.c"

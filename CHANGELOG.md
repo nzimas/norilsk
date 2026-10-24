@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.04 (2026-10-24): three generators, three effect slots, two cores
+
+The owner's design after trying 0.03: the engine is dear, so three generators instead of six.
+
+- **The top row**: FX SEL ENV are the generator slots 1 to 3, LFO EDIT GLO the effect slots 4 to 6. A press chooses
+  the slot; a 0.8 s hold mutes it, or lets it be heard again. Nothing is switched off: a muted generator's notes go on,
+  silent; a muted effect slot is skipped.
+- **Effect slots**: each a chain of two or three effects drawn from a recipe (SPACE, ECHO, METAL, STRINGS, EROSION,
+  GHOST, SPECTRAL, RESONANT, FOLDS, TELEPHONE). HOME on an effect slot draws its recipe, its effects, their values and
+  its cables across to the slots after it; SHIFT + HOME keeps the recipe. The same effect may stand in several slots:
+  each is an instance in its slot's own memory (60 KiB a slot; a recipe is drawn to fit). A new patch fades the slot
+  out, clears its memory a piece a block, and starts the new effects. REV (the plate reverb, capped at SIZE 1.0 for the
+  memory) and DLY (the delay, now 1 s) are effects like any other.
+- **Generators**: HOME draws the chosen generator's sound, the effects it is wired into (one to three, in any slot,
+  mostly at the head of a chain), its modulation by another generator, its level and pan. SHIFT + HOME keeps the
+  family. HOME held 0.8 s draws all six slots anew.
+- **Four voices** for the three generators; the keys play the generator chosen last, also while an effect slot is
+  chosen. SELECT and ALGORITHM set the chosen slot's level and pan, generator or effect slot.
+- **Latching, the other way round**: hold a white key and press SHIFT to latch it; hold SHIFT and press the lit key to
+  let it go.
+- **The second core** (Tonitor's): CPU1 runs the effects, on what the generators sent the block before (0.73 ms
+  later), and the voices dealt to it by their cost; CPU0 the rest. One core and two give the same sound, bit for bit
+  (a host test). A CPU1 fault retires it until power-off, said on the screen.
+- **The screen**: the three generators as large numbered blocks (filled when heard, an outline when muted, framed in
+  white when chosen, in grey when the keys play it while an effect slot is chosen); the three effect slots as rows of
+  named tiles, each bordered in the colours of the generators wired into it, the keyboard generator's tiles filled with
+  its colour, a muted row dark, the chosen row framed in white. No cables.
+- Effects' values are drawn within bounds that keep each one heard; SPRING takes the sound itself as well as its
+  colour; FILTER's band-pass is kept broad.
+
 ## 0.03 (2026-10-23): two dice, generators and pedalboard
 
 The owner's model: synthesizers sharing a pedalboard.

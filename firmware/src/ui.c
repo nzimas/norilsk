@@ -1,37 +1,39 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * MOLECULAR: the panel and the screen.
  *
- *   FX SEL ENV LFO EDIT GLO   the top row: slots 1 to 6. Pressed: the slot chosen. Held 0.8 s: the slot on, or
- *                             off again (only slot 1 is on at the start)
- *   HOME                      a new patch for the slot chosen: its sound, the modules it is wired into, its
- *                             modulation by another slot, its level and pan. SHIFT + HOME: a new one of the same
- *                             family. HOME held 0.8 s: a new patch for every slot that is on
- *   SAVE                      a new patch for the rack: every module's values, and how the modules are wired to
- *                             each other (the slots' wiring into the rack is kept)
- *   the white keys            play the slot chosen, in the scale chosen: the first key is the root, every white key
- *                             the next note of the scale. Six voices for the six slots. SHIFT + a key: its note
- *                             latched on the slot (the key lit while the slot is chosen); SHIFT + it again: let go
- *   ARP                       the SCALE page (its light: on it): SELECT the scale, ALGORITHM the root
+ *   FX SEL ENV                the generator slots 1 to 3. Pressed: the slot chosen (the keys play it). Held 0.8 s:
+ *                             muted, or heard again
+ *   LFO EDIT GLO              the effect slots 4 to 6. Pressed: the slot chosen. Held 0.8 s: muted, or heard again
+ *   HOME                      a new patch for the slot chosen. A generator: its sound, the effects it is wired into,
+ *                             its modulation by another generator, its level and pan. An effect slot: a recipe -- its
+ *                             two or three effects, their values, its cables across to the slots after it.
+ *                             SHIFT + HOME: a new one of the same family, or recipe. HOME held 0.8 s: all six anew
+ *   the white keys            play the generator chosen last, in the scale chosen: the first key is the root, every
+ *                             white key the next note of the scale. Four voices for the three generators. A key held
+ *                             and SHIFT pressed: its note latched (the key lit while its generator is chosen); SHIFT
+ *                             held and the lit key pressed: let go
  *   SELECT, ALGORITHM         the chosen slot's level and pan (the SCALE page aside)
+ *   ARP                       the SCALE page (its light: on it): SELECT the scale, ALGORITHM the root
  *   OCT- / OCT+               the octave, -3 .. +3
- *   SEQ, PLAY, REC            nothing yet
- *   USB MIDI notes            as the keys, on the slot chosen
+ *   SAVE, SEQ, PLAY, REC      nothing yet
+ *   USB MIDI notes            as the keys, on the generator chosen last
  *   MASTER (knob)             the level
  *
  * The screen is for low vision: a few words, large, high contrast. At the top, the audio's load at the left and the
- * battery at the right (or a message, black on white, across). Under it the six slots, each a block in its own
- * colour: filled when on, an outline when off, framed in white when chosen, brighter as it sounds; a small square in
- * another slot's colour in its corner when that slot modulates it. Under them the rack: twelve tiles, three across,
- * four down, each with its name. No cables: round each tile, a border in the colours of the slots wired into it, the
- * border shared out equally between them; the tiles the chosen slot is wired into filled with its colour, their names
- * white, the others dark, their names grey; a tile brightens as sound passes through it. The left column sounds at
- * the left, the right column at the right. How the modules are wired to each other is not drawn. */
+ * battery at the right (or a message, black on white, across). Under it the three generators, a block each in its
+ * own colour: filled when heard, an outline when muted, brighter as it sounds, framed in white when chosen (in grey
+ * when an effect slot is chosen and the keys still play it); a small square in another generator's colour in its
+ * corner when that one modulates it. Under them the three effect slots, a row each: its effects as tiles, named;
+ * round each tile a border in the colours of the generators wired into it, shared out equally; the tiles the
+ * generator the keys play is wired into filled with its colour; a tile brightens as sound passes through it; a
+ * muted slot's tiles dark; the chosen slot's row framed in white. No cables are drawn. */
 
 /* the panel: which matrix button carries which printed label (as SLOOP's panel.c, default table) */
 enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP, NB };
 enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, NE };
 static const uint8_t PANEL_BTN[NB] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1};
 static const uint8_t PANEL_ENC[NE] = {0, 1, 6, 2, 3, 4, 5};
+#define NSLOT (NGEN + NFX)       /* the top row's six: three generators, three effect slots */
 static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO};
 #define NKEY 27u
 #define KEY_SHIFT 25u            /* the rightmost black key */
@@ -75,25 +77,23 @@ static const uint8_t SCALE_STEP[NSCALE][SCALE_MAXN] = {
 static const char *const NOTE_NAME[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 #define SCALE_BASE 48            /* the root's octave: C3 .. B3 on the first key (the octave moves it) */
 
-/* the slots' colours (not Tonitor's: a set of their own) */
-static const uint16_t SLOT_COL[NSLOT] = {RGB(255, 72, 72), RGB(72, 150, 255), RGB(170, 255, 60), RGB(190, 110, 255),
-                                         RGB(255, 150, 200), RGB(235, 185, 60)};
+/* the generators' colours (not Tonitor's: a set of their own) */
+static const uint16_t GEN_COL[NGEN] = {RGB(255, 72, 72), RGB(72, 150, 255), RGB(170, 255, 60)};
 #define C_SCALE RGB(255, 196, 90)
 #define C_OK RGB(60, 220, 90)
-static const char *const RM_TILE[NMOD] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "DLY", "TAP", "RVS", "SPR", "PLT"};
+static const char *const RM_TILE[NKIND] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "DLY", "TAP", "RVS", "SPR", "REV"};
 
 /* the screen's layout */
 #define TOP_H 40
-#define SLOT_Y 42
-#define SLOT_H 46
-#define SLOT_P 40                /* a slot's pitch across */
-#define RACK_Y 90
-#define RACK_COLS 3
-#define TILE_P 80                /* a tile's pitch across */
-#define TILE_H 37                /* .. and down */
+#define GEN_Y 42
+#define GEN_H 48
+#define GEN_P 80                 /* a generator's block's pitch across */
+#define FXR_Y 92                 /* the first effect slot's row */
+#define FXR_H 49                 /* a row's height */
 
 static struct {
-    uint8_t sel;
+    uint8_t sel;                 /* the slot chosen: 0 .. 2 a generator, 3 .. 5 an effect slot */
+    uint8_t gen;                 /* the generator the keys play: the last chosen */
     int8_t oct;
     uint8_t key_note[NKEY], key_slot[NKEY];   /* what a key down holds (KEY_NONE: nothing) */
     uint32_t keys;               /* the keys down last time */
@@ -113,14 +113,15 @@ static struct {
     /* what the screen shows (a part is drawn again when what it shows changed) */
     uint8_t shown_page;
     int32_t shown_top;
-    int32_t shown_slot[NSLOT], shown_tile[NMOD];
+    int32_t shown_gen[NGEN], shown_row[NFX], shown_tile[NINST];
     int8_t shown_sc_touch;
     uint8_t shown_scale, shown_root;
     uint32_t load_at;
     uint8_t load_shown;
     uint8_t midi_note[128], midi_slot[128];
-    uint32_t latch[NSLOT];       /* each slot's keys latched (lit while it is chosen) */
-    uint8_t latch_note[NSLOT][NKEY];
+    uint32_t latch[NGEN];        /* each generator's keys latched */
+    uint8_t latch_note[NGEN][NKEY];
+    uint8_t was_on;              /* (CPU1 running, last time: its loss said once) */
 } ui;
 static int32_t batt_raw;                         /* the battery's divider, smoothed (main.c), 0 .. 1023; 0 none yet */
 
@@ -168,34 +169,27 @@ static uint32_t next_seed(void)
     ui.seed = ui.seed * 1664525u + 1013904223u + fm1_ticks();
     return ui.seed;
 }
-/* HOME on slot l (same: of the same family) */
-static void new_patch(uint32_t l, int same)
+/* HOME on slot l (same: of the same family, or recipe) */
+static int new_patch(uint32_t l, int same)
 {
-    int32_t f = same && slot_drawn[l] ? (int32_t)sbuf[l][s_use[l]].gen.family : -1;
-    if (slot_draw(l, f, next_seed())) {
+    int ok;
+    if (l < NGEN)
+        ok = gen_draw(l, same && gen_drawn[l] ? (int32_t)gbuf[l][g_use[l]].gen.family : -1, next_seed());
+    else
+        ok = fx_draw(l - NGEN, same ? (int32_t)fbuf[l - NGEN][f_use[l - NGEN]].recipe : -1, next_seed());
+    if (ok)
         ui.home_until = fm1_ms + 400u;
-        if (!slot_on[l])
-            say_n("SLOT ", (int32_t)l + 1, " OFF", 1200);
-    } else
-        say("BUSY", 600);
+    return ok;
 }
-/* a slot on or off (a long press on its button) */
-static void slot_toggle(uint32_t l)
+/* a slot muted or heard again (a long press on its button) */
+static void slot_mute(uint32_t l)
 {
-    if (slot_on[l]) {
-        slot_on[l] = 0;
-        ui.latch[l] = 0;                         /* (its latched notes go with it) */
-        ev_post(EV_SLOT_OFF, l, 0);
-        say_n("SLOT ", (int32_t)l + 1, " OFF", 1200);
-    } else {
-        if (!slot_drawn[l])
-            slot_draw(l, -1, next_seed());
-        slot_on[l] = 1;
-        say_n("SLOT ", (int32_t)l + 1, " ON", 1200);
-    }
+    volatile uint8_t *m = l < NGEN ? &gen_mute[l] : &fx_mute[l - NGEN];
+    *m ^= 1u;
+    say_n("", (int32_t)l + 1, *m ? " MUTED" : " HEARD", 1200);
 }
 
-/* USB MIDI in: notes as the keys, on the slot chosen (any channel) */
+/* USB MIDI in: notes as the keys, on the generator chosen last (any channel) */
 static void midi_take(void)
 {
     while (mi_r != mi_w) {
@@ -203,9 +197,9 @@ static void midi_take(void)
         RING_PUBLISH();
         mi_r++;
         if (cin == 9u && d2) {
-            ev_post(EV_ON, ui.sel, d1);
+            ev_post(EV_ON, ui.gen, d1);
             ui.midi_note[d1] = 1;
-            ui.midi_slot[d1] = ui.sel;
+            ui.midi_slot[d1] = ui.gen;
         } else if (cin == 8u || (cin == 9u && !d2)) {
             if (ui.midi_note[d1]) {
                 ev_post(EV_OFF, ui.midi_slot[d1], d1);
@@ -219,10 +213,15 @@ static void ui_input(void)
 {
     uint32_t rel, press = fm1_input_edges(&rel), keys, ch, k, l;
     int32_t s;
-    /* the slots' buttons: pressed, chosen; held, on or off */
+    if (ui.was_on && !audio_worker_online)
+        say("1 CORE", 4000);                     /* (CPU1 retired as it plays: said, once) */
+    ui.was_on = (uint8_t)audio_worker_online;
+    /* the slots' buttons: pressed, chosen; held, muted or heard again */
     for (l = 0; l < NSLOT; l++) {
         if (btn_bit(press, SLOT_BTN[l])) {
             ui.sel = (uint8_t)l;
+            if (l < NGEN)
+                ui.gen = (uint8_t)l;
             ui.btn_down[l] = 1;
             ui.btn_done[l] = 0;
             ui.btn_t0[l] = fm1_ms;
@@ -235,10 +234,10 @@ static void ui_input(void)
             ui.btn_down[l] = 0;
         if (ui.btn_down[l] && !ui.btn_done[l] && (uint32_t)(fm1_ms - ui.btn_t0[l]) >= HOLD_MS) {
             ui.btn_done[l] = 1;
-            slot_toggle(l);
+            slot_mute(l);
         }
     }
-    /* HOME: let go soon, a new patch for the slot chosen (SHIFT: of the same family); held, for every slot that is on */
+    /* HOME: let go soon, a new patch for the slot chosen (SHIFT: of the same family / recipe); held, all six anew */
     if (btn_bit(press, B_HOME)) {
         ui.home_down = 1;
         ui.home_done = 0;
@@ -246,21 +245,15 @@ static void ui_input(void)
         ui.home_shift = (uint8_t)shift_held();
     }
     if (ui.home_down && !ui.home_done && (uint32_t)(fm1_ms - ui.home_t0) >= HOLD_MS) {
+        int ok = 1;
         ui.home_done = 1;
         for (l = 0; l < NSLOT; l++)
-            if (slot_on[l])
-                new_patch(l, 0);
-        say("ALL NEW", 1000);
+            ok &= new_patch(l, 0);
+        say(ok ? "ALL NEW" : "BUSY", 1000);
     }
     if (ui.home_down && !btn_bit(fm1_in.buttons, B_HOME)) {
         ui.home_down = 0;
-        if (!ui.home_done)
-            new_patch(ui.sel, ui.home_shift);
-    }
-    if (btn_bit(press, B_SAVE)) {
-        if (rack_draw(next_seed()))
-            say("NEW RACK", 800);
-        else
+        if (!ui.home_done && !new_patch(ui.sel, ui.home_shift))
             say("BUSY", 600);
     }
     if (btn_bit(press, B_ARP)) {
@@ -286,18 +279,20 @@ static void ui_input(void)
             ui.sc_touch_until = fm1_ms + 700u;
         }
     } else {                                     /* SELECT the chosen slot's level, ALGORITHM its pan */
+        volatile int8_t *lv = ui.sel < NGEN ? &gen_lvl[ui.sel] : &fx_lvl[ui.sel - NGEN];
+        volatile int8_t *pn = ui.sel < NGEN ? &gen_pan[ui.sel] : &fx_pan[ui.sel - NGEN];
         s = fm1_enc_take(PANEL_ENC[EN_SELECT]);
         if (s) {
-            slot_lvl[ui.sel] = (int8_t)clampi(slot_lvl[ui.sel] + s, 0, LEVEL_MAX);
-            if (slot_lvl[ui.sel])
-                say_n("LEVEL ", slot_lvl[ui.sel], "", 800);
+            *lv = (int8_t)clampi(*lv + s, 0, LEVEL_MAX);
+            if (*lv)
+                say_n("LEVEL ", *lv, "", 800);
             else
                 say("LEVEL OFF", 800);
         }
         s = fm1_enc_take(PANEL_ENC[EN_ALGO]);
         if (s) {
-            int32_t p = clampi(slot_pan[ui.sel] + s, -PAN_MAX, PAN_MAX);
-            slot_pan[ui.sel] = (int8_t)p;
+            int32_t p = clampi(*pn + s, -PAN_MAX, PAN_MAX);
+            *pn = (int8_t)p;
             if (!p)
                 say("PAN C", 800);
             else
@@ -306,38 +301,35 @@ static void ui_input(void)
     }
     for (k = 0; k < NE; k++)                     /* (the other knobs: nothing yet; their steps dropped) */
         fm1_enc_take(PANEL_ENC[k]);
-    /* the keys: the slot chosen; a key lifted ends its note on the slot it was played on */
+    /* the keys: the generator chosen last; a key lifted ends its note on the slot it was played on */
     keys = fm1_in.notes;
     (void)fm1_input_note_edges();
     ch = keys ^ ui.keys;
+    if ((ch & keys) >> KEY_SHIFT & 1u)           /* SHIFT pressed: the keys held latched */
+        for (k = 0; k < NKEY; k++)
+            if (((keys >> k) & 1u) && k != KEY_SHIFT && ui.key_note[k] != KEY_NONE) {
+                uint32_t g = ui.key_slot[k];
+                ui.latch[g] |= 1u << k;
+                ui.latch_note[g][k] = ui.key_note[k];
+                ev_post(EV_LATCH, g, ui.key_note[k]);
+                ui.key_note[k] = KEY_NONE;       /* (letting go of the key no longer ends it) */
+            }
     for (k = 0; ch && k < NKEY; k++) {
-        if (!((ch >> k) & 1u))
-            continue;
-        if (white_ix(k) < 0)
-            continue;                            /* the black keys: no notes */
+        if (!((ch >> k) & 1u) || white_ix(k) < 0)
+            continue;                            /* (the black keys: no notes) */
         if ((keys >> k) & 1u) {
             uint32_t note = scale_note(white_ix(k), ui.oct), bit = 1u << k;
             ui.key_note[k] = KEY_NONE;
-            if (!slot_on[ui.sel]) {
-                say_n("SLOT ", (int32_t)ui.sel + 1, " OFF", 800);
+            if ((ui.latch[ui.gen] & bit) && ((keys >> KEY_SHIFT) & 1u)) {   /* SHIFT held, a lit key: let go */
+                ui.latch[ui.gen] &= ~bit;
+                ev_post(EV_OFF, ui.gen, ui.latch_note[ui.gen][k]);
                 continue;
             }
-            if (ui.latch[ui.sel] & bit) {        /* a latched key: SHIFT lets it go; alone, nothing */
-                if (shift_held()) {
-                    ui.latch[ui.sel] &= ~bit;
-                    ev_post(EV_OFF, ui.sel, ui.latch_note[ui.sel][k]);
-                }
-                continue;
-            }
-            if (shift_held()) {                  /* SHIFT and a key: latched */
-                ui.latch[ui.sel] |= bit;
-                ui.latch_note[ui.sel][k] = (uint8_t)note;
-                ev_post(EV_LATCH, ui.sel, note);
-                continue;
-            }
+            if (ui.latch[ui.gen] & bit)
+                continue;                        /* (a latched key alone: nothing) */
             ui.key_note[k] = (uint8_t)note;
-            ui.key_slot[k] = ui.sel;
-            ev_post(EV_ON, ui.sel, note);
+            ui.key_slot[k] = ui.gen;
+            ev_post(EV_ON, ui.gen, note);
         } else if (ui.key_note[k] != KEY_NONE) {
             ev_post(EV_OFF, ui.key_slot[k], ui.key_note[k]);
             ui.key_note[k] = KEY_NONE;
@@ -351,14 +343,16 @@ static void ui_input(void)
 static void ui_leds(void)
 {
     uint32_t k;
-    for (k = 0; k < NSLOT; k++)                  /* the chosen slot lit; one that is on but not chosen, blinking slowly */
-        fm1_led_key(PANEL_BTN[SLOT_BTN[k]], k == ui.sel || (slot_on[k] && (fm1_ms / 600u) % 4u == 0u));
+    for (k = 0; k < NSLOT; k++) {                /* the chosen slot lit; a muted one blinking */
+        int muted = k < NGEN ? gen_mute[k] : fx_mute[k - NGEN];
+        fm1_led_key(PANEL_BTN[SLOT_BTN[k]], k == ui.sel ? !muted || (fm1_ms / 300u) & 1u : muted && (fm1_ms / 300u) % 4u == 0u);
+    }
     fm1_led_key(PANEL_BTN[B_HOME], (int32_t)(ui.home_until - fm1_ms) > 0);
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct > 0);
-    for (k = 0; k < NKEY; k++)                   /* a key held, or latched on the slot chosen */
-        fm1_led_key(14u + k, white_ix(k) >= 0 && (((ui.keys >> k) & 1u) || ((ui.latch[ui.sel] >> k) & 1u)));
+    for (k = 0; k < NKEY; k++)                   /* a key held, or latched on the generator the keys play */
+        fm1_led_key(14u + k, white_ix(k) >= 0 && (((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u)));
     fm1_led_key(14u + KEY_SHIFT, shift_held());
 }
 
@@ -458,41 +452,43 @@ static void draw_top(void)
     cv_blit(0, 0);
     ui.shown_top = key;
 }
-/* a slot's block: filled in its colour when on (brighter as it sounds), an outline when off, framed in white when
- * chosen; its number; the colour of the slot that modulates it, in a corner */
-static void draw_slot(uint32_t l, int32_t key)
+/* a generator's block: filled in its colour when heard (brighter as it sounds), an outline when muted; framed in
+ * white when chosen, in grey when an effect slot is chosen and the keys play it; its number; the colour of the
+ * generator that modulates it, in a corner */
+static int32_t gen_key(uint32_t l)
 {
-    const slot_patch_t *p = &sbuf[l][s_use[l]];
-    uint16_t c = SLOT_COL[l], fg;
-    int32_t st = key & 3, w = SLOT_P - 2;
+    const gen_patch_t *p = &gbuf[l][g_use[l]];
+    int32_t xm = p->xsrc < NGEN ? p->xsrc + 1 : 0, fr = ui.sel == l ? 2 : ui.gen == l ? 1 : 0;
+    return level_step(gen_mute[l] ? 0 : gen_meter[l]) | gen_mute[l] << 2 | fr << 3 | xm << 5;
+}
+static void draw_gen(uint32_t l, int32_t key)
+{
+    uint16_t c = GEN_COL[l], fg, bg = 0;
+    int32_t st = key & 3, fr = (key >> 3) & 3, xm = (key >> 5) & 3, w = GEN_P - 2;
     char d[2] = {(char)('1' + l), 0};
-    cv_begin((uint32_t)w, SLOT_H, C_BLACK);
-    if (slot_on[l]) {
-        cv_rect(3, 3, w - 6, SLOT_H - 6, col_scale(c, 184 + st * 24));
+    cv_begin((uint32_t)w, GEN_H, C_BLACK);
+    if (!gen_mute[l]) {
+        bg = col_scale(c, 184 + st * 24);
+        cv_rect(4, 4, w - 8, GEN_H - 8, bg);
         fg = C_BLACK;
-        cv_bg_set(col_scale(c, 184 + st * 24));
+        cv_bg_set(bg);
     } else {
-        cv_frame(5, 5, w - 10, SLOT_H - 10, 3, c);
+        cv_frame(6, 6, w - 12, GEN_H - 12, 4, c);
         fg = c;
     }
-    if (l == ui.sel)
-        cv_frame(0, 0, w, SLOT_H, 3, C_WHITE);
-    cv_text((w - text_w(&FONT_S, d)) / 2, (SLOT_H - FONT_S.h) / 2, &FONT_S, d, fg);
-    if (slot_on[l] && p->xsrc < NSLOT && slot_on[p->xsrc]) {   /* modulated by another slot */
-        cv_rect(w - 15, 3, 12, 12, C_BLACK);
-        cv_rect(w - 13, 5, 8, 8, SLOT_COL[p->xsrc]);
+    if (fr == 2)
+        cv_frame(0, 0, w, GEN_H, 4, C_WHITE);
+    else if (fr == 1)
+        cv_frame(0, 0, w, GEN_H, 2, C_GREY);
+    cv_text((w - text_w(&FONT_M, d)) / 2, (GEN_H - FONT_M.h) / 2, &FONT_M, d, fg);
+    if (xm) {                                    /* modulated by another generator */
+        cv_rect(w - 20, 4, 16, 16, C_BLACK);
+        cv_rect(w - 18, 6, 12, 12, GEN_COL[xm - 1]);
     }
-    cv_blit((uint32_t)(l * SLOT_P + 1u), SLOT_Y);
+    cv_blit(l * GEN_P + 1u, GEN_Y);
 }
-static int32_t slot_key(uint32_t l)
-{
-    const slot_patch_t *p = &sbuf[l][s_use[l]];
-    int32_t xm = slot_on[l] && p->xsrc < NSLOT && slot_on[p->xsrc] ? p->xsrc + 1 : 0;
-    return level_step(slot_on[l] ? slot_meter[l] : 0) | slot_on[l] << 2 | (l == ui.sel) << 3 | xm << 4 |
-           (int32_t)(p->serial & 0xFFFFu) << 8;
-}
-/* a border t pixels thick round a w x h box, shared out between n colours: the perimeter walked clockwise from the
- * top left, each colour its equal stretch of it */
+/* a border t pixels thick round a w x h box, shared out between n colours: the perimeter walked clockwise from the top
+ * left, each colour its equal stretch of it */
 static void cv_border_shared(int32_t w, int32_t h, int32_t t, const uint16_t *col, int32_t n)
 {
     int32_t per = 2 * (w + h), k;
@@ -513,43 +509,69 @@ static void cv_border_shared(int32_t w, int32_t h, int32_t t, const uint16_t *co
             cv_rect(0, h - hi, t, hi - lo, c);
     }
 }
-/* a module's tile: round it, a border in the colours of the slots wired into it (shared out equally); filled with the
- * chosen slot's colour, its name white, when the chosen slot is wired into it, else dark, its name grey; brighter as
- * sound passes through it */
-static void draw_tile(uint32_t m, int32_t key)
+/* an effect slot's row: framed in white when chosen; its tiles inside */
+static int32_t row_key(uint32_t s)
 {
-    int32_t st = key & 3, feed = (key >> 2) & 63, hi = (key >> 8) & 1, w = TILE_P - 2, h = TILE_H - 2, k, n = 0;
+    const fx_patch_t *f = &fbuf[s][f_use[s]];
+    return (int32_t)(ui.sel == NGEN + s) | fx_mute[s] << 1 | f->n << 2 | (int32_t)(f->serial & 0xFFFFu) << 4 |
+           (fx_phase[s] == FS_CLEAR) << 20;
+}
+static void draw_row(uint32_t s, int32_t key)
+{
+    uint16_t c = (key & 1) ? C_WHITE : C_BLACK;
+    uint32_t y = FXR_Y + s * FXR_H;
+    lcd_fill(0, y, 240, 3, c);
+    lcd_fill(0, y + FXR_H - 3, 240, 3, c);
+    lcd_fill(0, y, 3, FXR_H, c);
+    lcd_fill(237, y, 3, FXR_H, c);
+}
+/* an effect's tile: its name; round it, a border in the colours of the generators wired into it (shared out equally);
+ * filled with the colour of the generator the keys play when that one is wired into it; brighter as sound passes */
+static int32_t tile_key(uint32_t inst, const uint32_t *mods)
+{
+    uint32_t s = inst / FX_N, k = inst % FX_N;
+    const fx_patch_t *f = &fbuf[s][f_use[s]];
+    int32_t feed = 0, g;
+    if (k >= f->n || fx_phase[s] == FS_CLEAR)
+        return -2;                               /* (no effect there) */
+    for (g = 0; g < NGEN; g++)
+        if (!gen_mute[g] && ((mods[g] >> inst) & 1u))
+            feed |= 1 << g;
+    return level_step(fx_mute[s] ? 0 : rm_meter[inst]) | feed << 2 | (int32_t)(!gen_mute[ui.gen] && ((mods[ui.gen] >> inst) & 1u)) << 5 |
+           (int32_t)ui.gen << 6 | fx_mute[s] << 8 | f->e[k].kind << 9 | f->n << 13 | (int32_t)(f->serial & 0xFFu) << 16;
+}
+static void draw_tile(uint32_t inst, int32_t key)
+{
+    uint32_t s = inst / FX_N, k = inst % FX_N, n = (uint32_t)(key >> 13) & 3u, kind = (uint32_t)(key >> 9) & 15u;
+    int32_t st = key & 3, feed = (key >> 2) & 7, hi = (key >> 5) & 1, muted = (key >> 8) & 1, g, nc = 0;
+    int32_t pitch = 234 / (int32_t)(n ? n : 1u), w = pitch - 2, h = FXR_H - 7;
     static const uint8_t GREY[4] = {18, 40, 66, 96};
-    uint16_t col[NSLOT], bg, fg;
-    if (hi) {
-        bg = col_scale(SLOT_COL[ui.sel], 60 + st * 24);
+    uint16_t col[NGEN], bg, fg;
+    if (key == -2)
+        return;
+    if (muted) {
+        bg = RGB(10, 10, 10);
+        fg = RGB(70, 70, 70);
+    } else if (hi) {
+        bg = col_scale(GEN_COL[ui.gen], 60 + st * 24);
         fg = C_WHITE;
     } else {
         bg = RGB(GREY[st], GREY[st], GREY[st]);
-        fg = feed ? RGB(150, 150, 150) : RGB(80, 80, 80);
+        fg = feed ? RGB(160, 160, 160) : RGB(90, 90, 90);
     }
     cv_begin((uint32_t)w, (uint32_t)h, bg);
-    for (k = 0; k < NSLOT; k++)
-        if ((feed >> k) & 1)
-            col[n++] = SLOT_COL[k];
-    if (n)
-        cv_border_shared(w, h, 4, col, n);
+    for (g = 0; g < NGEN; g++)
+        if ((feed >> g) & 1)
+            col[nc++] = muted ? col_scale(GEN_COL[g], 90) : GEN_COL[g];
+    if (nc)
+        cv_border_shared(w, h, 4, col, nc);
     cv_bg_set(bg);
-    cv_text((w - text_w(&FONT_S, RM_TILE[m])) / 2, (h - FONT_S.h) / 2 + 1, &FONT_S, RM_TILE[m], fg);
-    cv_blit((m % RACK_COLS) * TILE_P + 1u, RACK_Y + (m / RACK_COLS) * TILE_H);
-}
-static int32_t tile_key(uint32_t m, const uint32_t *mods)
-{
-    int32_t feed = 0, k;
-    for (k = 0; k < NSLOT; k++)
-        if (slot_on[k] && ((mods[k] >> m) & 1u))
-            feed |= 1 << k;
-    return level_step(rm_meter[m]) | feed << 2 | (int32_t)(slot_on[ui.sel] && ((mods[ui.sel] >> m) & 1u)) << 8 |
-           (int32_t)ui.sel << 9;
+    cv_text_fit((h - FONT_S.h) / 2 + 1, &FONT_S, RM_TILE[kind], fg);
+    cv_blit(3u + k * (uint32_t)pitch + 1u, FXR_Y + s * FXR_H + 3u);
 }
 static void ui_draw(void)
 {
-    uint32_t l, m, n = 0, mods[NSLOT];
+    uint32_t l, n = 0, mods[NGEN];
     if (ui.sc_page) {
         if (ui.shown_page != 1u)
             ui.force = 1;
@@ -563,23 +585,34 @@ static void ui_draw(void)
         lcd_fill(0, 0, 240, 240, C_BLACK);
     }
     ui.shown_page = 0;
-    if (ui.force)                                /* (forced: every tile owed, drawn six a frame) */
-        for (m = 0; m < NMOD; m++)
-            ui.shown_tile[m] = -1;
+    if (ui.force)                                /* (forced: every part owed; the tiles drawn six a frame) */
+        for (l = 0; l < NINST; l++)
+            ui.shown_tile[l] = -1;
     draw_top();
-    for (l = 0; l < NSLOT; l++) {
-        int32_t k = slot_key(l);
-        mods[l] = slot_mods(l);
-        if (ui.force || k != ui.shown_slot[l]) {
-            draw_slot(l, k);
-            ui.shown_slot[l] = k;
+    for (l = 0; l < NGEN; l++) {
+        int32_t k = gen_key(l);
+        mods[l] = gen_mods(l);
+        if (ui.force || k != ui.shown_gen[l]) {
+            draw_gen(l, k);
+            ui.shown_gen[l] = k;
         }
     }
-    for (m = 0; m < NMOD; m++) {                 /* (at most six tiles a frame: the rest the next) */
-        int32_t k = tile_key(m, mods);
-        if (k != ui.shown_tile[m] && n < 6u) {
-            draw_tile(m, k);
-            ui.shown_tile[m] = k;
+    for (l = 0; l < NFX; l++) {
+        int32_t k = row_key(l);
+        if (ui.force || k != ui.shown_row[l]) {   /* (a row changed: its frame, its inside cleared, its tiles owed) */
+            uint32_t j, y = FXR_Y + l * FXR_H;
+            lcd_fill(3, y + 3, 234, FXR_H - 6, C_BLACK);
+            draw_row(l, k);
+            ui.shown_row[l] = k;
+            for (j = 0; j < FX_N; j++)
+                ui.shown_tile[l * FX_N + j] = -1;
+        }
+    }
+    for (l = 0; l < NINST; l++) {
+        int32_t k = tile_key(l, mods);
+        if (k != ui.shown_tile[l] && n < 6u) {
+            draw_tile(l, k);
+            ui.shown_tile[l] = k;
             n++;
         }
     }
@@ -598,4 +631,5 @@ static void ui_init(void)
     ui.sc_touched = -1;
     ui.shown_top = -0x7FFFFFFF;
     ui.force = 1;
+    ui.was_on = (uint8_t)audio_worker_online;
 }

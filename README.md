@@ -3,34 +3,35 @@
 A firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: 0.03.** Six slots, each a MOLECULE generator, share a rack of twelve effect modules the way synthesizers
-share a pedalboard. Two dice: HOME rolls the chosen generator and its cables into the rack; SAVE rolls the rack --
-every module's values and how the modules are wired to each other. The white keys play the chosen slot in the scale
-chosen. No sessions, no patterns, no internal clocks yet. `CHANGELOG.md` says what each version does.
+**State: 0.04.** Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
+share a pedalboard. HOME on a generator draws its sound and its cables into the effects; HOME on an effect slot draws
+its chain of two or three effects from a recipe, their values and its cables across to the other effect slots. The
+white keys play the generator chosen last, in the scale chosen. The second core runs the effects. No sessions, no
+patterns, no internal clocks yet. `CHANGELOG.md` says what each version does.
 
 ## Playing it
 
 | Control | What it does |
 |---|---|
-| **FX SEL ENV LFO EDIT GLO** | slots 1 to 6: pressed, the slot chosen; held 0.8 s, the slot on (or off again). Slot 1 is on at the start |
-| **HOME** | a new patch for the slot chosen: its sound, the modules it is wired into, its modulation by another slot, its level and pan |
-| **SHIFT + HOME** | a new patch of the same family (SHIFT: the rightmost black key) |
-| **HOME** held 0.8 s | a new patch for every slot that is on |
-| **SAVE** | a new patch for the rack: every module's values and how the modules are wired to each other |
-| the white keys | play the slot chosen in the scale chosen: the first key is the root, every white key the next note of the scale. Six voices for the six slots |
-| **SHIFT + a white key** | its note latched on the slot chosen (the key stays lit); again: let go |
+| **FX SEL ENV** | generators 1 to 3: pressed, chosen (the keys play it); held 0.8 s, muted, or heard again |
+| **LFO EDIT GLO** | effect slots 4 to 6: pressed, chosen; held 0.8 s, muted, or heard again |
+| **HOME** | a new patch for the slot chosen: a generator's sound and its cables into the effects; an effect slot's recipe, effects, values and cables across |
+| **SHIFT + HOME** | a new patch of the same family, or the same recipe (SHIFT: the rightmost black key) |
+| **HOME** held 0.8 s | all six slots anew |
+| the white keys | play the generator chosen last, in the scale chosen. Four voices for the three generators |
+| a white key held, then **SHIFT** | its note latched (the key stays lit); **SHIFT** held, then the lit key: let go |
 | **SELECT / ALGORITHM** | the chosen slot's level / pan |
 | **ARP** | the SCALE page: SELECT the scale (23), ALGORITHM the root |
 | **OCT- / OCT+** | the octave, -3 .. +3 |
 | **MASTER** | the level |
-| USB MIDI notes | as the keys, on the slot chosen |
+| USB MIDI notes | as the keys, on the generator chosen last |
 | **OCT-** held at power-on | the rescue mode (install again); **OCT- and OCT+** held 5 s: the chip's own updater |
 
-The screen: the audio's load at the top left, the battery at the top right; the six slots (filled when on, framed
-in white when chosen, brighter as they sound); the rack's twelve modules -- FILTER, FOLD, MULAW, SHIFT, MODAL,
-STRING, VOWEL, DELAY, TAPE, REVERSE, SPRING, PLATE -- each with a border in the colours of the slots wired into it,
-those of the chosen slot filled with its colour, all brightening as sound passes through them. No cables are drawn.
-The rack's left column sounds at the left, the right column at the right.
+The screen: the audio's load at the top left, the battery at the top right; the three generators as large numbered
+blocks; under them the three effect slots as rows of named tiles -- FLT filter, FLD fold, MU mulaw, SHF shift, MDL
+modal, STR string, VOX vowel, DLY delay, TAP tape, RVS reverse, SPR spring, REV reverb -- each bordered in the
+colours of the generators wired into it, the keyboard generator's tiles filled with its colour, a muted row dark, the
+chosen row framed in white. No cables are drawn.
 
 ## Installing
 
@@ -64,8 +65,8 @@ measured as it is made and brought to one level. `docs/ENGINE.md` has the design
 | `firmware/src/molecular.c` | the single compilation unit: the HAL, then the sources in order |
 | `firmware/hal/`, `crt0.S`, `app.ld`, `loader/` | the board layer, boot, memory map and update loader (Tonitor's, from Felucca and SLOOP) |
 | `firmware/src/main.c`, `usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c` | boot and ISRs, USB, the installer's handshake, the rescue mode, the screen |
-| `firmware/src/slots.c` | the six slots: the draw (scene, budget, chain, modulation), the six voices, the routing, the mix |
-| `firmware/src/rack.c`, `reverb.c` | the rack's twelve modules |
+| `firmware/src/gens.c` | the three generators: the draw, the four voices, the two cores, the mix |
+| `firmware/src/rack.c`, `reverb.c` | the three effect slots: the twelve effects, the recipes, the memory, the wiring |
 | `firmware/src/ui.c` | the panel and the screen |
 | `firmware/src/dsp.h` | fixed-point helpers (Q15 samples, 2^32 phases; no float, no 64-bit division) |
 | `firmware/src/wt.c` | the band-limited single cycles, copied to RAM at start-up |

@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: boot, the interrupts, the main loop (Tonitor's main.c, without its sessions, settings, TRS MIDI and
- * second core). The boot order, the TIMER5 and audio ISRs, the crash screen and the update hooks follow SLOOP's
+ * MOLECULAR: boot, the interrupts, the main loop (Tonitor's main.c, without its sessions, settings and TRS MIDI). The boot order, the TIMER5 and audio ISRs, the crash screen and the update hooks follow SLOOP's
  * / Felucca's main.c and audio.c (Leo Kuroshita, GPL-3.0). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
@@ -42,7 +41,7 @@ void fm1_alnk0_irq(void)         /* via isr_alnk0 (hal/fm1_isr.S) */
             uint32_t pc = all / FM1_TICKS_PER_US * 100u / (HALF_FRAMES * 1000000u / FS);
             dbg.over = (uint8_t)(dbg.over << 1 | (pc > 90u));
             if (pc >= 100u)
-                shed_req = 2;                    /* late: something goes, a held note if it must (slots.c) */
+                shed_req = 2;                    /* late: something goes, a held note if it must (gens.c) */
             else if ((dbg.over & 3u) == 3u && !shed_req)
                 shed_req = 1;                    /* two near the edge in a row: a tail goes */
             load_pct = (uint8_t)(pc > 255u ? 255u : pc);
@@ -250,11 +249,17 @@ static void fm1_main(void)
     splash();
     fm1_input_init();
     fm1_adc_init();
-    slots_init();
     ui_init();
-    slot_draw(0, -1, ui.seed);                       /* slot 1's first patch (~0.3 s: its sound measured), on */
-    slot_on[0] = 1;
+    gens_init(ui.seed);                              /* three generators and three effect slots drawn (~1 s: the sounds
+                                                      * measured) */
+    /* CPU1: after a supply setup that held, on a boot after no failed one, and not barred since power-on. It starts
+     * through the mask ROM before it reaches our RAM loop: the PC limit only after (Melodee, Tonitor) */
+    if (fm1_core1_boot_allowed(fm1_power_ready, bootguard.failed))
+        fm1_multicore_start();
     fm1_guard_enable(FM1_GUARD_PC);
+    ui.was_on = (uint8_t)audio_worker_online;
+    if (!audio_worker_online)
+        say("1 CORE", 4000);                         /* (CPU1 held: half the room. Said, not silent) */
     audio_init();
     usb_start();
     fm1_timer5_start(isr_timer5, 4);

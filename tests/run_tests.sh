@@ -15,6 +15,7 @@ clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-
     -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
 build/host check
 build/host flows
+build/host cores
 build/host modules build/sounds > build/sounds/modules.txt
 build/host patches build/sounds 12 > build/sounds/patches.txt
 rm -f build/screens/*.png

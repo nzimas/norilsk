@@ -1,17 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the rack -- twelve processor modules, always there, shared by the six slots as a pedalboard is by the
- * synthesizers plugged into it. Two things are drawn, by two buttons:
- *   - a slot's patch (HOME, slots.c) says which modules the slot's generator is wired into, and how much
- *   - the rack's patch (SAVE, here) says every module's values, and how the modules are wired to each other: an
- *     order the sound runs through, and from each module, one or two cables to modules later in that order, and/or
- *     out to the master. The order keeps it feed-forward: no loop can form between modules.
- * A module hears the sum of what is wired into it, from the slots and from the modules before it; its output goes
- * down every cable from it, as a mult would. Where a module sits on the screen is where it sounds: the three
- * columns are three places in the stereo image (the plate is stereo of its own). Every module's output passes a
- * guard (a level rider and a ceiling, as Vascular's every processor) so a resonance or a feedback never pins the bus.
- * Nothing in the rack bends a pitch: no swept delays, no wobbling shifts, delay times that change cross-fade.
+ * MOLECULAR: the effects -- three effect slots, each a chain of two or three effects, shared by the three generator
+ * slots as a pedalboard is by the synthesizers plugged into it.
  *
- * The twelve, after the survey of Vascular's processors (docs/PROCESSORS.md), as the screen has them:
+ * An effect slot's patch (HOME on it) is drawn from a RECIPE, a kind of chain (SPACE, ECHO, METAL, ...): which
+ * effects stand in it, in what order, with what values, and its cables out to the effects of the slots after it
+ * (across: slot 4 into 5 or 6, 5 into 6, so no loop can form). Within a slot the sound runs through the effects in
+ * turn and out of the last to the master, and now and then out of one before it too. The same effect may stand in
+ * several slots: each is an instance of its own, in its slot's memory (60 KiB a slot: a recipe is drawn so that its
+ * effects fit). A generator's patch says which effects it is wired into (slots.c); an effect hears the sum of what
+ * reaches it. The three slots sound at three places, left, middle, right (the plate is stereo of its own). Every
+ * effect's output passes a guard (a level rider and a ceiling, as Vascular's every processor). Nothing bends a
+ * pitch: no swept delays, no wobbling shifts, delay times that change cross-fade.
+ *
+ * A new patch on an effect slot: its sound fades out over 9 ms, its memory is cleared a piece a block (about 10 ms
+ * more, silent), its new effects start. A muted slot is skipped: nothing reaches it, nothing comes out.
+ *
+ * The twelve effects, after the survey of Vascular's processors (docs/PROCESSORS.md), as the screen names them:
  *   FLT  FILTER    a resonant state-variable filter, low-, band- or high-pass, its cutoff drifting slowly if asked
  *   FLD  FOLD      a wavefolder: the wave driven into a window and reflected back, twice
  *   MU   MULAW     the telephone: a lower rate, mu-law with fewer bits, filtered before and after
@@ -20,42 +24,30 @@
  *   MDL  MODAL     three resonators tuned to the scale's root: struck metal, bars, bells
  *   STR  STRING    three Karplus strings tuned to the root, detuned: everything that passes rings
  *   VOX  VOWEL     three formants between a, e, i, o, u
- *   DLY  DELAY     Tonitor's delay: 20 ms .. 1.5 s, feedback, damping (8-bit line at half the rate)
+ *   DLY  DELAY     Tonitor's delay: 20 ms .. 1 s, feedback, damping (8-bit line at half the rate)
  *   TAP  TAPE      a tape echo: saturation, age, a faint wow (8-bit line at half the rate)
  *   RVS  REVERSE   windows of the sound played backwards, at their pitch, fed back if asked
- *   SPR  SPRING    a spring: allpass chirps in a short tank, a resonance for its tone
- *   PLT  PLATE     Tonitor's Dattorro plate, stereo */
+ *   SPR  SPRING    a spring reverb: allpass chirps in a short tank, a resonance for its tone
+ *   REV  REVERB    Tonitor's Dattorro plate, stereo */
 
-enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_PLT, NMOD };
-static const char *const RM_NAME[NMOD] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "DELAY",
-                                          "TAPE", "REVERSE", "SPRING", "PLATE"};
-/* each module's character (Vascular's): a slot is never wired into two of one, nor into two destructive ones */
-enum { CH_SPECTRAL, CH_DESTRUCTIVE, CH_MODULATION, CH_RESONANT, CH_TEMPORAL, CH_SPACE };
-static const uint8_t RM_CHAR[NMOD] = {CH_SPECTRAL, CH_DESTRUCTIVE, CH_DESTRUCTIVE, CH_MODULATION, CH_RESONANT,
-                                      CH_RESONANT, CH_SPECTRAL, CH_TEMPORAL, CH_TEMPORAL, CH_TEMPORAL, CH_SPACE, CH_SPACE};
-static const uint8_t RM_RANK[6] = {0, 0, 1, 1, 2, 3};   /* where a character tends to sit in the rack's order */
-static const uint8_t RM_HARSH[NMOD] = {0, 2, 2, 1, 0, 0, 0, 0, 0, 1, 0, 0};   /* what each costs of a patch's budget */
-static const uint8_t RM_W[NMOD] = {12, 4, 5, 7, 11, 10, 9, 11, 10, 9, 9, 11};   /* Vascular's foundation weights, x 10 */
-/* the values a module comes back to (SAVE draws around them, as Vascular draws a processor's) */
-static const uint8_t RM_HOME[NMOD][4] = {
+enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, NKIND };
+static const char *const RM_NAME[NKIND] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "DELAY",
+                                           "TAPE", "REVERSE", "SPRING", "REVERB"};
+/* the values an effect comes back to (a draw moves them, as Vascular draws a processor's) */
+static const uint8_t RM_HOME[NKIND][4] = {
     {20, 55, 40, 30}, {45, 45, 20, 70}, {45, 60, 50, 30}, {40, 30, 70, 50}, {40, 55, 40, 50}, {35, 60, 40, 60},
     {50, 50, 50, 30}, {65, 40, 40, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55}};
-#define RM_COLS 3
-static const int16_t RM_PAN[RM_COLS] = {-19661, 0, 19661};   /* a column's place: left, middle, right */
-
-/* the rack's patch (SAVE): the main loop writes the buffer the ISR is not using and publishes it */
-typedef struct {
-    uint8_t p[NMOD][4];          /* every module's values, 0 .. 100 */
-    uint8_t order[NMOD];         /* the order the sound runs through them */
-    uint16_t to[NMOD];           /* bit n: module m's output wired into module n (n later in the order) */
-    uint16_t out;                /* bit m: module m's output to the master */
-    uint32_t seed, serial;
-} rack_patch_t;
-static rack_patch_t rbuf[2];
-static volatile uint8_t r_pub, r_use;
+/* .. and the bounds a draw keeps them in, so that every effect is heard: no band-pass at 15 kHz, no spring tuned where
+ * the sound has nothing */
+static const uint8_t RM_LO[NKIND][4] = {
+    {0, 35, 0, 0}, {10, 10, 0, 30}, {0, 30, 20, 0}, {0, 0, 0, 0}, {0, 15, 0, 20}, {0, 25, 0, 30},
+    {0, 0, 10, 0}, {20, 0, 0, 40}, {10, 0, 0, 0}, {0, 30, 0, 0}, {0, 0, 35, 10}, {20, 20, 0, 40}};
+static const uint8_t RM_HI[NKIND][4] = {
+    {100, 85, 80, 100}, {90, 90, 80, 100}, {100, 100, 100, 80}, {100, 90, 100, 100}, {100, 85, 100, 100}, {100, 95, 100, 100},
+    {100, 100, 90, 80}, {100, 85, 100, 100}, {100, 100, 90, 85}, {100, 100, 80, 100}, {100, 100, 92, 60}, {100, 95, 100, 100}};
 static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what MODAL and STRING are tuned to */
-static int32_t mbus[NMOD][CTL];                /* each module's input, then its output, this block */
 
+/* AINL helpers the effects share; then the effects */
 /* ------------------------------------------------------------- shared --- */
 /* a constant-peak-gain resonator (Smith and Angell): zeros at DC and Nyquist, poles at f, radius r. Q28 coefficients */
 typedef struct { int32_t a1, a2, g; } res_c;
@@ -109,11 +101,12 @@ static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
         oct += mulq15(sin_ph(s->lfo), p[3] * (2 * 65536 / 300));
     }
     hz = (int32_t)(exp2_q16(clampi(oct, 4 << 16, 14 << 16)) >> 16);
-    q = 2896 + p[2] * (10 * 4096 - 2896) / 100;
-    svf_coef(&c, clampi(hz, 30, 16000), q);
     type = p[0] < 34 ? 1 : p[0] < 67 ? 2 : 3;
+    q = type == 2 ? 2896 + p[2] * (8192 - 2896) / 100   /* (the band-pass kept broad, Q 0.7 .. 2: else it is hardly heard) */
+                  : 2896 + p[2] * (10 * 4096 - 2896) / 100;
+    svf_coef(&c, clampi(hz, 30, 16000), q);
     for (i = 0; i < CTL; i++)
-        x[i] = svf_run(&s->f, &c, x[i], type);
+        x[i] = svf_run(&s->f, &c, x[i], type) * (type == 2 ? 2 : 1);
 }
 
 /* --------------------------------------------------------------- FOLD --- */
@@ -316,13 +309,13 @@ AINL int32_t mu_tap(const uint8_t *line, uint32_t n, uint32_t w, int32_t t8)   /
     return y + (((mu_dec8(line[i0 + 1u >= n ? 0u : i0 + 1u]) - y) * (int32_t)f) >> 8);
 }
 #define XF_PAIRS 512u            /* a change of time: the old head fades out, the new in, over 23 ms */
-/* Tonitor's delay: TIME 20 ms .. 1.5 s (p0, log), feedback 0 .. 0.92 (p1), damping (p2: the echoes' low-pass, none
+/* Tonitor's delay: TIME 20 ms .. 1 s (p0, log), feedback 0 .. 0.92 (p1), damping (p2: the echoes' low-pass, none
  * .. 0.12), level (p3: 0.25 .. 1). The echoes alone come out. A change of time cross-fades (no pitch slide) */
-#define DLY_N 33075u             /* 1.5 s at FS / 2 */
+#define DLY_N 22050u             /* 1 s at FS / 2 */
 typedef struct { uint8_t line[DLY_N]; uint32_t w; int32_t t, t0, xf, lp, prev; } m_dly_t;
 static void m_dly(const uint8_t *p, m_dly_t *s, int32_t *x)
 {
-    int32_t ms = (int32_t)((20u * exp2_q16(p[0] * (6229 * 65536 / 100000))) >> 16);   /* 20 x 75^(p / 100) */
+    int32_t ms = (int32_t)((20u * exp2_q16(p[0] * (5644 * 65536 / 100000))) >> 16);   /* 20 x 50^(p / 100) */
     int32_t want = clampi(ms * 2205 / 100 * 256, 2 * 256, (int32_t)(DLY_N - 4u) * 256);
     int32_t fb = p[1] * (LV(0.92) / 100), damp = Q15 - p[2] * (LV(0.88) / 100), lvl = 8192 + p[3] * (24576 / 100);
     uint32_t i;
@@ -395,11 +388,11 @@ static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
 }
 
 /* ------------------------------------------------------------ REVERSE --- */
-/* windows of 60 .. 400 ms (p0) read backwards at their own pitch: two heads half a window apart, each a triangle, so
+/* windows of 60 .. 220 ms (p0) read backwards at their own pitch: two heads half a window apart, each a triangle, so
  * the sum stays level; a low-pass on it, 1.4 .. 13 kHz (p1); fed back into the line (p2: 0 .. 0.7: the reversed
- * reversed again, smeared); p3 the windows' spread, how far back they reach (one to three windows). Its line: 1.2 s
+ * reversed again, smeared); p3 the windows' spread, how far back they reach (one to three windows). Its line: 0.9 s
  * at FS / 2, 8-bit mu-law */
-#define RVS_N 26460u
+#define RVS_N 19845u
 typedef struct { uint8_t line[RVS_N]; uint32_t w, ph; int32_t lp, prev; } m_rvs_t;
 AINL int32_t rvs_head(const m_rvs_t *s, uint32_t ph, uint32_t span, uint32_t back)   /* a head at phase ph */
 {
@@ -412,7 +405,7 @@ AINL int32_t rvs_head(const m_rvs_t *s, uint32_t ph, uint32_t span, uint32_t bac
 }
 static void m_rvs(const uint8_t *p, m_rvs_t *s, int32_t *x)
 {
-    uint32_t win = (60u + (uint32_t)p[0] * 340u / 100u) * 2205u / 100u;   /* samples at FS / 2 */
+    uint32_t win = (60u + (uint32_t)p[0] * 160u / 100u) * 2205u / 100u;   /* samples at FS / 2 */
     uint32_t span = 2u * win, back = win * (uint32_t)p[3] / 50u, inc = 0xFFFFFFFFu / (win ? win : 1u), i;
     int32_t tone = 6400 + p[1] * (31000 - 6400) / 100, fb = p[2] * (LV(0.7) / 100);
     if (span + back > RVS_N - 8u)
@@ -445,12 +438,12 @@ static void m_spr(const uint8_t *p, m_spr_t *s, int32_t *x)
     uint32_t len = (30u + (uint32_t)p[1] * 90u / 100u) * 441u / 10u, i, base;
     int32_t key = p[3];
     if (key != s->key || !s->rc.g) {
-        res_coef(&s->rc, (400 + p[3] * 55) << 8, 2 << 8);
+        res_coef(&s->rc, (400 + p[3] * 55) << 8, 180);   /* (Q 0.7: a broad colour) */
         s->key = key;
     }
     for (i = 0; i < CTL; i++) {
         uint32_t q = s->w + SPR_N - len;
-        int32_t y, v = res_run(&s->rs, &s->rc, x[i]);
+        int32_t y, v = (x[i] >> 1) + res_run(&s->rs, &s->rc, x[i]);   /* (the sound itself and its colour, into the tank) */
         q = q >= SPR_N ? q - SPR_N : q;
         y = s->tank[q];
         base = 0;
@@ -466,47 +459,112 @@ static void m_spr(const uint8_t *p, m_spr_t *s, int32_t *x)
         s->tank[s->w] = (int16_t)clampi(v + mulq15(s->lp, fb), -32767, 32767);
         if (++s->w >= SPR_N)
             s->w = 0;
-        x[i] = y + (y >> 1);                           /* (x 1.5: its loop loses what the allpasses spread) */
+        x[i] = 2 * y;                                  /* (x 2: its loop loses what the allpasses spread) */
     }
 }
 
-/* -------------------------------------------------------------- PLATE --- */
+/* -------------------------------------------------------------- REVERB --- */
 #include "reverb.c"
 
-/* -------------------------------------------------------------- the rack --- */
-static m_flt_t m_flt_s POOL;
-static m_fld_t m_fld_s POOL;
-static m_mu_t m_mu_s POOL;
-static m_shf_t m_shf_s POOL;
-static m_mdl_t m_mdl_s POOL;
-static m_str_t m_str_s POOL;
-static m_vow_t m_vow_s POOL;
-static m_dly_t m_dly_s POOL;
-static m_tap_t m_tap_s POOL;
-static m_rvs_t m_rvs_s POOL;
-static m_spr_t m_spr_s POOL;
-static int32_t rm_env[NMOD], rm_g[NMOD];       /* each module's guard: the peak it follows, its gain */
-static volatile int32_t rm_meter[NMOD];        /* each module's output, its last peaks (the screen's) */
-static uint16_t rm_quiet[NMOD];                /* blocks its output has been near silence */
-static uint8_t rm_plate_on;                    /* (the plate's parameters set: rv_param) */
-#define RM_TAIL 2756u            /* a module nothing feeds goes on until its output has been near silence 2 s */
+/* --------------------------------------------------------- the effect slots --- */
+#define NFX 3                    /* effect slots */
+#define FX_N 3                   /* effects in one: 2 or 3 */
+#define NINST (NFX * FX_N)       /* effect instances, slot by slot (inst = slot x FX_N + place) */
+#define FX_ARENA 61440u          /* a slot's memory */
+#define FX_CLEAR 6144u           /* .. cleared this much a block when a new patch comes (10 blocks) */
+#define FX_FADE 12u              /* blocks of a slot's fade out before a new patch (~9 ms) */
+#define RM_TAIL 2756u            /* an effect nothing reaches goes on until its output has been near silence 2 s */
+
+/* the memory each effect takes, rounded up to 8 bytes */
+static uint32_t rm_size(uint32_t k)
+{
+    uint32_t n;
+    switch (k) {
+    case RM_FLT: n = sizeof(m_flt_t); break;
+    case RM_FLD: n = sizeof(m_fld_t); break;
+    case RM_MU: n = sizeof(m_mu_t); break;
+    case RM_SHF: n = sizeof(m_shf_t); break;
+    case RM_MDL: n = sizeof(m_mdl_t); break;
+    case RM_STR: n = sizeof(m_str_t); break;
+    case RM_VOW: n = sizeof(m_vow_t); break;
+    case RM_DLY: n = sizeof(m_dly_t); break;
+    case RM_TAP: n = sizeof(m_tap_t); break;
+    case RM_RVS: n = sizeof(m_rvs_t); break;
+    case RM_SPR: n = sizeof(m_spr_t); break;
+    default: n = sizeof(rv_t); break;
+    }
+    return (n + 7u) & ~7u;
+}
+
+/* The recipes: a slot's chain, place by place, each place a choice among a few effects (a bit each); the third place
+ * there one time in two when the recipe has one (FX_OPT). After Vascular's abstract chains and scenes */
+#define K(x) (1u << RM_##x)
+enum { FR_SPACE, FR_ECHO, FR_METAL, FR_STRINGS, FR_EROSION, FR_GHOST, FR_SPECTRAL, FR_RESONANT, FR_FOLDS, FR_TELEPHONE, FR_N };
+static const char *const FR_NAME[FR_N] = {"SPACE", "ECHO", "METAL", "STRINGS", "EROSION", "GHOST", "SPECTRAL", "RESONANT",
+                                          "FOLDS", "TELEPHONE"};
+#define FX_OPT 0x8000u           /* (a place that may be left out) */
+static const uint16_t FR_PLACE[FR_N][FX_N] = {
+    {K(FLT) | K(VOW), K(DLY) | K(TAP), K(REV) | K(SPR)},                        /* SPACE: a colour, an echo, a room */
+    {K(TAP) | K(DLY), K(SPR) | K(REV), FX_OPT | K(FLT)},                        /* ECHO */
+    {K(MDL) | K(SHF), K(FLD) | K(FLT), FX_OPT | K(REV) | K(SPR)},               /* METAL: struck, bent, a room */
+    {K(STR), K(TAP) | K(DLY) | K(FLT), FX_OPT | K(REV)},                        /* STRINGS: everything rings */
+    {K(MU) | K(FLD), K(RVS) | K(TAP), FX_OPT | K(DLY) | K(SPR)},                /* EROSION */
+    {K(FLT) | K(VOW), K(RVS), K(REV) | K(DLY) | K(SPR)},                        /* GHOST: the sound reversed, far off */
+    {K(SHF), K(VOW) | K(FLT), FX_OPT | K(DLY) | K(SPR)},                        /* SPECTRAL: the partials moved */
+    {K(VOW) | K(MDL), K(STR) | K(SPR), FX_OPT | K(DLY)},                        /* RESONANT */
+    {K(FLD), K(FLT) | K(VOW), FX_OPT | K(SPR) | K(TAP)},                        /* FOLDS */
+    {K(MU), K(SHF) | K(FLT), FX_OPT | K(REV) | K(DLY)},                         /* TELEPHONE */
+};
+static const uint8_t FR_W[FR_N] = {5, 5, 4, 3, 4, 3, 4, 3, 3, 2};
+#undef K
+
+typedef struct { uint8_t kind, p[4]; } fx_eff_t;
+typedef struct {
+    fx_eff_t e[FX_N];
+    uint8_t n;                   /* 2 or 3 */
+    uint8_t recipe;
+    uint8_t out;                 /* bit k: place k's output to the master (the last always) */
+    uint16_t xto[FX_N];          /* bit i: place k's output wired into instance i (of a later slot) */
+    uint32_t seed, serial;
+} fx_patch_t;
+static fx_patch_t fbuf[NFX][2];
+static volatile uint8_t f_pub[NFX], f_use[NFX];
+static volatile uint8_t fx_mute[NFX];
+static volatile int8_t fx_lvl[NFX], fx_pan[NFX];   /* each slot's output: level (0 .. LEVEL_MAX) and pan */
+static uint8_t fx_arena[NFX][FX_ARENA] POOL __attribute__((aligned(8)));
+static void *fx_st[NINST];                     /* each instance's state, in its slot's memory */
+enum { FS_ON, FS_FADE, FS_CLEAR };
+static uint8_t fx_phase[NFX];
+static uint32_t fx_count[NFX];                 /* (the fade's blocks left; the bytes cleared so far) */
+static int32_t fx_g[NFX], fx_gl[NFX], fx_gr[NFX];   /* each slot's output gain and pan gains as the last block ended */
+static int32_t rm_env[NINST], rm_g[NINST];     /* each instance's guard */
+static volatile int32_t rm_meter[NINST];       /* each instance's output, its last peaks (the screen's) */
+static uint16_t rm_quiet[NINST];
+static uint8_t rm_plate_on[NINST];
+/* the job's buffers: what the generators sent into each instance the block before (CPU0 fills ebus_next, the rack
+ * runs on ebus_run: one block later, so the rack can run on CPU1 while CPU0 renders the voices); the rack's output */
+static int32_t ebus_next[NINST][CTL] POOL __attribute__((aligned(32)));
+static int32_t ebus_run[NINST][CTL] POOL __attribute__((aligned(32)));
+static int32_t fx_l[CTL], fx_r[CTL];
+static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was sent into) */
+static uint32_t rack_ticks;                    /* what the last block of the rack took */
 
 /* the guard: a peak rider (Tonitor's limiter: instant attack, ~200 ms release) to 0.5 */
 #define RM_CEIL 16384
-static void rm_guard(uint32_t m, int32_t *x)
+static void rm_guard(uint32_t i0, int32_t *x)
 {
-    int32_t pk = 0, want, g0 = rm_g[m], dg;
+    int32_t pk = 0, want, g0 = rm_g[i0], dg;
     uint32_t i;
     for (i = 0; i < CTL; i++) {
         int32_t a = absi(x[i]);
         if (a > pk)
             pk = a;
     }
-    if (pk > rm_env[m])
-        rm_env[m] = pk;
+    if (pk > rm_env[i0])
+        rm_env[i0] = pk;
     else
-        rm_env[m] -= rm_env[m] >> 8;
-    want = rm_env[m] > RM_CEIL ? (int32_t)((uint32_t)RM_CEIL * 32768u / (uint32_t)rm_env[m]) : Q15;
+        rm_env[i0] -= rm_env[i0] >> 8;
+    want = rm_env[i0] > RM_CEIL ? (int32_t)((uint32_t)RM_CEIL * 32768u / (uint32_t)rm_env[i0]) : Q15;
     if (want > g0 && g0 < Q15)
         want = g0 + ((want - g0) >> 3);
     dg = (want - g0) / (int32_t)CTL;
@@ -514,35 +572,38 @@ static void rm_guard(uint32_t m, int32_t *x)
         g0 += dg;
         x[i] = mulq15(x[i], g0);
     }
-    rm_g[m] = want;
-    rm_meter[m] = pk > rm_meter[m] ? pk : rm_meter[m] - (rm_meter[m] >> 4);
+    rm_g[i0] = want;
 }
 
-/* one module over x (mono, in place); the plate, when it goes to the master: into l, r (added) */
-static void rm_block(uint32_t m, const uint8_t *p, int32_t *x, int32_t *l, int32_t *r, int to_master)
+/* one instance over x (mono, in place); a plate's stereo into l, r (added) when it goes out */
+static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, int32_t *r, int to_master)
 {
-    switch (m) {
-    case RM_FLT: m_flt(p, &m_flt_s, x); break;
-    case RM_FLD: m_fld(p, &m_fld_s, x); break;
-    case RM_MU: m_mu(p, &m_mu_s, x); break;
-    case RM_SHF: m_shf(p, &m_shf_s, x); break;
-    case RM_MDL: m_mdl(p, &m_mdl_s, x); break;
-    case RM_STR: m_str(p, &m_str_s, x); break;
-    case RM_VOW: m_vow(p, &m_vow_s, x); break;
-    case RM_DLY: m_dly(p, &m_dly_s, x); break;
-    case RM_TAP: m_tap(p, &m_tap_s, x); break;
-    case RM_RVS: m_rvs(p, &m_rvs_s, x); break;
-    case RM_SPR: m_spr(p, &m_spr_s, x); break;
+    void *st = fx_st[inst];
+    const uint8_t *p = e->p;
+    int32_t pk = 0;
+    uint32_t i;
+    switch (e->kind) {
+    case RM_FLT: m_flt(p, (m_flt_t *)st, x); break;
+    case RM_FLD: m_fld(p, (m_fld_t *)st, x); break;
+    case RM_MU: m_mu(p, (m_mu_t *)st, x); break;
+    case RM_SHF: m_shf(p, (m_shf_t *)st, x); break;
+    case RM_MDL: m_mdl(p, (m_mdl_t *)st, x); break;
+    case RM_STR: m_str(p, (m_str_t *)st, x); break;
+    case RM_VOW: m_vow(p, (m_vow_t *)st, x); break;
+    case RM_DLY: m_dly(p, (m_dly_t *)st, x); break;
+    case RM_TAP: m_tap(p, (m_tap_t *)st, x); break;
+    case RM_RVS: m_rvs(p, (m_rvs_t *)st, x); break;
+    case RM_SPR: m_spr(p, (m_spr_t *)st, x); break;
     default: {                                       /* the plate: stereo */
-        int32_t pl[CTL], pr[CTL], g = 8192 + p[3] * (24576 / 100), pk = 0;   /* (its level: 0.25 .. 1) */
-        uint32_t i;
-        if (!rm_plate_on) {
-            rv_param(p[0], p[1], p[2], 40);              /* (x 0.64: the tail sums over seconds) */
-            rm_plate_on = 1;
+        rv_t *R = (rv_t *)st;
+        int32_t pl[CTL], pr[CTL], g = 8192 + p[3] * (24576 / 100);   /* (its level: 0.25 .. 1) */
+        if (!rm_plate_on[inst]) {
+            rv_param(R, p[0], p[1], p[2], 40);       /* (x 0.64: the tail sums over seconds) */
+            rm_plate_on[inst] = 1;
         }
         for (i = 0; i < CTL; i++)
             pl[i] = pr[i] = 0;
-        rv_block_fp(x, pl, pr, CTL);
+        rv_block_fp(R, x, pl, pr, CTL);
         for (i = 0; i < CTL; i++) {
             pl[i] = mulq15(pl[i], g);
             pr[i] = mulq15(pr[i], g);
@@ -550,150 +611,237 @@ static void rm_block(uint32_t m, const uint8_t *p, int32_t *x, int32_t *l, int32
                 l[i] += pl[i];
                 r[i] += pr[i];
             }
-            x[i] = (pl[i] + pr[i]) >> 1;               /* (mono, for the modules after it) */
-            pk = maxi(pk, absi(x[i]));
+            x[i] = (pl[i] + pr[i]) >> 1;               /* (mono, for what follows it) */
         }
-        rm_meter[m] = pk > rm_meter[m] ? pk : rm_meter[m] - (rm_meter[m] >> 4);
-        return;
+        break;
     }
     }
-    rm_guard(m, x);
+    if (e->kind != RM_REV)
+        rm_guard(inst, x);
+    for (i = 0; i < CTL; i++)
+        pk = maxi(pk, absi(x[i]));
+    rm_meter[inst] = pk > rm_meter[inst] ? pk : rm_meter[inst] - (rm_meter[inst] >> 4);
 }
 
-/* the rack's patch published, taken at a block's start */
-static void rack_take(void)
+/* a slot's patch taken: its instances placed in its memory and started (the memory was cleared) */
+static void fx_start(uint32_t s)
 {
-    if (r_pub != r_use) {
-        r_use = r_pub;
-        rm_plate_on = 0;                             /* (the plate's values taken at its next block) */
+    const fx_patch_t *f = &fbuf[s][f_use[s]];
+    uint32_t k, at = 0;
+    for (k = 0; k < FX_N; k++) {
+        uint32_t inst = s * FX_N + k;
+        rm_env[inst] = 0;
+        rm_g[inst] = Q15;
+        rm_meter[inst] = 0;
+        rm_quiet[inst] = 0xFFFFu;
+        rm_plate_on[inst] = 0;
+        fx_st[inst] = 0;
+        if (k >= f->n)
+            continue;
+        fx_st[inst] = &fx_arena[s][at];
+        at += rm_size(f->e[k].kind);
+        if (f->e[k].kind == RM_MDL)
+            ((m_mdl_t *)fx_st[inst])->key = -1;
+        else if (f->e[k].kind == RM_VOW)
+            ((m_vow_t *)fx_st[inst])->key = -1;
+        else if (f->e[k].kind == RM_SPR)
+            ((m_spr_t *)fx_st[inst])->key = -1;
+        else if (f->e[k].kind == RM_REV)
+            rv_init((rv_t *)fx_st[inst]);
     }
 }
-/* one block of the rack: mbus holds what the slots send into each module, fed which of them they feed; each
- * module, in the patch's order, runs if something reaches it or its tail still sounds; its output goes down its
- * cables and, as wired, out to the master at its column's place */
-static void rack_block(uint32_t fed, int32_t *l, int32_t *r)
+/* each slot's patch published: faded out, its memory cleared a piece a block, started (the rack's job, either core) */
+static void fx_take(void)
 {
-    const rack_patch_t *rk = &rbuf[r_use];
-    uint32_t has = fed, j, i, n;
-    for (j = 0; j < NMOD; j++) {
-        uint32_t m = rk->order[j], to_master = (rk->out >> m) & 1u;
-        if (!((has >> m) & 1u) && rm_quiet[m] >= RM_TAIL)
-            continue;                                /* (nothing reaches it, and it is silent) */
-        rm_block(m, rk->p[m], mbus[m], l, r, (int)to_master);
-        if (rm_meter[m] < 8) {
-            if (rm_quiet[m] < 0xFFFFu)
-                rm_quiet[m]++;
-        } else
-            rm_quiet[m] = 0;
-        if (rm_quiet[m] >= RM_TAIL)
-            continue;                                /* (silent: nothing to pass on) */
-        if (to_master && m != RM_PLT) {
-            int32_t pl, pr;
-            uint32_t ph = (uint32_t)(RM_PAN[m % RM_COLS] + Q15) * 16384u;   /* (equal power) */
-            pl = sin_ph(ph + 0x40000000u);
-            pr = sin_ph(ph);
-            for (i = 0; i < CTL; i++) {
-                l[i] += mulq15(mbus[m][i], pl);
-                r[i] += mulq15(mbus[m][i], pr);
+    uint32_t s;
+    for (s = 0; s < NFX; s++) {
+        if (fx_phase[s] == FS_ON && f_pub[s] != f_use[s]) {
+            fx_phase[s] = FS_FADE;
+            fx_count[s] = FX_FADE;
+        }
+        if (fx_phase[s] == FS_FADE && (!fx_count[s] || fx_mute[s])) {   /* (muted: nothing to fade) */
+            f_use[s] = f_pub[s];
+            fx_phase[s] = FS_CLEAR;
+            fx_count[s] = 0;
+        }
+        if (fx_phase[s] == FS_CLEAR) {
+            uint32_t n = FX_ARENA - fx_count[s] < FX_CLEAR ? FX_ARENA - fx_count[s] : FX_CLEAR;
+            memset(&fx_arena[s][fx_count[s]], 0, n);
+            fx_count[s] += n;
+            if (fx_count[s] >= FX_ARENA) {
+                fx_start(s);
+                fx_phase[s] = FS_ON;
             }
         }
-        for (n = 0; n < NMOD; n++)
-            if ((rk->to[m] >> n) & 1u) {
+    }
+}
+
+/* the rack's job: ebus_run holds what reached each instance from the generators; the slots in turn, each effect in
+ * its chain, run if something reaches it or its tail still sounds; out down its slot's chain, across its cables, and
+ * to the master as wired (fx_l, fx_r) */
+static void rack_job(void)
+{
+    uint32_t s, k, i, j, has = ebus_fed_run;
+    uint32_t t0 = fm1_ticks();
+    fx_take();
+    for (i = 0; i < CTL; i++)
+        fx_l[i] = fx_r[i] = 0;
+    for (s = 0; s < NFX; s++) {
+        const fx_patch_t *f = &fbuf[s][f_use[s]];
+        int32_t sl[CTL], sr[CTL], g, gl, gr, dg, dgl, dgr, gw;
+        uint32_t ph;
+        int fading = fx_phase[s] == FS_FADE;
+        if (fx_phase[s] == FS_CLEAR || fx_mute[s]) {
+            fx_g[s] = 0;
+            continue;
+        }
+        for (i = 0; i < CTL; i++)
+            sl[i] = sr[i] = 0;
+        for (k = 0; k < f->n; k++) {
+            uint32_t inst = s * FX_N + k, out = k + 1u == f->n || ((f->out >> k) & 1u);
+            int32_t *x = ebus_run[inst];
+            if (!((has >> inst) & 1u) && rm_quiet[inst] >= RM_TAIL)
+                continue;
+            rm_block(inst, &f->e[k], x, sl, sr, (int)out);
+            if (rm_meter[inst] < 8) {
+                if (rm_quiet[inst] < 0xFFFFu)
+                    rm_quiet[inst]++;
+            } else
+                rm_quiet[inst] = 0;
+            if (rm_quiet[inst] >= RM_TAIL)
+                continue;
+            if (out && f->e[k].kind != RM_REV)
+                for (i = 0; i < CTL; i++) {
+                    sl[i] += x[i];
+                    sr[i] += x[i];
+                }
+            if (k + 1u < f->n) {                     /* down the chain */
                 for (i = 0; i < CTL; i++)
-                    mbus[n][i] += mbus[m][i];
-                has |= 1u << n;
+                    ebus_run[inst + 1u][i] += x[i];
+                has |= 1u << (inst + 1u);
             }
+            for (j = (s + 1u) * FX_N; j < NINST; j++)   /* across, to a later slot */
+                if ((f->xto[k] >> j) & 1u) {
+                    for (i = 0; i < CTL; i++)
+                        ebus_run[j][i] += x[i];
+                    has |= 1u << j;
+                }
+        }
+        /* the slot out: its level, its place (the mono parts panned; the plate's stereo as it is), its fade */
+        gw = fx_lvl[s] ? (int32_t)(exp2_q16((fx_lvl[s] - 20) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a step */
+        if (fading) {
+            gw = gw * (int32_t)(fx_count[s] - 1u) / (int32_t)FX_FADE;
+            fx_count[s]--;
+        }
+        ph = (uint32_t)(fx_pan[s] * (Q15 / 20) + Q15) * 16384u;
+        g = gw;
+        gl = sin_ph(ph + 0x40000000u);
+        gr = sin_ph(ph);
+        dg = (g - fx_g[s]) / (int32_t)CTL;
+        dgl = (gl - fx_gl[s]) / (int32_t)CTL;
+        dgr = (gr - fx_gr[s]) / (int32_t)CTL;
+        for (i = 0; i < CTL; i++) {
+            int32_t a, b;
+            fx_g[s] += dg;
+            fx_gl[s] += dgl;
+            fx_gr[s] += dgr;
+            a = (int32_t)(((int64_t)sl[i] * fx_g[s]) >> 14);
+            b = (int32_t)(((int64_t)sr[i] * fx_g[s]) >> 14);
+            /* (the mono parts went into both sides alike: panned here, the plate's two sides with them) */
+            fx_l[i] += mulq15(a, fx_gl[s]);
+            fx_r[i] += mulq15(b, fx_gr[s]);
+        }
+        fx_g[s] = g;
+        fx_gl[s] = gl;
+        fx_gr[s] = gr;
     }
+    rack_ticks = fm1_ticks() - t0;
 }
+static __typeof__(&rack_job) volatile rack_job_fp = rack_job;
 
-/* SAVE: the rack's patch drawn anew, into the buffer the ISR is not using:
- *   - every module's values: each at its home one time in five, else moved by 15 .. 55 either way (Vascular's)
- *   - the order: by character, mostly -- colour and destruction first, then modulation and resonance, then time,
- *     then space -- but shuffled across those lines often enough that a plate may feed a fold
- *   - from each module, in that order: no cable on (0.55), one (0.38) or two (0.07) to the next four modules; with
- *     none it goes to the master, with one or more it also does, one time in three
- * Returns 0 if the ISR had not taken the patch before (the main loop then tries again) */
-static uint32_t rack_serial;
-static void rack_draw_into(rack_patch_t *rk, uint32_t seed)
+/* ------------------------------------------------------- the draw (main loop) --- */
+/* an effect's values: each at its home one time in five, else moved by 15 .. 55 either way (Vascular's) */
+static void fx_values(fx_eff_t *e, rnd_t *r)
 {
-    rnd_t r;
-    uint32_t m, k, j;
-    int32_t key[NMOD];
-    static const uint8_t NTO[3] = {55, 38, 7};
-    rnd_seed(&r, seed ^ 0x5241434Bu);
-    rk->seed = seed;
-    rk->serial = ++rack_serial;
-    for (m = 0; m < NMOD; m++)
-        for (k = 0; k < 4u; k++) {
-            int32_t v = RM_HOME[m][k];
-            if (!rnd_chance(&r, 20)) {
-                int32_t d = rnd_in(&r, 15, 55);
-                v += rnd_chance(&r, 50) ? d : -d;
-            }
-            rk->p[m][k] = (uint8_t)clampi(v, 0, 100);
+    uint32_t k;
+    for (k = 0; k < 4u; k++) {
+        int32_t v = RM_HOME[e->kind][k];
+        if (!rnd_chance(r, 20)) {
+            int32_t d = rnd_in(r, 15, 55);
+            v += rnd_chance(r, 50) ? d : -d;
         }
-    for (m = 0; m < NMOD; m++) {
-        rk->order[m] = (uint8_t)m;
-        key[m] = RM_RANK[RM_CHAR[m]] * 40 + rnd_in(&r, 0, 70);
-    }
-    for (m = 0; m < NMOD; m++)
-        for (k = m + 1u; k < NMOD; k++)
-            if (key[rk->order[k]] < key[rk->order[m]]) {
-                uint8_t t = rk->order[m];
-                rk->order[m] = rk->order[k];
-                rk->order[k] = t;
-            }
-    rk->out = 0;
-    for (j = 0; j < NMOD; j++) {
-        uint32_t mm = rk->order[j], left = NMOD - 1u - j, nto = left ? rnd_weighted(&r, NTO, 3) : 0u, reach = left < 4u ? left : 4u;
-        rk->to[mm] = 0;
-        for (k = 0; k < nto && k < reach; k++) {
-            uint32_t t = rk->order[j + 1u + (uint32_t)rnd_below(&r, (int32_t)reach)];
-            rk->to[mm] |= (uint16_t)(1u << t);
-        }
-        if (!rk->to[mm] || rnd_chance(&r, 33))
-            rk->out |= (uint16_t)(1u << mm);
+        e->p[k] = (uint8_t)clampi(v, RM_LO[e->kind][k], RM_HI[e->kind][k]);
     }
 }
-static int rack_draw(uint32_t seed)
+/* HOME on effect slot s: a recipe (recipe >= 0: that one -- SHIFT + HOME), its effects place by place among the
+ * recipe's choices, as fit the slot's memory, their values; the outs; the cables across to the slots after it (one
+ * time in three a place has one, to the first or second effect of a later slot). Published to the ISR; 0 if the
+ * ISR had not taken the last one yet */
+static uint32_t fx_serial;
+static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
 {
-    uint32_t t0 = fm1_ms;
-    while (r_pub != r_use) {                         /* (the ISR takes the last one at a block's start) */
-        if ((uint32_t)(fm1_ms - t0) > 40u)
+    uint32_t b = f_use[s] ^ 1u, k, room = FX_ARENA, t0 = fm1_ms;
+    fx_patch_t *f = &fbuf[s][b];
+    rnd_t rr, *r = &rr;
+    while (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON) {   /* (the last one not taken yet) */
+        if ((uint32_t)(fm1_ms - t0) > 60u)
             return 0;
         fm1_wdt_feed();
     }
-    rack_draw_into(&rbuf[r_use ^ 1u], seed);
+    memset(f, 0, sizeof *f);
+    rnd_seed(r, seed ^ 0x46584658u);
+    f->seed = seed;
+    f->serial = ++fx_serial;
+    f->recipe = (uint8_t)(recipe >= 0 && recipe < FR_N ? recipe : (int32_t)rnd_weighted(r, FR_W, FR_N));
+    for (k = 0; k < FX_N; k++) {
+        uint32_t can = FR_PLACE[f->recipe][k], m, nc = 0;
+        uint8_t c[NKIND];
+        if (!(can & 0x0FFFu) || ((can & FX_OPT) && !rnd_chance(r, 55)))
+            break;
+        for (m = 0; m < NKIND; m++)
+            if (((can >> m) & 1u) && rm_size(m) <= room)
+                c[nc++] = (uint8_t)m;
+        if (!nc)                                     /* (none fits: the lightest of all) */
+            c[nc++] = RM_FLT;
+        f->e[k].kind = c[rnd_below(r, (int32_t)nc)];
+        room -= rm_size(f->e[k].kind);
+        fx_values(&f->e[k], r);
+        f->n++;
+    }
+    if (f->n < 2u) {                                 /* (never one alone) */
+        f->e[1].kind = RM_FLT;
+        fx_values(&f->e[1], r);
+        f->n = 2;
+    }
+    for (k = 0; k + 1u < f->n; k++)                  /* an earlier effect out to the master too, now and then */
+        if (rnd_chance(r, 20))
+            f->out |= (uint8_t)(1u << k);
+    for (k = 0; k < f->n; k++)                       /* the cables across */
+        if (s + 1u < NFX && rnd_chance(r, 33)) {
+            uint32_t ts = s + 1u + (uint32_t)rnd_below(r, (int32_t)(NFX - 1u - s));
+            f->xto[k] = (uint16_t)(1u << (ts * FX_N + (uint32_t)rnd_below(r, 2)));
+        }
     RING_PUBLISH();
-    r_pub = (uint8_t)(r_use ^ 1u);
+    f_pub[s] = (uint8_t)b;
     return 1;
 }
 
-static void rack_init(void)
+static void rack_init(uint32_t seed)
 {
-    uint32_t m;
-    memset(&m_flt_s, 0, sizeof m_flt_s);
-    memset(&m_fld_s, 0, sizeof m_fld_s);
-    memset(&m_mu_s, 0, sizeof m_mu_s);
-    memset(&m_shf_s, 0, sizeof m_shf_s);
-    memset(&m_mdl_s, 0, sizeof m_mdl_s);
-    memset(&m_str_s, 0, sizeof m_str_s);
-    memset(&m_vow_s, 0, sizeof m_vow_s);
-    memset(&m_dly_s, 0, sizeof m_dly_s);
-    memset(m_dly_s.line, 0x80, sizeof m_dly_s.line);   /* (mu-law's silence) */
-    memset(&m_tap_s, 0, sizeof m_tap_s);
-    memset(m_tap_s.line, 0x80, sizeof m_tap_s.line);
-    memset(&m_rvs_s, 0, sizeof m_rvs_s);
-    memset(m_rvs_s.line, 0x80, sizeof m_rvs_s.line);
-    memset(&m_spr_s, 0, sizeof m_spr_s);
-    m_mdl_s.key = m_vow_s.key = m_spr_s.key = -1;
-    memset(rm_env, 0, sizeof rm_env);
-    for (m = 0; m < NMOD; m++) {
-        rm_g[m] = Q15;
-        rm_meter[m] = 0;
-        rm_quiet[m] = 0xFFFFu;
+    uint32_t s;
+    memset(fx_arena, 0, sizeof fx_arena);
+    memset(fbuf, 0, sizeof fbuf);
+    memset(ebus_next, 0, sizeof ebus_next);
+    memset(ebus_run, 0, sizeof ebus_run);
+    for (s = 0; s < NFX; s++) {
+        f_pub[s] = f_use[s] = 0;
+        fx_phase[s] = FS_ON;
+        fx_mute[s] = 0;
+        fx_lvl[s] = 20 - 2;
+        fx_pan[s] = (int8_t)((int32_t)s * 10 - 10);   /* left, middle, right */
+        fx_g[s] = fx_gl[s] = fx_gr[s] = 0;
+        fx_draw(s, -1, seed + s * 7919u);            /* (published to buffer 1) */
+        f_use[s] = f_pub[s];                         /* .. and taken at once: the memory is clear */
+        fx_start(s);
     }
-    rv_init();
-    r_pub = r_use = 0;
-    rack_draw_into(&rbuf[0], 0x4D4F4Cu);
 }
