@@ -4,7 +4,7 @@
 # same update loader, the same checks and the same package format.
 """Build MOLECULAR: the app, the update loader and an installable .fwsc package.
 
-  tools/build.py [--release X.Y]
+  tools/build.py
 
 Outputs in build/: molecular.bin (app), loader/ota.bin (update loader), molecular.fwsc (package).
 The JieLi toolchain is Linux x86-64 only: JIELI_TOOLCHAIN points at it; on macOS each tool runs in a
@@ -37,8 +37,8 @@ DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
-PRODUCT = "FM-1_700"                # package identity; release builds are FM-1_7XY
-VERSION = "0.04"
+PRODUCT = "FM-1_700"                # package identity
+BUILD = 5                           # the build number: the next build is one more
 
 
 def toolchain():
@@ -140,7 +140,7 @@ def build_loader():
 
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen",
-             f'-DMOLECULAR_ID="{PRODUCT}"', f'-DMOLECULAR_VERSION="{VERSION}"']
+             f'-DMOLECULAR_ID="{PRODUCT}"', f'-DMOLECULAR_BUILD="BUILD {BUILD}"']
     if os.environ.get("MOLECULAR_TELEMETRY") == "1":      # a diagnostic build: timing over USB, the chip's own benchmark
         flags.append("-DTELEMETRY=1")
     tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
@@ -250,19 +250,11 @@ def mmio_check():
 
 
 def main():
-    global PRODUCT, VERSION
+    global PRODUCT
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_7XY, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "molecular.fwsc"
-    if a.release:
-        m = re.fullmatch(r"(\d)\.(\d)", a.release)
-        if not m:
-            raise SystemExit(f"--release {a.release}: use X.Y, one digit each")
-        PRODUCT = "FM-1_7" + m[1] + m[2]
-        VERSION = a.release
-        name = f"molecular-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk or os.environ.get("AC79_SDK", str(Path.home() / "fw-AC79_AIoT_SDK"))
     fm1pkg_make.sdk_file("uboot.boot")          # fail early without the SDK
     OUT.mkdir(parents=True, exist_ok=True)
@@ -283,7 +275,7 @@ def main():
     pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
     (OUT / name).write_bytes(pkg)
     print(f"app      {OUT / 'molecular.bin'}  {len(img)} B")
-    print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}, version {VERSION}")
+    print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}, build {BUILD}")
     return 0
 
 

@@ -5,14 +5,16 @@
  *                             muted, or heard again
  *   LFO EDIT GLO              the effect slots 4 to 6. Pressed: the slot chosen. Held 0.8 s: muted, or heard again
  *   HOME                      a new patch for the slot chosen. A generator: its sound, the effects it is wired into,
- *                             its modulation by another generator, its level and pan. An effect slot: a recipe -- its
+ *                             its modulation by another generator (its level and pan stay). An effect slot: a recipe -- its
  *                             two or three effects, their values, its cables across to the slots after it.
  *                             SHIFT + HOME: a new one of the same family, or recipe. HOME held 0.8 s: all six anew
  *   the white keys            play the generator chosen last, in the scale chosen: the first key is the root, every
  *                             white key the next note of the scale. Four voices for the three generators. A key held
  *                             and SHIFT pressed: its note latched (the key lit while its generator is chosen); SHIFT
  *                             held and the lit key pressed: let go
- *   SELECT, ALGORITHM         the chosen slot's level and pan (the SCALE page aside)
+ *   SELECT, ALGORITHM         the level and pan of the generator chosen (or chosen last, while an effect slot is):
+ *                             as on Tonitor. At power-on generator 1 is in the middle, 2 left, 3 right. (The SCALE
+ *                             page aside)
  *   ARP                       the SCALE page (its light: on it): SELECT the scale, ALGORITHM the root
  *   OCT- / OCT+               the octave, -3 .. +3
  *   SAVE, SEQ, PLAY, REC      nothing yet
@@ -278,9 +280,9 @@ static void ui_input(void)
             ui.sc_touched = 0;
             ui.sc_touch_until = fm1_ms + 700u;
         }
-    } else {                                     /* SELECT the chosen slot's level, ALGORITHM its pan */
-        volatile int8_t *lv = ui.sel < NGEN ? &gen_lvl[ui.sel] : &fx_lvl[ui.sel - NGEN];
-        volatile int8_t *pn = ui.sel < NGEN ? &gen_pan[ui.sel] : &fx_pan[ui.sel - NGEN];
+    } else {                                     /* SELECT the generator's level, ALGORITHM its pan (Tonitor's) */
+        volatile int8_t *lv = &gen_lvl[ui.gen];   /* (the generator the keys play: chosen, or chosen last) */
+        volatile int8_t *pn = &gen_pan[ui.gen];
         s = fm1_enc_take(PANEL_ENC[EN_SELECT]);
         if (s) {
             *lv = (int8_t)clampi(*lv + s, 0, LEVEL_MAX);

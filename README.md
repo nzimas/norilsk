@@ -3,11 +3,11 @@
 A firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: 0.04.** Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
+**State: build 5.** Textures and drones only: every sound swells in, holds and keeps moving. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
 share a pedalboard. HOME on a generator draws its sound and its cables into the effects; HOME on an effect slot draws
 its chain of two or three effects from a recipe, their values and its cables across to the other effect slots. The
 white keys play the generator chosen last, in the scale chosen. The second core runs the effects. No sessions, no
-patterns, no internal clocks yet. `CHANGELOG.md` says what each version does.
+patterns, no internal clocks yet. `CHANGELOG.md` says what each build does.
 
 ## Playing it
 
@@ -20,7 +20,7 @@ patterns, no internal clocks yet. `CHANGELOG.md` says what each version does.
 | **HOME** held 0.8 s | all six slots anew |
 | the white keys | play the generator chosen last, in the scale chosen. Four voices for the three generators |
 | a white key held, then **SHIFT** | its note latched (the key stays lit); **SHIFT** held, then the lit key: let go |
-| **SELECT / ALGORITHM** | the chosen slot's level / pan |
+| **SELECT / ALGORITHM** | the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right |
 | **ARP** | the SCALE page: SELECT the scale (23), ALGORITHM the root |
 | **OCT- / OCT+** | the octave, -3 .. +3 |
 | **MASTER** | the level |

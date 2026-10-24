@@ -14,6 +14,7 @@ mkdir -p build/screens
 clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-unused-function -Werror \
     -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
 build/host check
+build/host sustain
 build/host flows
 build/host cores
 build/host modules build/sounds > build/sounds/modules.txt
@@ -21,7 +22,7 @@ build/host patches build/sounds 12 > build/sounds/patches.txt
 rm -f build/screens/*.png
 build/host screens build/screens > build/screens/patches.txt
 $PY tools/ppm2png.py build/screens/*.ppm
-for g in 0 1; do
+for g in 0 1 2; do
     build/host golden $g > build/golden$g.txt
     if [ -f tests/golden/gen$g.txt ]; then
         diff -q build/golden$g.txt tests/golden/gen$g.txt >/dev/null || { echo "FAIL golden: generation $g no longer draws its sounds again (tests/golden/gen$g.txt)"; exit 1; }
@@ -30,7 +31,7 @@ for g in 0 1; do
         echo "golden: tests/golden/gen$g.txt written"
     fi
 done
-echo "golden: generations 0 and 1 as they were"
+echo "golden: generations 0, 1 and 2 as they were"
 build/host bench
 build/host render build/sounds 3 0 > build/sounds/stats-open.txt
 build/host render build/sounds 2 1 > build/sounds/stats-ambient.txt

@@ -1,5 +1,28 @@
 # Changelog
 
+From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
+
+## Build 5 (2026-10-24): textures and drones only
+
+The owner's direction: Molecular is for evolving soundscapes. Nothing struck, plucked or pulsed; nothing that needs a
+sequence to make sense.
+
+- **Generation 2 of the generators** (dsp.h `GEN_NOW` 2; `mol.c` `mo_gen2`), applied over every family's body, the
+  path and the mutations: the carriers swell in (no strike: they rise to the level they hold, never fall back to it)
+  and hold high; the modulators get slow envelopes of their own, so the timbre opens and closes over many seconds;
+  the LFO breathes (roughly 0.1 to 1 Hz) on the modulators' depth and a little on the carriers' level, never more
+  than a trace on the pitch; no pitch envelope; the carriers detuned apart to beat; a cloud fades in. IMPACT and
+  PULSE are no longer drawn; FREEZE and the other clouds borrow a body that holds. Generations 0 and 1 draw as
+  before (tests/golden).
+- **A new test** (`host sustain`): 720 sounds held 10 s; each must swell in (its first quarter second at most twice
+  what it holds), hold (its last 2 s at least a fifth of its loudest moment), and no more than 2 % may barely move.
+  At build 5: no failures, 6 barely moving.
+- **SELECT and ALGORITHM**: the level and pan of the generator chosen, or chosen last while an effect slot is chosen,
+  as on Tonitor. The effect slots' level and pan are no longer on the knobs (they stay as drawn at power-on).
+- **Pans at power-on**: generator 1 in the middle, 2 left, 3 right (70 % of the way). HOME no longer draws a
+  generator's level and pan: they are the player's.
+- The startup screen says BUILD 5; the build prints `build 5` in its package line.
+
 ## 0.04 (2026-10-24): three generators, three effect slots, two cores
 
 The owner's design after trying 0.03: the engine is dear, so three generators instead of six.

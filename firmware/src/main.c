@@ -219,7 +219,7 @@ static void splash(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
     draw_text_box(0, 88, 240, &FONT_M, "MOLECULAR", C_WHITE, 1);
-    draw_text_box(0, 136, 240, &FONT_S, MOLECULAR_VERSION, C_GREY, 1);
+    draw_text_box(0, 136, 240, &FONT_S, MOLECULAR_BUILD, C_GREY, 1);
 }
 
 static void enter_uboot(const char *why)

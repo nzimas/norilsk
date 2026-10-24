@@ -5,7 +5,7 @@
  * A generator slot's patch is drawn whole by HOME (gen_draw, the main loop): the generator's sound; the effects it
  * is wired into -- one, two or three, in any effect slot, mostly at the head of its chain, often shared with the
  * other generators, as synthesizers share a pedalboard -- and how much it sends them; the share of it heard dry;
- * its level and pan; and, now and then, a modulation by another generator (ring, amplitude, or a filter the other's
+ * and, now and then, a modulation by another generator (ring, amplitude, or a filter the other's
  * level opens), as Vascular's generators modulate each other. The draw follows Vascular's abstract path: a scene
  * leans the family, a harshness budget pays for what is rough; it leans to the inharmonic and the non-melodic.
  *
@@ -562,7 +562,7 @@ static uint32_t gen_mods(uint32_t l)
  *   - the effects it is wired into: none one time in twenty, else one (0.55), two (0.35) or three (0.1), each in an
  *     effect slot of its own if it can, at the head of its chain mostly (0.7), else the second (0.2) or third place
  *   - the dry share 0.15 .. 0.6 when wired (Vascular's processors are 0.62 wet), all of it when not
- *   - the level a little under unity, the pan anywhere */
+ *   - not the level and pan: those are the player's (SELECT, ALGORITHM) */
 enum { SC_FIELD, SC_MATERIAL, SC_FEEDBACK, SC_EROSION, SC_N };
 static const char *const SC_NAME[SC_N] = {"FIELD", "MATERIAL", "FEEDBACK", "EROSION"};
 static const uint8_t SC_PATH[SC_N] = {PATH_AMBIENT, PATH_OPEN, PATH_EXP, PATH_EXP};
@@ -607,7 +607,7 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
         f = family;
     else {
         for (k = 0; k < MF_N; k++)
-            w[k] = (uint8_t)((int32_t)MF_HARSH[k] <= budget ? MF_W[path][k] * (SC_FAM[p->scene][k] ? 3u : 1u) * MF_INH[k] / 2u : 0u);
+            w[k] = (uint8_t)((int32_t)MF_HARSH[k] <= budget ? mo_fam_w(path, GEN_NOW)[k] * (SC_FAM[p->scene][k] ? 3u : 1u) * MF_INH[k] / 2u : 0u);
         f = (int32_t)rnd_weighted(r, w, MF_N);
         if (!w[f])
             f = MF_GLASS;
@@ -637,14 +637,14 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
         p->xkind = (uint8_t)rnd_weighted(r, XW, XM_N);
         p->xdepth = (uint8_t)rnd_in(r, 35, 95);
     }
-    gen_lvl[l] = (int8_t)rnd_in(r, LEVEL_UNITY - 5, LEVEL_UNITY - 1);
-    gen_pan[l] = (int8_t)rnd_in(r, -16, 16);
     RING_PUBLISH();
     g_pub[l] = (uint8_t)b;
     gen_drawn[l] = 1;
     return 1;
 }
 
+/* the pans at power-on: generator 1 in the middle, 2 left, 3 right (SELECT and ALGORITHM move them; HOME does not) */
+static const int8_t GEN_PAN0[NGEN] = {0, -14, 14};
 static void gens_init(uint32_t seed)
 {
     uint32_t l;
@@ -668,7 +668,7 @@ static void gens_init(uint32_t seed)
         gen_mute[l] = 0;
         gen_drawn[l] = 0;
         gen_lvl[l] = LEVEL_UNITY - 2;
-        gen_pan[l] = 0;
+        gen_pan[l] = (int8_t)GEN_PAN0[l];
         gl_g[l] = Q15;
         gl_env[l] = 0;
         gl_gg[l] = gl_pl[l] = gl_pr[l] = 0;

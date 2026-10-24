@@ -34,9 +34,11 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
  * seed keeps its generation, and every generation stays as it was (tests/golden). New sounds are drawn on GEN_NOW.
  * MOLECULAR: 0 the engine stage and 0.01 .. 0.02; 1 from 0.03: no pitch zaps or bleeps (IMPACT's fall a thud, BRUIT's
  * sample-and-hold on the level more than the pitch, PULSE's pitch still, DRONE's vibrato faint), the tonal bodies
- * (FORMANT, REED) given an inharmonic modulator one time in two; a freeze never before the body's attack is over */
-#define GEN_NOW 1u
-#define GEN_N 2u
+ * (FORMANT, REED) given an inharmonic modulator one time in two; a freeze never before the body's attack is over;
+ * 2 from build 5: textures and drones only -- every sound swells in, holds and keeps moving (mol.c mo_gen2); IMPACT
+ * and PULSE are not drawn */
+#define GEN_NOW 2u
+#define GEN_N 3u
 /* EDIT's four macros on a sound: -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
 #define NMAC 4u

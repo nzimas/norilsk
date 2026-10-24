@@ -39,7 +39,9 @@
  *   FREEZE    a struck body frozen into a cloud a moment after the strike, which fades in its own time
  * A path leans the draw (PATH_OPEN: every family alike): AMBIENT towards the drones, the glass, the metals and
  * the clouds, slower and darker; EXPERIMENTAL towards the bruits, impacts, pulses and shatters, the modulators
- * up. About one sound in three is mutated once more. Every sound is measured as it is made (mo_measure) and
+ * up. Generation 2 (build 5: the owner's, textures and drones only) draws no IMPACT and no PULSE, lends the clouds
+ * only bodies that hold, and makes every sound swell in, hold and keep moving (mo_gen2). About one sound in three is
+ * mutated once more. Every sound is measured as it is made (mo_measure) and
  * given the gain that brings its loudest moment to one level.
  *
  * EDIT's four macros on a sound, live under a held note: BRIGHTNESS, DETUNE (or INHARMONIC), GRAIN (the
@@ -64,6 +66,19 @@ static const uint8_t MF_BODY_SUST[PATH_N][MF_BODY_N] = {
     {0, 3, 1, 0, 1, 3, 3, 3}, {0, 5, 0, 0, 0, 5, 3, 2}, {0, 2, 3, 0, 2, 1, 3, 4}};
 static const uint8_t MF_BODY_STRUCK[PATH_N][MF_BODY_N] = {
     {3, 0, 1, 3, 2, 2, 0, 0}, {4, 0, 0, 2, 0, 4, 0, 0}, {2, 0, 3, 4, 3, 1, 0, 0}};
+/* generation 2: only what sustains and evolves -- no IMPACT, no PULSE drawn; a cloud borrows a body that holds */
+static const uint8_t MF_W2[PATH_N][MF_N] = {
+    {2, 3, 2, 0, 0, 2, 1, 1, 3, 2, 2, 3},
+    {3, 5, 1, 0, 0, 5, 2, 1, 5, 1, 2, 4},
+    {3, 2, 5, 0, 0, 2, 2, 2, 3, 4, 3, 3},
+};
+static const uint8_t MF_BODY_G2[PATH_N][MF_BODY_N] = {
+    {3, 3, 2, 0, 0, 3, 2, 1}, {3, 5, 1, 0, 0, 5, 2, 1}, {3, 2, 4, 0, 0, 2, 2, 2}};
+static const uint8_t *mo_fam_w(uint32_t path, uint32_t gen)
+{
+    path = path >= PATH_N ? PATH_OPEN : path;
+    return gen >= 2u ? MF_W2[path] : MF_W[path];
+}
 
 /* the grain recipe */
 enum { GM_OFF, GM_CLOUD, GM_PULSAR };
@@ -935,6 +950,51 @@ static void mo_gen1(mo_design_t *d, int body, rnd_t *r)
         break;
     }
 }
+/* generation 2: every sound a texture that is held and keeps moving, nothing struck, plucked or pulsed. Applied
+ * last, over the body, the path and the mutations: the carriers swell in (never a strike) and hold high; the
+ * modulators get slow envelopes of their own, so the timbre opens and closes over many seconds; the LFO breathes
+ * (0.1 .. 1 Hz roughly) on the modulators' levels, never more than a trace on the pitch; no pitch envelope; a
+ * cloud fades in */
+static void mo_gen2(mo_design_t *d, rnd_t *r)
+{
+    static const uint8_t LW[3] = {3, 4, 2};              /* the LFO: triangle, sine, sample-and-hold */
+    static const uint8_t LWAVE[3] = {0, 4, 5};
+    uint8_t *p = d->p;
+    int n, i;
+    for (i = 0; i < 4; i++) {
+        p[FP_PR1 + i] = 99;
+        p[FP_PL1 + i] = 50;
+    }
+    for (n = 1; n <= 6; n++) {
+        uint8_t *op = mo_op(p, n);
+        if (mo_is_carrier(p, n)) {
+            int r1 = op[FP_R1] < 50 ? op[FP_R1] : rnd_in(r, 20, 50);
+            mo_env(op, r1, rnd_in(r, 8, 35), rnd_in(r, 4, 25), rnd_in(r, 24, 42), rnd_in(r, 86, 95),
+                   rnd_in(r, 90, 99), rnd_in(r, 92, 99), 0);  /* (a level a step 0.75 dB: up to the held one, not down) */
+            op[FP_AMS] = 1;                              /* the level breathing a little, slowly (no tremolo) */
+            op[FP_DET] = (uint8_t)(7 + ((n & 1) ? 1 : -1) * rnd_in(r, 2, 5));   /* the carriers apart: a slow beating */
+        } else {
+            mo_env(op, rnd_in(r, 6, 35), rnd_in(r, 4, 22), rnd_in(r, 3, 18), rnd_in(r, 25, 50), rnd_in(r, 70, 99),
+                   rnd_in(r, 35, 99), rnd_in(r, 45, 95), 0);
+            op[FP_AMS] = (uint8_t)rnd_in(r, 2, 3);       /* the LFO always on the modulators: the timbre moves */
+            if (!op[FP_MODE] && mo_op_ratio100(op) < 800) {   /* .. deep enough to be heard (care's high ratios kept) */
+                int floor = rnd_in(r, 52, 68);
+                if (op[FP_OL] < floor)
+                    op[FP_OL] = (uint8_t)floor;
+            }
+        }
+    }
+    p[FP_LFW] = LWAVE[rnd_weighted(r, LW, 3)];
+    p[FP_LFS] = (uint8_t)rnd_in(r, 4, 26);
+    p[FP_LAMD] = (uint8_t)rnd_in(r, 30, 70);
+    p[FP_LFD] = (uint8_t)rnd_in(r, 0, 70);
+    if (p[FP_LPMD] > 2)
+        p[FP_LPMD] = 2;
+    if (p[FP_LPMS] > 2)
+        p[FP_LPMS] = 2;
+    if (d->gr.mode && d->gr.atk_ms < 150)
+        d->gr.atk_ms = (uint16_t)rnd_in(r, 150, 1200);
+}
 static void mo_body(mo_design_t *d, int body, rnd_t *r)
 {
     switch (body) {
@@ -1180,7 +1240,7 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     rnd_seed(r, seed ^ 0x4D4F4C45u);
     path = path >= PATH_N ? PATH_OPEN : path;
     if (f < 0 || f >= MF_N)
-        f = (int32_t)rnd_weighted(r, MF_W[path], MF_N);
+        f = (int32_t)rnd_weighted(r, mo_fam_w(path, gen), MF_N);
     d->family = (uint8_t)f;
     d->seed = seed;
     d->path = (uint8_t)path;
@@ -1189,6 +1249,8 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     mo_defaults(d);
     if (f < MF_BODY_N)
         body = f;
+    else if (gen >= 2u)
+        body = (int)rnd_weighted(r, MF_BODY_G2[path], MF_BODY_N);
     else if (f == MF_PULSAR)
         body = (int)rnd_weighted(r, MF_BODY_SUST[path], MF_BODY_N);
     else if (f == MF_FREEZE)
@@ -1223,6 +1285,8 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     } else if (rnd_chance(r, 33))
         mo_mutate(d, r);
     mo_care(d, r);
+    if (gen >= 2u)
+        mo_gen2(d, r);
     mo_sanitize(d);
     if (gen >= 1u && d->gr.freeze_ms) {                  /* (generation 1: never frozen before the body has sounded) */
         int32_t a[4], fz;

@@ -392,6 +392,77 @@ static int cmd_check(void)
     return fails ? 1 : 0;
 }
 
+/* generation 2's promise (build 5): every sound held 10 s is a texture -- it swells in (no strike: its first quarter
+ * second at most twice what it holds), it holds (its last 2 s at least a fifth of its loudest quarter second) and it
+ * moves (its level or its brightness wanders over the held part: reported, the stillest counted) */
+static int cmd_sustain(void)
+{
+    enum { WB = 344, NW = 40 };                          /* windows of 344 blocks (0.25 s), 10 s */
+    int f, s, path, fails = 0, n = 0, still = 0;
+    int32_t blk[CTL];
+    for (path = 0; path < PATH_N; path++)
+        for (f = 0; f < MF_N; f++)
+            for (s = 0; s < 20; s++) {
+                uint32_t seed = 9000u + (uint32_t)f * 173u + (uint32_t)s * 11u + (uint32_t)path * 1301u, b, i;
+                double w[NW] = {0}, br[NW] = {0}, mx = 0, held = 0, lo = 1e30, hi = 0, blo = 1e30, bhi = 0;
+                int32_t prev = 0;
+                mo_design(&design, f, seed, (uint32_t)path, GEN_NOW);
+                mo_measure(&design);
+                memset(&voice, 0, sizeof voice - MO_GR_N);
+                mo_note_on(&voice, &design, 60, 1);
+                for (b = 0; b < (uint32_t)(WB * NW); b++) {
+                    int k = (int)(b / WB);
+                    if (!mo_render(&voice, &design, blk, 0))
+                        break;
+                    for (i = 0; i < CTL; i++) {
+                        double x = blk[i], dx = blk[i] - prev;
+                        w[k] += x * x;
+                        br[k] += dx * dx;
+                        prev = blk[i];
+                    }
+                }
+                for (i = 0; i < NW; i++) {
+                    br[i] = w[i] > 0 ? __builtin_sqrt(br[i] / w[i]) : 0;
+                    w[i] = __builtin_sqrt(w[i] / (WB * CTL)) / 32768.0;
+                    if (w[i] > mx)
+                        mx = w[i];
+                }
+                for (i = 32; i < NW; i++)
+                    held += w[i] / 8;
+                for (i = 8; i < NW; i++) {
+                    lo = w[i] < lo ? w[i] : lo;
+                    hi = w[i] > hi ? w[i] : hi;
+                    blo = br[i] < blo ? br[i] : blo;
+                    bhi = br[i] > bhi ? br[i] : bhi;
+                }
+                n++;
+                if (held < 0.2 * mx) {
+                    printf("FAIL %s %s seed %u: does not hold (last 2 s %.4f, loudest %.4f)\n", MF_NAME[f],
+                           PATH_NAME[path], seed, held, mx);
+                    fails++;
+                }
+                if (w[0] > 2.0 * held) {
+                    printf("FAIL %s %s seed %u: struck (first 0.25 s %.4f, held %.4f)\n", MF_NAME[f], PATH_NAME[path],
+                           seed, w[0], held);
+                    fails++;
+                }
+                if (hi < 1.03 * lo && bhi < 1.03 * blo) {
+                    still++;
+                    if (getenv("SUSTAIN_V"))
+                        printf("still %s %s seed %u: level %.4f..%.4f bright %.3f..%.3f lfo w%d s%d amd %d\n",
+                               MF_NAME[f], PATH_NAME[path], seed, lo, hi, blo, bhi, design.p[FP_LFW], design.p[FP_LFS],
+                               design.p[FP_LAMD]);
+                }
+            }
+    printf("sustain: %d sounds held 10 s, %d failures, %d barely moving (level and brightness within 3 %%)\n", n,
+           fails, still);
+    if (still * 50 > n) {
+        printf("FAIL sustain: more than 2 %% of the sounds barely move\n");
+        fails++;
+    }
+    return fails ? 1 : 0;
+}
+
 static int cmd_golden(uint32_t gen)
 {
     int f, s, path;
@@ -932,7 +1003,7 @@ int main(int argc, char **argv)
     if (argc >= 2 && !strcmp(argv[1], "screens"))
         return cmd_screens(argc, argv);
     if (argc < 2) {
-        fprintf(stderr, "host render DIR [SEEDS] [PATH] | one DIR FAMILY SEED [PATH] | check | golden | bench | patches DIR [N] | modules DIR | flows | cores | screens DIR\n");
+        fprintf(stderr, "host render DIR [SEEDS] [PATH] | one DIR FAMILY SEED [PATH] | check | sustain | golden | bench | patches DIR [N] | modules DIR | flows | cores | screens DIR\n");
         return 2;
     }
     if (!strcmp(argv[1], "render"))
@@ -941,6 +1012,8 @@ int main(int argc, char **argv)
         return cmd_one(argc, argv);
     if (!strcmp(argv[1], "check"))
         return cmd_check();
+    if (!strcmp(argv[1], "sustain"))
+        return cmd_sustain();
     if (!strcmp(argv[1], "golden"))
         return cmd_golden(argc > 2 ? (uint32_t)atoi(argv[2]) : 0u);
     if (!strcmp(argv[1], "bench"))
