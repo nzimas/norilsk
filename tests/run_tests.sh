@@ -15,6 +15,8 @@ clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-
     -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
 build/host check
 build/host sustain
+build/host fxtails | tail -1
+build/host tails 24 | tail -1
 build/host flows
 build/host cores
 build/host modules build/sounds > build/sounds/modules.txt

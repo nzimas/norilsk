@@ -78,7 +78,9 @@ static int32_t gbus[NGEN][CTL], graw[NGEN][CTL];
 
 #define TAIL_FLOOR 11u           /* let go, a voice 66 dB (2^11) under its loudest .. */
 #define TAIL_QUIET 276u          /* .. for 0.2 s ends; */
-#define TAIL_MAX 41340u          /* .. and none rings on more than 30 s after it was let go */
+#define TAIL_MAX 41340u          /* .. and none rings on more than 30 s after it was let go; */
+#define REL_HOLD 1378u           /* .. but from build 6 a voice let go sounds as it will for 1 s, then is faded out, */
+#define REL_FADE 2756u           /* .. 60 dB in 2 s, and ends: nothing lingers once no key is held or latched */
 
 /* ------------------------------------------------------------ the events --- */
 enum { EV_ON, EV_OFF, EV_LATCH, EV_STOP };
@@ -287,6 +289,17 @@ static void voice_post(uint32_t k)
             }
         }
     }
+    if (!v->gate && !v->fade && blk_clock - v->rel_at > REL_HOLD) {   /* let go a while: faded out */
+        uint32_t t = blk_clock - v->rel_at - REL_HOLD;
+        int32_t g0 = (int32_t)(exp2_q16(-(int32_t)((t - 1u) * (10u * 65536u / REL_FADE))) >> 1);   /* Q15 */
+        int32_t g1 = (int32_t)(exp2_q16(-(int32_t)(t * (10u * 65536u / REL_FADE))) >> 1), dg = (g1 - g0) / (int32_t)CTL;
+        for (i = 0; i < CTL; i++) {
+            g0 += dg;
+            vb[i] = mulq15(vb[i], g0);
+        }
+        if (t >= REL_FADE)
+            alive = 0;
+    }
     for (i = 0; i < CTL; i++) {
         int32_t a = absi(vb[i]);
         if (a > pk)
@@ -468,6 +481,12 @@ static void mix_block(int32_t *out)
     memcpy(ebus_run, ebus_next, sizeof ebus_run);       /* (what the generators sent the block before: the effects' input) */
     ebus_fed_run = ebus_fed;
     memset(gbus, 0, sizeof gbus);
+    {   /* (the effect slots' gate: open while a voice sounds; rack.c) */
+        uint32_t any = 0;
+        for (k = 0; k < NVOICE; k++)
+            any |= vox[k].sounding;
+        rack_voices = (uint8_t)any;
+    }
     blk_render();                                       /* the effects and the voices, on the two cores */
     memset(ebus_next, 0, sizeof ebus_next);
     ebus_fed = 0;

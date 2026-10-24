@@ -51,7 +51,7 @@ static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what M
 /* ------------------------------------------------------------- shared --- */
 /* a constant-peak-gain resonator (Smith and Angell): zeros at DC and Nyquist, poles at f, radius r. Q28 coefficients */
 typedef struct { int32_t a1, a2, g; } res_c;
-typedef struct { int32_t y1, y2, x1, x2; } res_s;
+typedef struct { int32_t y1, y2, x1, x2, e; } res_s;   /* (e: the fraction the last result dropped) */
 /* f in Hz (Q8), Q in Q8: 1 - r = pi f / (Q FS) (to the second order), cos 2 theta = 1 - 2 sin^2 theta, theta = pi f / FS */
 static void res_coef(res_c *c, int32_t hz8, int32_t q8)
 {
@@ -74,12 +74,23 @@ static void res_coef(res_c *c, int32_t hz8, int32_t q8)
 }
 AINL int32_t res_run(res_s *s, const res_c *c, int32_t x)
 {
-    int32_t y = (int32_t)(((int64_t)c->a1 * s->y1 + (int64_t)c->a2 * s->y2 + (int64_t)c->g * (x - s->x2)) >> 28);
+    /* the fraction a result drops carried into the next one (error feedback): a truncated high-Q resonator otherwise
+     * rings on by itself for ever, a small tone or a DC level, once its input has fallen silent */
+    int64_t acc = (int64_t)c->a1 * s->y1 + (int64_t)c->a2 * s->y2 + (int64_t)c->g * (x - s->x2) + s->e;
+    int32_t y = (int32_t)(acc >> 28);
+    s->e = (int32_t)(acc - ((int64_t)y << 28));
     s->y2 = s->y1;
     s->y1 = y;
     s->x2 = s->x1;
     s->x1 = x;
     return y;
+}
+/* a Q15 product rounded towards zero: in a loop of gain under one it takes a little each trip, so the loop dies out
+ * to nothing once its input is silent (truncating towards minus infinity leaves a level, or a tone, ringing on) */
+AINL int32_t mulz15(int32_t a, int32_t b)
+{
+    int64_t m = (int64_t)a * b;
+    return (int32_t)(m < 0 ? -((-m) >> 15) : m >> 15);
 }
 /* a note's frequency, Hz Q8 (MIDI, + cents) */
 static int32_t note_hz8(int32_t note, int32_t cents)
@@ -176,7 +187,8 @@ static const int32_t HB_B[4] = {43421716, 196770956, 253765378, 265911936};
 typedef struct { int32_t ax[4][2], ay[4][2], bx[4][2], by[4][2], bd; uint32_t ph, lfo, w; int32_t lp; int16_t line[SHF_N]; } m_shf_t;
 AINL int32_t hb_sec(int32_t c, int32_t x, int32_t *xs, int32_t *ys)   /* y = c (x + y[n-2]) - x[n-2] */
 {
-    int32_t y = (int32_t)(((int64_t)c * (x + ys[1])) >> 28) - xs[1];
+    int64_t m = (int64_t)c * (x + ys[1]);
+    int32_t y = (int32_t)(m < 0 ? -((-m) >> 28) : m >> 28) - xs[1];   /* (towards zero: no ringing on in silence) */
     xs[1] = xs[0];
     xs[0] = x;
     ys[1] = ys[0];
@@ -192,7 +204,7 @@ static void m_shf(const uint8_t *p, m_shf_t *s, int32_t *x)
     inc = hz8_inc(hz8);
     dir = p[2] < 45 ? -1 : p[2] > 55 ? 1 : 0;
     for (i = 0; i < CTL; i++) {
-        int32_t in = x[i] + mulq15(s->lp, fb), a = in, b = in, y, c, sn;
+        int32_t in = x[i] + mulz15(s->lp, fb), a = in, b = in, y, c, sn;
         uint32_t r = s->w + SHF_N - (SHF_N - 2u);
         for (k = 0; k < 4u; k++) {
             a = hb_sec(HB_A[k], a, s->ax[k], s->ay[k]);
@@ -207,7 +219,7 @@ static void m_shf(const uint8_t *p, m_shf_t *s, int32_t *x)
         if (++s->w >= SHF_N)
             s->w = 0;
         r = r >= SHF_N ? r - SHF_N : r;
-        s->lp += mulq15(s->line[r] - s->lp, tone);      /* (the feedback's damping) */
+        s->lp += mulz15(s->line[r] - s->lp, tone);      /* (the feedback's damping) */
         x[i] = y;
     }
 }
@@ -259,13 +271,13 @@ static void m_str(const uint8_t *p, m_str_t *s, int32_t *x)
     lvl = p[2] * (Q15 / 100);
     for (i = 0; i < CTL; i++) {
         int32_t y = 0;
-        s->in += mulq15(x[i] - s->in, 15700);           /* (~4 kHz) */
+        s->in += mulz15(x[i] - s->in, 15700);           /* (~4 kHz; towards zero, so silence settles at 0, not -1) */
         for (k = 0; k < 3; k++) {
             int32_t d8 = clampi(len8[k], 4 << 8, (int32_t)(STR_N - 3u) << 8), v;
             uint32_t rp = (s->w << 8) + (STR_N << 8) - (uint32_t)d8, i0 = (rp >> 8) % STR_N, i1 = i0 + 1u >= STR_N ? 0u : i0 + 1u;
             v = s->line[k][i0] + (((s->line[k][i1] - s->line[k][i0]) * (int32_t)(rp & 255u)) >> 8);
-            s->lp[k] += mulq15(v - s->lp[k], tone);
-            s->line[k][s->w] = (int16_t)clampi((s->in >> 2) + mulq15(s->lp[k], g), -32767, 32767);
+            s->lp[k] += mulz15(v - s->lp[k], tone);
+            s->line[k][s->w] = (int16_t)clampi(s->in / 4 + mulz15(s->lp[k], g), -32767, 32767);
             y += k ? mulq15(v, lvl) : v;
         }
         if (++s->w >= STR_N)
@@ -537,6 +549,15 @@ enum { FS_ON, FS_FADE, FS_CLEAR };
 static uint8_t fx_phase[NFX];
 static uint32_t fx_count[NFX];                 /* (the fade's blocks left; the bytes cleared so far) */
 static int32_t fx_g[NFX], fx_gl[NFX], fx_gr[NFX];   /* each slot's output gain and pan gains as the last block ended */
+/* the slots' gate (build 6, the owner's rule: nothing sounds once no note is held or latched): 2 s after the last
+ * voice has ended, every effect slot fades out in 0.5 s, whatever its tail, and its effects are left alone; a voice
+ * sounding again opens them at once. Each slot's output goes through a DC blocker (~8 Hz) as well */
+#define GATE_WAIT 2756u          /* blocks with no voice (2 s) */
+#define GATE_STEP (Q15 / 689)    /* closing: 0.5 s */
+static volatile uint8_t rack_voices;   /* a voice sounded this block (gens.c) */
+static int32_t fx_gate[NFX];     /* Q15 */
+static uint32_t fx_idle[NFX];    /* blocks since a voice last sounded */
+static int32_t fx_dcx[NFX][2], fx_dcy[NFX][2];   /* the DC blocker: last input, last output (Q8 above the sample) */
 static int32_t rm_env[NINST], rm_g[NINST];     /* each instance's guard */
 static volatile int32_t rm_meter[NINST];       /* each instance's output, its last peaks (the screen's) */
 static uint16_t rm_quiet[NINST];
@@ -697,6 +718,14 @@ static void rack_job(void)
         }
         for (i = 0; i < CTL; i++)
             sl[i] = sr[i] = 0;
+        if (rack_voices) {                               /* the gate */
+            fx_idle[s] = 0;
+            fx_gate[s] = Q15;
+        } else if (fx_idle[s] < 0xFFFFFFu)
+            fx_idle[s]++;
+        if (fx_idle[s] > GATE_WAIT && !fx_gate[s] && !fading)
+            continue;                                    /* closed: its effects left alone, nothing out (a fade to a new
+                                                          * patch still runs its course) */
         for (k = 0; k < f->n; k++) {
             uint32_t inst = s * FX_N + k, out = k + 1u == f->n || ((f->out >> k) & 1u);
             int32_t *x = ebus_run[inst];
@@ -726,6 +755,31 @@ static void rack_job(void)
                         ebus_run[j][i] += x[i];
                     has |= 1u << j;
                 }
+        }
+        {   /* the DC blocker, then the gate */
+            int32_t *ch[2] = {sl, sr}, c;
+            for (c = 0; c < 2; c++)
+                for (i = 0; i < CTL; i++) {
+                    int32_t xq = ch[c][i] << 8;          /* y = x - x1 + R y1, R = 1 - 2 pi 8 / FS (towards zero) */
+                    int32_t y = xq - fx_dcx[s][c] + mulz15(fx_dcy[s][c], 32730);
+                    fx_dcx[s][c] = xq;
+                    fx_dcy[s][c] = y;
+                    ch[c][i] = y >> 8;
+                }
+            if (fx_idle[s] > GATE_WAIT && fx_gate[s] > 0) {
+                int32_t g0 = fx_gate[s], g1 = maxi(g0 - GATE_STEP, 0), dgt = (g1 - g0) / (int32_t)CTL;
+                for (i = 0; i < CTL; i++) {
+                    g0 += dgt;
+                    sl[i] = mulq15(sl[i], g0);
+                    sr[i] = mulq15(sr[i], g0);
+                }
+                fx_gate[s] = g1;
+            } else if (fx_gate[s] < Q15) {
+                for (i = 0; i < CTL; i++) {
+                    sl[i] = mulq15(sl[i], fx_gate[s]);
+                    sr[i] = mulq15(sr[i], fx_gate[s]);
+                }
+            }
         }
         /* the slot out: its level, its place (the mono parts panned; the plate's stereo as it is), its fade */
         gw = fx_lvl[s] ? (int32_t)(exp2_q16((fx_lvl[s] - 20) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a step */
@@ -840,6 +894,9 @@ static void rack_init(uint32_t seed)
         fx_lvl[s] = 20 - 2;
         fx_pan[s] = (int8_t)((int32_t)s * 10 - 10);   /* left, middle, right */
         fx_g[s] = fx_gl[s] = fx_gr[s] = 0;
+        fx_gate[s] = Q15;
+        fx_idle[s] = 0;
+        fx_dcx[s][0] = fx_dcx[s][1] = fx_dcy[s][0] = fx_dcy[s][1] = 0;
         fx_draw(s, -1, seed + s * 7919u);            /* (published to buffer 1) */
         f_use[s] = f_pub[s];                         /* .. and taken at once: the memory is clear */
         fx_start(s);

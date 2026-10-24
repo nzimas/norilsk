@@ -674,6 +674,149 @@ static int cmd_patches(int argc, char **argv)
     printf("patches: %d, %d failures\n", n, fails);
     return fails ? 1 : 0;
 }
+/* nothing lingers: N patches, notes held 3 s on each generator, every key let go; how long until the voices are done,
+ * and until the output is under -60 dB FS for good (TAIL_LIMIT_S at most, else a failure) */
+#define TAIL_LIMIT_S 6.0
+static int cmd_tails(int argc, char **argv)
+{
+    int n = argc > 2 ? atoi(argv[2]) : 24, i, l, fails = 0;
+    double worst = 0, wv = 0, sum = 0;
+    for (i = 0; i < n; i++) {
+        uint32_t b, last_loud = 0, voices_done = 0;
+        fw_init();
+        ui.seed = 4321u + (uint32_t)i * 6007u;
+        for (l = 0; l < (int)NSLOT; l++) {
+            press(SLOT_BTN[l], 50);
+            press(B_HOME, 50);
+            fw_run(30);
+        }
+        for (l = 0; l < (int)NGEN; l++) {
+            press(SLOT_BTN[l], 50);
+            key(2u * (uint32_t)l, 1);
+            fw_run(400);
+        }
+        fw_run(4134);
+        for (l = 0; l < (int)NKEY; l++)
+            key((uint32_t)l, 0);
+        for (b = 0; b < 1378u * 40u; b++) {              /* 40 s at most */
+            int32_t pk0 = fw_peak;
+            uint32_t k, alive = 0;
+            fw_peak = 0;
+            fw_run(1);
+            for (k = 0; k < NVOICE; k++)
+                alive |= vox[k].sounding;
+            if (alive)
+                voices_done = b + 1u;
+            if (fw_peak > 33)                            /* -60 dB FS */
+                last_loud = b + 1u;
+            fw_peak = pk0 > fw_peak ? pk0 : fw_peak;
+            if (!alive && b > last_loud + 2756u)         /* 2 s quiet with no voice: done */
+                break;
+        }
+        if (getenv("TAILS_V")) {                         /* what is still sounding: each effect slot muted in turn */
+            uint32_t m, k;
+            int32_t mn = 1 << 30, mx = -(1 << 30), out[2 * CTL];
+            for (k = 0; k < 64u; k++) {
+                mix_block(out);
+                for (m = 0; m < 2u * CTL; m++) {
+                    mn = out[m] < mn ? out[m] : mn;
+                    mx = out[m] > mx ? out[m] : mx;
+                }
+            }
+            printf("  residue: min %d max %d\n", mn, mx);
+            for (m = 0; m < NFX; m++) {
+                fx_mute[m] = 1;
+                fw_peak = 0;
+                fw_run(2756);
+                printf("  slot %u muted too: peak %d (recipe %s)\n", m + 4u, fw_peak, FR_NAME[fbuf[m][f_use[m]].recipe]);
+            }
+        }
+        {
+            double t = last_loud * 0.0007256, tv = voices_done * 0.0007256;
+            printf("patch %2d: voices %5.2f s, sound %5.2f s after the keys\n", i, tv, t);
+            if (t > TAIL_LIMIT_S) {
+                printf("FAIL patch %d: sound goes on %.2f s after the last key\n", i, t);
+                fails++;
+            }
+            worst = t > worst ? t : worst;
+            wv = tv > wv ? tv : wv;
+            sum += t;
+        }
+    }
+    printf("tails: %d patches, mean %.2f s, longest %.2f s (voices %.2f s), %d failures\n", n, sum / n, worst, wv, fails);
+    return fails ? 1 : 0;
+}
+/* each effect alone, many values: what it gives out 10 s after its input has fallen silent (a tail that sustains
+ * itself, or a DC offset) */
+static int cmd_fxtails(void)
+{
+    uint32_t m, rep;
+    int fails = 0;
+    for (m = 0; m < NKIND; m++) {
+        int32_t worst = 0, wdc = 0, bad = 0;
+        for (rep = 0; rep < 24u; rep++) {
+            gen_patch_t *p;
+            fx_patch_t *f;
+            rnd_t r;
+            uint32_t b, k, alive;
+            int32_t out[2 * CTL], pk = 0;
+            int64_t dc = 0;
+            fw_init();
+            gen_draw(0, MF_DRONE, 5151u + rep);
+            fw_run(4);
+            for (b = 1; b < NFX; b++)
+                fx_mute[b] = 1;
+            f = &fbuf[0][f_use[0]];
+            memset(f, 0, sizeof *f);
+            f->n = 1;
+            f->e[0].kind = (uint8_t)m;
+            rnd_seed(&r, 333u + rep * 29u + m * 7u);
+            fx_values(&f->e[0], &r);
+            memset(fx_arena[0], 0, FX_ARENA);
+            fx_start(0);
+            p = &gbuf[0][g_use[0]];
+            p->nent = 1;
+            p->ent[0] = 0;
+            p->send = Q15;
+            p->dry = 0;
+            p->xsrc = XM_NONE;
+            press(B_FX, 50);
+            key(0, 1);
+            fw_run(1378 * 2);
+            key(0, 0);
+            for (b = 0; b < 1378u * 40u; b++) {
+                fw_run(1);
+                for (alive = 0, k = 0; k < NVOICE; k++)
+                    alive |= vox[k].sounding;
+                if (!alive)
+                    break;
+            }
+            fw_run(1378 * 10);
+            for (b = 0; b < 344u; b++) {
+                mix_block(out);
+                for (k = 0; k < 2u * CTL; k++) {
+                    int32_t a = out[k] < 0 ? -out[k] : out[k];
+                    pk = a > pk ? a : pk;
+                    dc += out[k];
+                }
+            }
+            dc /= 344 * 2 * CTL;
+            if (pk > 33) {
+                bad++;
+                if (getenv("VERBOSE"))
+                    printf("  %s rep %u values %u %u %u %u: peak %d dc %d\n", RM_NAME[m], rep, f->e[0].p[0], f->e[0].p[1],
+                           f->e[0].p[2], f->e[0].p[3], pk, (int)dc);
+            }
+            worst = pk > worst ? pk : worst;
+            wdc = (dc < 0 ? -dc : dc) > wdc ? (int32_t)(dc < 0 ? -dc : dc) : wdc;
+        }
+        printf("%-8s 10 s after: %2d of 24 still sounding, loudest %6d, DC up to %6d\n", RM_NAME[m], bad, worst, wdc);
+        if (bad)
+            fails++;
+    }
+    printf("fxtails: %d effects with a tail of their own\n", fails);
+    return fails ? 1 : 0;
+}
 /* every effect alone: generator 1 wired into it, a few notes; its level against the dry */
 static int cmd_modules(int argc, char **argv)
 {
@@ -1012,6 +1155,10 @@ int main(int argc, char **argv)
         return cmd_one(argc, argv);
     if (!strcmp(argv[1], "check"))
         return cmd_check();
+    if (!strcmp(argv[1], "fxtails"))
+        return cmd_fxtails();
+    if (!strcmp(argv[1], "tails"))
+        return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))
         return cmd_sustain();
     if (!strcmp(argv[1], "golden"))
