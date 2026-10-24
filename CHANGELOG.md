@@ -2,6 +2,33 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 8 (2026-10-25): sessions, snapshots, LFOs
+
+- **Sessions** (Tonitor's, `sessions.c`): SAVE opens the SESSIONS page -- PRESETS through 64 slots (the number very
+  large: red holding a session, grey empty), SAVE loads one, or starts a new session in an empty one; SAVE held 0.8 s
+  saves into the session loaded or chosen (on the page: into the slot shown, asked SAVE NEW / OVERWRITE?, NO / YES on
+  PRESETS). A session keeps every generator (its sound as what draws it again, bit for bit, and its measured level;
+  its cables, modulation by another, level, pan, mute, sends), every effect slot (its patch whole), the master delay
+  and reverb, the six slots' LFOs, the scale, root, octave, slot chosen, the loops' moves, every looper's loops, the
+  latched notes, and its snapshots. The whole screen says SAVED / LOADED / NEW and the number.
+- **Snapshots** (Bigorna's patterns, renamed): SHIFT + SAVE opens the SNAPSHOTS page, 16 a session in four rows. A
+  white key let go soon recalls its snapshot; held 0.8 s stores the state now in it; SHIFT and held empties it.
+  PRESETS moves the frame, SAVE recalls the one framed, SAVE held stores into it. A snapshot is the machine's state
+  but the loops, the latched notes, the octave and the slot chosen. Kept with the session when it is saved.
+- **The flash**: Tonitor's record format and its order of writing (the new copy first, then the old one retired), in
+  the area Tonitor and Bigorna use (0x97000 .. 0xE0000). Unlike them, Molecular writes only into blank sectors and
+  its own retired records, and never erases another firmware's data. Two fixes on Tonitor's scheme: a retired
+  record's later sectors are looked at one by one (a sector blanked and reused since is not lost), and of two copies
+  of a session the newer stays only if its body checks (a power cut while it was written keeps the older).
+- **LFOs** (Tonitor's modulation, `mod.c`): SEQ's third page, MOD, for the slot chosen -- two LFOs (SHAPE, RATE, MODE,
+  FADE) and four slots (FROM, TO, AMOUNT; NOW shows what it does). A generator's destinations: its four macros, level,
+  pan, reverb and delay sends, the LFOs' rates. An effect slot's: the values of the effects standing in it, by place
+  (named on the page by the effect there now: a slot drawn anew, the LFO moves the new effect's value at that place),
+  its level and pan, the rates. SHIFT + SEQ throws the chosen slot's modulation anew. Nothing is modulated until set.
+- Tests: `host sessions` (another firmware's sectors untouched through saves, overwrites, blanking and filling up; a
+  full round trip after a restart; snapshots; power cuts; a damaged record refused), `host mod`.
+- Memory: RAM 75 of 96 KiB (the snapshots 5.8 KiB, a sector's buffer 4 KiB); pool unchanged.
+
 ## Build 7 (2026-10-24): the master delay and reverb
 
 - **Tonitor's master delay and reverb** (`master.c`), at the end of the chain, after the three effect slots. They hear

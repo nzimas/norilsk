@@ -28,9 +28,20 @@
  *                             only. The white keys and the latched notes move with them
  *   KNOB 3, KNOB 4            the delay send and the reverb send of the generator the keys play, 0 .. 100 (Tonitor's
  *                             KNOB 4 and SHIFT + KNOB 4): to the master delay and reverb, at the end of the chain
- *   SEQ                       the DELAY page, again the REVERB page, again back (Tonitor's): KNOB 1 .. 4 set them
+ *   SEQ                       the DELAY page, again the REVERB page, again MOD, again back (Tonitor's): KNOB 1 .. 4
  *                             (TIME FEEDBACK DAMP MIX; SIZE DECAY DAMP MIX), each a row, the one turned black on white
- *   SAVE                      nothing yet
+ *   SAVE                      the SESSIONS page (Tonitor's): PRESETS through the 64 slots (the number very large: red
+ *                             when it holds a session, grey when empty); SAVE on a saved one loads it, on an empty
+ *                             one starts a new session there (a clean slate); a slot button goes back. SAVE held
+ *                             0.8 s: saved into the session loaded or chosen, at once; on the page, into the slot
+ *                             shown (asked: SAVE NEW, or OVERWRITE? in red on NO until PRESETS turns it to YES)
+ *   SHIFT + SAVE              the SNAPSHOTS page (Bigorna's patterns): the session's 16 states, 1 .. 16 in four rows.
+ *                             A white key let go soon: that snapshot recalled; held 0.8 s: the state now stored in it;
+ *                             SHIFT held too: emptied. PRESETS moves the frame; SAVE recalls the one framed, SAVE held
+ *                             stores into it. SHIFT + SAVE again, or a slot button: back. Kept in the flash with the
+ *                             session (SAVE held)
+ *   SEQ (third press)         the MOD page of the slot chosen (Tonitor's): PRESETS through LFO 1, LFO 2, MOD A .. D,
+ *                             KNOB 1 .. 4 their values. SHIFT + SEQ: the slot's modulation thrown anew
  *   USB MIDI notes            as the keys, on the generator chosen last
  *   MASTER (knob)             the level
  *
@@ -48,7 +59,6 @@ enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B
 enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, NE };
 static const uint8_t PANEL_BTN[NB] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1};
 static const uint8_t PANEL_ENC[NE] = {0, 1, 6, 2, 3, 4, 5};
-#define NSLOT (NGEN + NFX)       /* the top row's six: three generators, three effect slots */
 static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO};
 #define NKEY 27u
 #define KEY_SHIFT 25u            /* the rightmost black key */
@@ -154,7 +164,28 @@ static struct {
     int8_t fx_touched;           /* the row just turned (-1 none), until fx_touch_until */
     uint32_t fx_touch_until;
     int8_t shown_fxp[4], shown_fx_touch;
+    /* sessions and snapshots (sessions.c), the MOD page (mod.c), the whole-screen message */
+    uint8_t ses_page, ses_ix, ses_yes, ses_over;   /* ses_page: 0, SP_LIST, SP_ASK */
+    uint16_t ses_new;            /* the slot a save asked about goes to */
+    uint8_t save_down, save_long;
+    uint32_t save_t0;
+    uint8_t snap_page, snap_ix;  /* the SNAPSHOTS page; its frame */
+    int8_t snap_key;             /* the white key down on it (-1 none), since snap_t0; held: done */
+    uint8_t snap_done, snap_sh;
+    uint32_t snap_t0;
+    uint8_t mod_ix;              /* the MOD page's entry: LFO 1, LFO 2, MOD A .. D */
+    int8_t mod_touched;
+    uint32_t mod_touch_until, mod_drawn_at;
+    char fl1[14], fl2[8];        /* the whole screen's message, until fl_until */
+    uint16_t fl_col;
+    uint32_t fl_until;
+    uint8_t fl_shown;
+    int32_t shown_ses, shown_snap;
 } ui;
+enum { SP_LIST = 1, SP_ASK = 2 };
+#define C_SES RGB(255, 200, 60)
+#define C_FULL RGB(255, 60, 60)
+#define C_SNAP RGB(120, 220, 255)
 static const int8_t RV_DEF[4] = {70, 65, 40, 50};      /* Tonitor's: lush, present, not overdone */
 static const char *const RV_NAME[4] = {"SIZE", "DECAY", "DAMP", "MIX"};
 static const int8_t DL_DEF[4] = {65, 40, 40, 50};      /* Tonitor's: 400 ms, a few repeats, a little darker each */
@@ -187,6 +218,15 @@ static void say_n(const char *s, int32_t n, const char *t, uint32_t ms)   /* "s"
         b[k++] = t[j];
     b[k] = 0;
     say(b, ms);
+}
+/* the whole screen, for 1.5 s: l1 over l2, in colour c (SAVED 3, LOADED 3, NEW 3) */
+static void flash(const char *l1, const char *l2, uint16_t c)
+{
+    str_cpy(ui.fl1, l1, sizeof ui.fl1);
+    str_cpy(ui.fl2, l2, sizeof ui.fl2);
+    ui.fl_col = c;
+    ui.fl_until = fm1_ms + 1500u;
+    ui.fl_shown = 0;
 }
 static int btn_bit(uint32_t mask, uint32_t label) { return (int)((mask >> PANEL_BTN[label]) & 1u); }
 static int shift_held(void) { return (int)((fm1_in.notes >> KEY_SHIFT) & 1u); }
@@ -284,6 +324,126 @@ static void slot_mute(uint32_t l)
     say_n("", (int32_t)l + 1, *m ? " MUTED" : " HEARD", 1200);
 }
 
+/* every page down: back to playing */
+static void pages_off(void)
+{
+    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = 0;
+    ui.force = 1;
+}
+/* a session's or a snapshot's outcome, on the whole screen */
+static void ses_done(int rc, const char *what, uint32_t num)
+{
+    char n[8];
+    fmt_int(n, (int32_t)num);
+    if (rc == SES_OK)
+        flash(what, num ? n : "", C_OK);
+    else
+        flash(rc == SES_FULL ? "NO ROOM" : rc == SES_NOFLASH ? "NO FLASH" : rc == SES_BUSY ? "BUSY" : "FAILED", "", C_FULL);
+}
+/* SAVE held (Tonitor's save_long); on the SNAPSHOTS page, the state now stored into the snapshot framed */
+static void save_long(void)
+{
+    if (ui.snap_page) {
+        snap_store(ui.snap_ix);
+        ses_done(SES_OK, "STORED", ui.snap_ix + 1u);
+        ui.force = 1;
+        return;
+    }
+    if (ui.ses_page == SP_ASK)
+        return;
+    if (ui.ses_page == SP_LIST && ui.ses_ix != ses_current()) {   /* in the list: into the slot shown, asked */
+        ui.ses_new = ui.ses_ix;
+        ui.ses_over = (uint8_t)ses_has(ui.ses_ix);
+        ui.ses_page = SP_ASK;
+        ui.ses_yes = (uint8_t)!ui.ses_over;      /* (over a session: NO until turned to YES) */
+        ui.force = 1;
+        return;
+    }
+    if (ses_current()) {                         /* a session loaded or chosen: saved over it, at once */
+        ui.ses_page = 0;
+        ses_done(ses_save(ses_current()), "SAVED", ses_current());
+        ui.force = 1;
+        return;
+    }
+    ui.ses_new = (uint16_t)ses_next_number();   /* none chosen: the first empty slot, asked first */
+    if (!ui.ses_new) {
+        ses_done(SES_FULL, "", 0);
+        return;
+    }
+    ui.ses_over = 0;
+    ui.ses_page = SP_ASK;
+    ui.ses_yes = 1;
+    ui.force = 1;
+}
+/* SAVE pressed (let go before it was held): the SESSIONS page, or what it asks; on the SNAPSHOTS page, the snapshot
+ * framed recalled */
+static void save_short(void)
+{
+    if (ui.snap_page) {
+        if (snap_has(ui.snap_ix))
+            ses_done(snap_recall(ui.snap_ix), "RECALLED", ui.snap_ix + 1u);
+        else
+            say("EMPTY", 900);
+        ui.force = 1;
+        return;
+    }
+    if (ui.ses_page == SP_ASK) {
+        uint32_t num = ui.ses_new;
+        ui.ses_page = 0;
+        ui.force = 1;
+        if (!ui.ses_yes) {
+            say("NOT SAVED", 1500);
+            return;
+        }
+        ses_done(ses_save(num), "SAVED", num);
+        return;
+    }
+    if (ui.ses_page == SP_LIST) {                /* the slot shown: loaded (or, empty, a new session), and back */
+        uint32_t num = ui.ses_ix;
+        ui.ses_page = 0;
+        ui.force = 1;
+        if (ses_has(num))
+            ses_done(ses_load_slot(num), "LOADED", num);
+        else {
+            ses_fresh(num);                      /* a clean slate; SAVE held writes it there */
+            ses_done(SES_OK, "NEW", num);
+        }
+        return;
+    }
+    pages_off();                                 /* the SESSIONS page, on the session chosen if any */
+    ui.ses_page = SP_LIST;
+    ui.ses_ix = (uint8_t)(ses_current() ? ses_current() : 1u);
+}
+/* KNOB j on the MOD page: entry ix of slot sl (Tonitor's mod_knob) */
+static void mod_knob(uint32_t sl, uint32_t ix, uint32_t j, int32_t s)
+{
+    mod_t *m = &slot_mod[sl];
+    if (ix < 2u) {
+        mlfo_t *f = &m->lfo[ix];
+        if (j == 0u)
+            f->shape = (uint8_t)clampi(f->shape + s, 0, MS_N - 1);
+        else if (j == 1u)
+            f->rate = (uint8_t)clampi(f->rate + s, 0, 100);
+        else if (j == 2u)
+            f->mode = (uint8_t)clampi(f->mode + s, 0, MM_N - 1);
+        else
+            f->fade = (uint8_t)clampi(f->fade + 2 * s, 0, 100);
+    } else {
+        mslot_t *q = &m->s[ix - 2u];
+        if (j == 0u)
+            q->src = (uint8_t)clampi(q->src + s, 0, MSRC_N - 1);
+        else if (j == 1u)
+            q->dst = (uint8_t)clampi(q->dst + s, 0, (int32_t)mod_ndst(sl) - 1);
+        else if (j == 2u)
+            q->amt = (int8_t)clampi(q->amt + 2 * s, -100, 100);
+        else
+            return;
+    }
+    ui.mod_touched = (int8_t)j;
+    ui.mod_touch_until = fm1_ms + 1500u;
+    ui.force = 1;
+}
+
 /* USB MIDI in: notes as the keys, on the generator chosen last (any channel) */
 static void midi_take(void)
 {
@@ -320,10 +480,8 @@ static void ui_input(void)
             ui.btn_down[l] = 1;
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_t0[l] = fm1_ms;
-            if (ui.sc_page || ui.fx_page) {
-                ui.sc_page = ui.fx_page = 0;
-                ui.force = 1;
-            }
+            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page)
+                pages_off();
         }
         if (ui.btn_down[l] && !btn_bit(fm1_in.buttons, SLOT_BTN[l]))
             ui.btn_down[l] = 0;
@@ -352,14 +510,54 @@ static void ui_input(void)
             say("BUSY", 600);
     }
     if (btn_bit(press, B_ARP)) {
-        ui.sc_page ^= 1u;
-        ui.fx_page = 0;
-        ui.force = 1;
+        uint8_t was = ui.sc_page;
+        pages_off();
+        ui.sc_page = (uint8_t)!was;
     }
-    if (btn_bit(press, B_SEQ)) {                 /* SEQ, again and again: DELAY, REVERB, back to playing */
-        ui.fx_page = (uint8_t)(ui.fx_page >= 2u ? 0u : ui.fx_page + 1u);
+    if (btn_bit(press, B_SEQ) && shift_held()) { /* SHIFT and SEQ: the chosen slot's modulation thrown anew */
+        mod_random(ui.sel, next_seed());
+        say("MOD RANDOM", 900);
+        ui.mod_touched = -1;
+        ui.force = 1;
+    } else if (btn_bit(press, B_SEQ)) {          /* SEQ, again and again: DELAY, REVERB, MOD, back to playing */
+        uint8_t f = (uint8_t)(ui.fx_page >= 3u ? 0u : ui.fx_page + 1u);
+        pages_off();
+        ui.fx_page = f;
         ui.fx_touched = -1;
-        ui.sc_page = 0;
+        ui.mod_touched = -1;
+    }
+    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SNAPSHOTS page, or back */
+        uint8_t was = ui.snap_page;
+        pages_off();
+        ui.snap_page = (uint8_t)!was;
+        ui.snap_key = -1;
+        if (ui.snap_page && snap_current() >= 0)
+            ui.snap_ix = (uint8_t)snap_current();
+    } else if (btn_bit(press, B_SAVE)) {
+        ui.save_t0 = fm1_ms;
+        ui.save_down = 1;
+        ui.save_long = 0;
+    }
+    if (ui.save_down) {
+        if (!btn_bit(fm1_in.buttons, B_SAVE)) {
+            ui.save_down = 0;
+            if (!ui.save_long)
+                save_short();
+        } else if (!ui.save_long && (uint32_t)(fm1_ms - ui.save_t0) >= HOLD_MS) {
+            ui.save_long = 1;
+            save_long();
+        }
+    }
+    s = fm1_enc_take(PANEL_ENC[EN_PRESET]);      /* PRESETS: through the page's list */
+    if (s && ui.ses_page == SP_LIST) {
+        ui.ses_ix = (uint8_t)clampi((int32_t)ui.ses_ix + s, 1, SES_SLOTS);
+    } else if (s && ui.ses_page == SP_ASK) {
+        ui.ses_yes = (uint8_t)(s > 0);
+    } else if (s && ui.snap_page) {
+        ui.snap_ix = (uint8_t)clampi((int32_t)ui.snap_ix + s, 0, NSNAP - 1);
+    } else if (s && ui.fx_page == 3u) {
+        ui.mod_ix = (uint8_t)clampi((int32_t)ui.mod_ix + s, 0, 2 + (int32_t)NMSLOT - 1);
+        ui.mod_touched = -1;
         ui.force = 1;
     }
     if ((btn_bit(press, B_OCTDN) || btn_bit(press, B_OCTUP)) && shift_held()) {
@@ -491,7 +689,12 @@ static void ui_input(void)
                 say_n(p < 0 ? "PAN L" : "PAN R", p < 0 ? -p : p, "", 800);
         }
     }
-    if (ui.fx_page) {                            /* KNOB 1 .. 4: the delay, or the reverb */
+    if (ui.fx_page == 3u) {                      /* KNOB 1 .. 4: the MOD entry's */
+        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        for (k = 0; k < 4u; k++)
+            if ((s = fm1_enc_take(PANEL_ENC[K[k]])) != 0)
+                mod_knob(ui.sel, ui.mod_ix, k, s);
+    } else if (ui.fx_page) {                     /* KNOB 1 .. 4: the delay, or the reverb */
         static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
         int8_t *pv = ui.fx_page == 1u ? ui.dlp : ui.rvp;
         for (k = 0; k < 4u; k++) {
@@ -526,6 +729,47 @@ static void ui_input(void)
     keys = fm1_in.notes;
     (void)fm1_input_note_edges();
     ch = keys ^ ui.keys;
+    if (ui.snap_page) {                          /* the SNAPSHOTS page: the white keys are the 16 snapshots, no notes */
+        for (k = 0; k < NKEY; k++)
+            if (((ch & keys) >> k & 1u) && white_ix(k) >= 0 && white_ix(k) < (int32_t)NSNAP) {
+                ui.snap_key = (int8_t)white_ix(k);
+                ui.snap_t0 = fm1_ms;
+                ui.snap_done = 0;
+                ui.snap_sh = (uint8_t)shift_held();
+                ui.snap_ix = (uint8_t)ui.snap_key;
+                ui.force = 1;
+            }
+        if (ui.snap_key >= 0) {
+            uint32_t kk;
+            int down = 0;
+            for (kk = 0; kk < NKEY; kk++)
+                if (white_ix(kk) == ui.snap_key && ((keys >> kk) & 1u))
+                    down = 1;
+            if (down && !ui.snap_done && (uint32_t)(fm1_ms - ui.snap_t0) >= HOLD_MS) {
+                ui.snap_done = 1;                /* held: stored, or (SHIFT) emptied */
+                if (ui.snap_sh || shift_held()) {
+                    snap_clear((uint32_t)ui.snap_key);
+                    say("EMPTIED", 1000);
+                } else {
+                    snap_store((uint32_t)ui.snap_key);
+                    ses_done(SES_OK, "STORED", (uint32_t)ui.snap_key + 1u);
+                }
+                ui.force = 1;
+            } else if (!down) {                  /* let go soon: recalled */
+                if (!ui.snap_done) {
+                    if (snap_has((uint32_t)ui.snap_key))
+                        ses_done(snap_recall((uint32_t)ui.snap_key), "RECALLED", (uint32_t)ui.snap_key + 1u);
+                    else
+                        say("EMPTY", 900);
+                }
+                ui.snap_key = -1;
+                ui.force = 1;
+            }
+        }
+        ui.keys = keys;
+        midi_take();
+        return;
+    }
     {   /* the loops' direction (REVERSE, PENDULUM, RANDOM) and speed (HALF, DOUBLE); pressed again, as recorded */
         const looper_t *p = &loop[ui.gen];
         uint32_t dn = ch & keys;
@@ -595,6 +839,7 @@ static void ui_leds(void)
     fm1_led_key(PANEL_BTN[B_HOME], (int32_t)(ui.home_until - fm1_ms) > 0);
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
     fm1_led_key(PANEL_BTN[B_SEQ], ui.fx_page != 0u);
+    fm1_led_key(PANEL_BTN[B_SAVE], ui.ses_page || ui.snap_page || ui.save_down);
     {
         const looper_t *p = &loop[ui.gen];
         fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
@@ -605,7 +850,9 @@ static void ui_leds(void)
     for (k = 0; k < NKEY; k++) {                 /* a key held, or latched on the generator the keys play */
         int32_t w = white_ix(k);
         const looper_t *p = &loop[ui.gen];
-        if (ui.ovd)                              /* PLAY held: the loops that play, lit */
+        if (ui.snap_page)                        /* the SNAPSHOTS page: the snapshots that hold a state, lit */
+            fm1_led_key(14u + k, w >= 0 && w < (int32_t)NSNAP && snap_has((uint32_t)w));
+        else if (ui.ovd)                         /* PLAY held: the loops that play, lit */
             fm1_led_key(14u + k, w >= 0 && (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
         else if (w >= 0)
             fm1_led_key(14u + k, ((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u));
@@ -935,9 +1182,242 @@ static void draw_fx_page(void)
     ui.shown_fx_touch = (int8_t)t;
 }
 
+/* the whole screen's message (flash): l1 very large, l2 under it */
+static int draw_flash(void)
+{
+    if ((int32_t)(ui.fl_until - fm1_ms) <= 0) {
+        if (ui.fl_shown) {
+            ui.fl_shown = 0;
+            ui.force = 1;
+            ui.shown_page = 0xFF;
+        }
+        return 0;
+    }
+    if (!ui.fl_shown) {
+        lcd_fill(0, 0, 240, 240, C_BLACK);
+        CV_AREA(0, 50, 240, 70, C_BLACK)
+            cv_text_fit(10, &FONT_M, ui.fl1, ui.fl_col);
+        if (ui.fl2[0])
+            CV_AREA(0, 120, 240, 110, C_BLACK)
+                cv_text_c(4, &FONT_XL, ui.fl2, C_WHITE);
+        ui.fl_shown = 1;
+    }
+    return 1;
+}
+/* NO / YES, the answer shown black on white (Tonitor's) */
+static void draw_noyes(int yes)
+{
+    cv_rect(10, 10, 100, 56, yes ? C_BLACK : C_WHITE);
+    cv_rect(130, 10, 100, 56, yes ? C_WHITE : C_BLACK);
+    cv_frame(10, 10, 100, 56, 3, C_WHITE);
+    cv_frame(130, 10, 100, 56, 3, C_WHITE);
+    cv_bg_set(yes ? C_BLACK : C_WHITE);
+    cv_text(60 - text_w(&FONT_M, "NO") / 2, 10 + (56 - FONT_M.h) / 2, &FONT_M, "NO", yes ? C_WHITE : C_BLACK);
+    cv_bg_set(yes ? C_WHITE : C_BLACK);
+    cv_text(180 - text_w(&FONT_M, "YES") / 2, 10 + (56 - FONT_M.h) / 2, &FONT_M, "YES", yes ? C_BLACK : C_WHITE);
+    cv_bg_set(C_BLACK);
+}
+/* the SESSIONS page (Tonitor's): the title; the slot's number very large (red: it holds a session; grey: empty);
+ * LOADED, CHOSEN or EMPTY under it -- or, asked, NO / YES */
+static void draw_ses_page(void)
+{
+    char n[8];
+    int has = ses_has(ui.ses_ix);
+    int32_t key = ui.ses_page | (ui.ses_page == SP_ASK ? ui.ses_yes : ui.ses_ix) << 4;
+    if (!ui.force && ui.shown_ses == key)
+        return;
+    ui.shown_ses = key;
+    {
+        const char *t = ui.ses_page != SP_ASK ? "SESSIONS" : ui.ses_over ? "OVERWRITE?" : "SAVE NEW";
+        cv_begin(240, 52, C_BLACK);
+        cv_text_fit((52 - FONT_M.h) / 2, &FONT_M, t, ui.ses_page == SP_ASK && ui.ses_over ? C_FULL : C_SES);
+        cv_blit(0, 0);
+    }
+    fmt_int(n, ui.ses_page == SP_ASK ? ui.ses_new : ui.ses_ix);
+    CV_AREA(0, 52, 240, 112, C_BLACK)
+        cv_text_c(8, &FONT_XL, n, ui.ses_page == SP_ASK ? (ui.ses_over ? C_FULL : C_WHITE) : has ? C_FULL : C_GREY);
+    CV_AREA(0, 164, 240, 76, C_BLACK) {
+        if (ui.ses_page == SP_ASK)
+            draw_noyes(ui.ses_yes);
+        else if (ui.ses_ix == ses_current())
+            cv_text_c(20, &FONT_M, has ? "LOADED" : "CHOSEN", C_OK);
+        else if (!has)
+            cv_text_c(20, &FONT_M, ses_room() ? "EMPTY" : "NO ROOM", C_GREY);
+    }
+}
+/* the SNAPSHOTS page: 1 .. 16 in four rows of four (as the white keys have them) -- holding a state, filled (the one
+ * last stored or recalled in white); empty, a grey frame; the one framed in white (PRESETS, a key) */
+static void draw_snap_page(void)
+{
+    uint32_t r, c, used = 0;
+    int32_t key, cur = snap_current();
+    for (r = 0; r < NSNAP; r++)
+        used |= (uint32_t)snap_has(r) << r;
+    key = (int32_t)(used ^ (uint32_t)ui.snap_ix << 16 ^ (uint32_t)(cur + 1) << 21);
+    if (!ui.force && ui.shown_snap == key)
+        return;
+    ui.shown_snap = key;
+    {   /* (the title a size smaller where the large one does not fit: never squeezed) */
+        const font_t *tf = text_w(&FONT_M, "SNAPSHOTS") <= 232 ? &FONT_M : &FONT_S;
+        cv_begin(240, 52, C_BLACK);
+        cv_text_c((52 - tf->h) / 2, tf, "SNAPSHOTS", C_SNAP);
+        cv_blit(0, 0);
+    }
+    for (r = 0; r < 4u; r++)
+        CV_AREA(0, 52 + 47 * r, 240, 47, C_BLACK)
+        for (c = 0; c < 4u; c++) {
+            uint32_t k = r * 4u + c;
+            int32_t x = 2 + (int32_t)c * 60;
+            char n[4];
+            uint16_t fill = (int32_t)k == cur ? C_WHITE : C_SNAP;
+            const font_t *nf;
+            fmt_int(n, (int32_t)k + 1);
+            nf = k < 9u ? &FONT_M : &FONT_S;   /* (10 .. 16 a size smaller, alike: inside the box) */
+            if ((used >> k) & 1u) {
+                cv_rect(x + 4, 4, 48, 39, fill);
+                cv_bg_set(fill);
+                cv_text(x + 4 + (48 - text_w(nf, n)) / 2, 4 + (39 - nf->h) / 2, nf, n, C_BLACK);
+                cv_bg_set(C_BLACK);
+            } else {
+                cv_frame(x + 4, 4, 48, 39, 2, C_GREY);
+                cv_text(x + 4 + (48 - text_w(nf, n)) / 2, 4 + (39 - nf->h) / 2, nf, n, C_GREY);
+            }
+            if (k == ui.snap_ix)
+                cv_frame(x, 0, 56, 47, 4, C_WHITE);
+        }
+}
+/* the MOD page (Tonitor's): the title (the slot and the entry); a row a value on two lines, the name small with its
+ * bar, the value under it; the row just turned black on white; MOD A .. D: NOW, what it does at this moment */
+static void mod_dst_name(uint32_t sl, uint32_t d, char *b, uint32_t n)
+{
+    if (sl < NGEN) {
+        str_cpy(b, d < 4u ? mo_mac_name(&gbuf[sl][g_use[sl]].gen, d) : d < GMD_N ? GMD_NAME[d] : "", n);
+        return;
+    }
+    if (d < FMD_LVL) {                           /* (the effect standing at that place now, and its value) */
+        const fx_patch_t *f = &fbuf[sl - NGEN][f_pub[sl - NGEN]];
+        uint32_t k = d / 4u, j = d % 4u;
+        if (k < f->n) {
+            str_cpy(b, RM_NAME[f->e[k].kind % NKIND], n);
+            str_cpy(b + str_len(b), " ", n - str_len(b));
+            str_cpy(b + str_len(b), RM_PNAME[f->e[k].kind % NKIND][j], n - str_len(b));
+        } else {
+            str_cpy(b, "PLACE 3: NONE", n);
+            b[6] = (char)('1' + k);
+        }
+        return;
+    }
+    str_cpy(b, d - FMD_LVL < 4u ? FMD_NAME[d - FMD_LVL] : "", n);
+}
+static void draw_mod_row(uint32_t j, const char *name, const char *val, int bar, int32_t v, int touched, uint16_t col)
+{
+    uint16_t bg = touched ? C_WHITE : C_BLACK, fg = touched ? C_BLACK : C_WHITE;
+    cv_begin(240, 47, bg);
+    cv_text(6, 0, &FONT_XS, name, touched ? C_BLACK : RGB(175, 175, 175));
+    if (bar) {
+        int32_t x0 = 6 + text_w(&FONT_XS, name) + 12, w0 = 234 - x0, y0 = 6;
+        cv_rect(x0, y0, w0, 7, touched ? C_GREY : RGB(60, 60, 60));
+        if (bar == 1)
+            cv_rect(x0, y0, clampi(v, 0, 100) * w0 / 100, 7, touched ? C_BLACK : col);
+        else {
+            int32_t c = x0 + w0 / 2, w = clampi(v, -100, 100) * (w0 / 2) / 100;
+            cv_rect(w >= 0 ? c : c + w, y0, w >= 0 ? w : -w, 7, touched ? C_BLACK : col);
+            cv_rect(c - 1, y0 - 2, 2, 11, touched ? C_BLACK : C_WHITE);
+        }
+    }
+    if (val[0]) {
+        const font_t *f = text_w(&FONT_S, val) <= 228 ? &FONT_S : &FONT_XS;
+        cv_text(6, 47 - f->h - 1, f, val, fg);
+    }
+    cv_rect(0, 46, 240, 1, RGB(50, 50, 50));
+    cv_blit(0, 52 + 47 * j);
+}
+static void draw_mod_page(void)
+{
+    uint32_t sl = ui.sel, ix = ui.mod_ix;
+    int32_t t = (int32_t)(ui.mod_touch_until - fm1_ms) > 0 ? ui.mod_touched : -1;
+    const mod_t *m = &slot_mod[sl];
+    uint16_t col = sl < NGEN ? GEN_COL[sl] : C_WHITE;
+    char v[24];
+    ui.mod_drawn_at = fm1_ms;
+    if (ui.force) {
+        char ti[12] = "1 LFO 1";
+        ti[0] = (char)('1' + sl);
+        if (ix == 1u)
+            ti[6] = '2';
+        else if (ix >= 2u) {
+            str_cpy(ti + 2, "MOD A", sizeof ti - 2);
+            ti[6] = (char)('A' + ix - 2u);
+        }
+        cv_begin(240, 52, C_BLACK);
+        cv_text_fit(3, &FONT_L, ti, col);        /* (in the slot's colour: the chosen slot's modulation) */
+        cv_blit(0, 0);
+    }
+    if (ix < 2u) {
+        const mlfo_t *f = &m->lfo[ix];
+        uint32_t ch = (uint32_t)(((uint64_t)100u * exp2_q16(f->rate * 7189)) >> 16);   /* (0.01 Hz units, x 100) */
+        if (!ui.force)
+            return;
+        draw_mod_row(0, "SHAPE", MS_NAME[f->shape % MS_N], 0, 0, t == 0, col);
+        fmt_fix(v, (int32_t)(ch < 100000u ? ch / 100u : ch / 1000u), ch < 100000u ? 2 : 1);
+        str_cpy(v + str_len(v), " HZ", 4);
+        draw_mod_row(1, "RATE", v, 1, f->rate, t == 1, col);
+        draw_mod_row(2, "MODE", MM_NAME[f->mode % MM_N], 0, 0, t == 2, col);
+        if (f->fade) {
+            fmt_fix(v, f->fade, 1);
+            str_cpy(v + str_len(v), " S", 3);
+        } else
+            str_cpy(v, "OFF", 4);
+        draw_mod_row(3, "FADE", v, 1, f->fade, t == 3, col);
+        return;
+    }
+    {
+        const mslot_t *q = &m->s[ix - 2u];
+        if (ui.force) {
+            mod_dst_name(sl, q->dst, v, sizeof v);
+            draw_mod_row(0, "FROM", MSRC_NAME[q->src % MSRC_N], 0, 0, t == 0, col);
+            draw_mod_row(1, "TO", v, 0, 0, t == 1, col);
+            if (q->amt > 0) {
+                v[0] = '+';
+                fmt_int(v + 1, q->amt);
+            } else
+                fmt_int(v, q->amt);
+            draw_mod_row(2, "AMOUNT", v, 2, q->amt, t == 2, col);
+        }
+        draw_mod_row(3, "NOW", "", 2, mod_now(sl, q) * 100 / Q15, 0, col);
+    }
+}
+
 static void ui_draw(void)
 {
     uint32_t l, n = 0, mods[NGEN];
+    if (draw_flash())
+        return;
+    if (ui.ses_page || ui.snap_page) {
+        uint8_t id = ui.ses_page ? 8u : 9u;
+        if (ui.shown_page != id) {
+            ui.force = 1;
+            lcd_fill(0, 0, 240, 240, C_BLACK);
+        }
+        ui.shown_page = id;
+        if (ui.ses_page)
+            draw_ses_page();
+        else
+            draw_snap_page();
+        ui.force = 0;
+        return;
+    }
+    if (ui.fx_page == 3u) {                      /* MOD (SEQ's third) */
+        if (ui.shown_page != 7u) {
+            ui.force = 1;
+            lcd_fill(0, 0, 240, 240, C_BLACK);
+        }
+        ui.shown_page = 7;
+        if (ui.force || (uint32_t)(fm1_ms - ui.mod_drawn_at) >= 40u)
+            draw_mod_page();
+        ui.force = 0;
+        return;
+    }
     if (ui.ovd) {
         if (ui.shown_page != 2u) {
             ui.force = 1;

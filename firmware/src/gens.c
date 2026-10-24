@@ -51,6 +51,13 @@ static volatile uint8_t gen_mute[NGEN];
 static uint8_t gen_drawn[NGEN];
 static volatile int8_t gen_lvl[NGEN], gen_pan[NGEN];   /* the level (0 .. LEVEL_MAX) and pan (-PAN_MAX .. PAN_MAX) */
 static volatile int32_t gen_meter[NGEN];      /* each generator's sound, its last peaks (the screen's) */
+/* the modulation (mod.c, after this file): each generator's macros, level (steps), pan, sends (0 .. 100) moved */
+static int8_t gen_mac[NGEN][4];
+static uint8_t gen_mac_on[NGEN];
+static int16_t gen_mod_lvl[NGEN], gen_mod_pan[NGEN], gen_mod_rv[NGEN], gen_mod_dl[NGEN];
+static void mod_note(uint32_t l, uint32_t note, uint32_t vel);
+static void mod_tick(void);
+static void mod_init(void);
 
 enum { SRC_KEY, SRC_LOOP };      /* who plays a note: the keys (and MIDI), or the looper (loop.c) */
 typedef struct {
@@ -86,7 +93,7 @@ static int32_t gbus[NGEN][CTL], graw[NGEN][CTL];
 
 /* ------------------------------------------------------------ the events --- */
 enum { EV_ON, EV_OFF, EV_LATCH, EV_STOP,
-       EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE };   /* (loop.c's) */
+       EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE, EV_LOOP_SET };   /* (loop.c's) */
 typedef struct { uint8_t type, slot, note, val; } ev_t;
 #define EVQ 64u
 static ev_t evq[EVQ];
@@ -149,6 +156,7 @@ static uint32_t voice_pick(void)
 static void note_on(uint32_t slot, uint32_t note, uint32_t src)
 {
     uint32_t k;
+    mod_note(slot, note, note_vel);                       /* (the modulation's note sources) */
     for (k = 0; k < NVOICE; k++)                          /* the same note again on the slot: its voice retriggers */
         if (vox[k].sounding && vox[k].gate && vox[k].slot == slot && vox[k].note == note && vox[k].src == src &&
             !vox[k].fade) {
@@ -288,7 +296,8 @@ static void shed(int held)
 static void voice_render(uint32_t k)
 {
     uint32_t t0 = fm1_ticks();
-    vr_alive[k] = (uint8_t)mo_render_fp(&vmem[k], &gbuf[vox[k].slot][vox[k].dsg].gen, vr_buf[k], 0);
+    vr_alive[k] = (uint8_t)mo_render_fp(&vmem[k], &gbuf[vox[k].slot][vox[k].dsg].gen, vr_buf[k],
+                                        gen_mac_on[vox[k].slot] ? gen_mac[vox[k].slot] : 0);   /* (its LFOs' macros) */
     vr_ticks[k] = fm1_ticks() - t0;
 }
 /* .. then its fade, its bookkeeping, into its generator's bus (CPU0) */
@@ -503,11 +512,12 @@ static uint32_t ent_inst(uint32_t e)
  * generators, their sends for the next block, the master (Q15 stereo, interleaved) */
 static void mix_block(int32_t *out)
 {
-    int32_t l_[CTL], r_[CTL], pk[NGEN], dlin[CTL], rvin[CTL];
+    int32_t l_[CTL], r_[CTL], pk[NGEN], dlin[CTL], rvin[CTL], g_rs[NGEN], g_ds[NGEN];
     uint32_t i, l, k;
     events_take();
     loops_run();                                        /* (the loops' notes for this block) */
     gens_take();
+    mod_tick();                                         /* (the LFOs: this block's offsets) */
     if (shed_req) {
         shed(shed_req > 1u);
         shed_req = 0;
@@ -521,6 +531,12 @@ static void mix_block(int32_t *out)
             any |= vox[k].sounding;
         rack_voices = (uint8_t)(any != 0);
     }
+    {   /* each generator's sends this block, its modulation added */
+        for (l = 0; l < NGEN; l++) {
+            g_rs[l] = clampi(gen_rsend[l] + gen_mod_rv[l] * (Q15 / 100), 0, Q15);
+            g_ds[l] = clampi(gen_dsend[l] + gen_mod_dl[l] * (Q15 / 100), 0, Q15);
+        }
+    }
     for (k = 0; k < NFX; k++) {                         /* each slot's sends: the mean of its generators' */
         int32_t rs = 0, ds = 0, n = 0;
         for (l = 0; l < NGEN; l++) {
@@ -532,8 +548,8 @@ static void mix_block(int32_t *out)
                 if (p->ent[e] / FX_N == k)
                     break;
             if (e < p->nent) {
-                rs += gen_rsend[l];
-                ds += gen_dsend[l];
+                rs += g_rs[l];
+                ds += g_ds[l];
                 n++;
             }
         }
@@ -572,9 +588,9 @@ static void mix_block(int32_t *out)
         int32_t g, pl, pr, dg, dpl, dpr;
         if (!pk[l] && !gl_gg[l])
             continue;
-        g = gen_lvl[l] && !gen_mute[l] ? (int32_t)(exp2_q16((gen_lvl[l] - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a
+        g = gen_lvl[l] && !gen_mute[l] ? (int32_t)(exp2_q16((clampi(gen_lvl[l] + gen_mod_lvl[l], 0, LEVEL_MAX) - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a
                                                          * step; muted: 0, gliding */
-        pan_gains(gen_pan[l] * (Q15 / PAN_MAX), &pl, &pr);
+        pan_gains(clampi(gen_pan[l] + gen_mod_pan[l], -PAN_MAX, PAN_MAX) * (Q15 / PAN_MAX), &pl, &pr);
         dg = (g - gl_gg[l]) / (int32_t)CTL;
         dpl = (pl - gl_pl[l]) / (int32_t)CTL;
         dpr = (pr - gl_pr[l]) / (int32_t)CTL;
@@ -588,8 +604,8 @@ static void mix_block(int32_t *out)
             s = mulq15(s, p->dry);
             l_[i] += mulq15(s, gl_pl[l]);
             r_[i] += mulq15(s, gl_pr[l]);
-            dlin[i] += mulq15(s, gen_dsend[l]);          /* (its dry share on to the master delay and reverb) */
-            rvin[i] += mulq15(s, gen_rsend[l]);
+            dlin[i] += mulq15(s, g_ds[l]);               /* (its dry share on to the master delay and reverb) */
+            rvin[i] += mulq15(s, g_rs[l]);
         }
         gl_gg[l] = g;
         gl_pl[l] = pl;
@@ -722,6 +738,74 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
 
 /* the pans at power-on: generator 1 in the middle, 2 left, 3 right (SELECT and ALGORITHM move them; HOME does not) */
 static const int8_t GEN_PAN0[NGEN] = {0, -14, 14};
+/* a generator's patch as a session or a snapshot kept it: its sound drawn again from (family, seed, path, generation)
+ * with the level it was measured at (no measuring), its cables and modulation as they were; published as a draw is.
+ * The same patch already playing: left as it is (no fade) */
+typedef struct {
+    uint32_t pseed, dseed;       /* the patch's seed (HOME's); its sound's */
+    int32_t gain, send, dry;
+    uint8_t family, path, gen, scene;
+    uint8_t ent[NENT], nent, xsrc, xkind, xdepth, drawn;
+} gen_keep_t;
+static void gen_keep(uint32_t l, gen_keep_t *k)
+{
+    const gen_patch_t *p = &gbuf[l][g_pub[l]];
+    memset(k, 0, sizeof *k);
+    k->pseed = p->seed;
+    k->dseed = p->gen.seed;
+    k->gain = p->gen.gain;
+    k->send = p->send;
+    k->dry = p->dry;
+    k->family = p->gen.family;
+    k->path = p->gen.path;
+    k->gen = p->gen.gen;
+    k->scene = p->scene;
+    memcpy(k->ent, p->ent, sizeof k->ent);
+    k->nent = p->nent;
+    k->xsrc = p->xsrc;
+    k->xkind = p->xkind;
+    k->xdepth = p->xdepth;
+    k->drawn = gen_drawn[l];
+}
+static int gen_set(uint32_t l, const gen_keep_t *k)
+{
+    uint32_t b = g_use[l] ^ 1u, i, t0 = fm1_ms;
+    gen_patch_t *p = &gbuf[l][b];
+    gen_keep_t now;
+    gen_keep(l, &now);
+    if (!memcmp(&now, k, sizeof now))
+        return 1;
+    for (;;) {                                           /* (no voice may still play the buffer about to be written) */
+        int busy = g_pub[l] != g_use[l];
+        for (i = 0; i < NVOICE; i++)
+            if (vox[i].sounding && vox[i].slot == l && vox[i].dsg == b)
+                busy = 1;
+        if (!busy)
+            break;
+        if ((uint32_t)(fm1_ms - t0) > 40u)
+            return 0;
+        fm1_wdt_feed();
+    }
+    memset(p, 0, sizeof *p);
+    mo_design(&p->gen, k->family < MF_N ? k->family : MF_DRONE, k->dseed, k->path, k->gen < GEN_N ? k->gen : GEN_NOW);
+    p->gen.gain = clampi(k->gain, 300, 4096 * 6);
+    p->seed = k->pseed;
+    p->serial = ++gen_serial;
+    p->scene = (uint8_t)(k->scene < SC_N ? k->scene : 0);
+    p->nent = (uint8_t)(k->nent <= NENT ? k->nent : 0);
+    for (i = 0; i < p->nent; i++)
+        p->ent[i] = (uint8_t)(k->ent[i] < NINST ? k->ent[i] : 0);
+    p->send = clampi(k->send, 0, Q15);
+    p->dry = clampi(k->dry, 0, Q15);
+    p->xsrc = k->xsrc < NGEN && k->xsrc != l ? k->xsrc : XM_NONE;
+    p->xkind = (uint8_t)(k->xkind < XM_N ? k->xkind : 0);
+    p->xdepth = (uint8_t)clampi(k->xdepth, 0, 100);
+    RING_PUBLISH();
+    g_pub[l] = (uint8_t)b;
+    gen_drawn[l] = k->drawn;
+    return 1;
+}
+
 static void gens_init(uint32_t seed)
 {
     uint32_t l;
@@ -742,6 +826,7 @@ static void gens_init(uint32_t seed)
     rack_init(seed);
     loops_init();
     master_init();
+    mod_init();
     for (l = 0; l < NGEN; l++) {
         g_pub[l] = g_use[l] = 0;
         gen_mute[l] = 0;

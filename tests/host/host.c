@@ -144,8 +144,11 @@ static void audio_worker_check(void) {}
 #include "rack.c"
 #include "gens.c"
 #include "loop.c"
+#include "mod.c"
 #include "master.c"
+#include "sessions.h"
 #include "ui.c"
+#include "sessions.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
 
@@ -549,6 +552,7 @@ static void fw_init(void)
 {
     ui_init();
     gens_init(ui.seed);
+    ses_init(1);
     master_q12 = 4096;
 }
 static void print_gen(uint32_t l)
@@ -608,6 +612,35 @@ static void fw_run(uint32_t blocks)
         }
     }
 }
+/* the flash, for the sessions: 1 MiB as the part behaves (erase: 0xFF; a write only clears bits), every erase counted */
+static uint8_t hflash[0x100000];
+static uint32_t hf_erases[SES_NSECT];
+static int hf_in(uint32_t off, uint32_t n) { return off >= SES_LO && off <= SES_HI && n <= SES_HI - off; }
+static int ses_flash_read(uint32_t off, void *p, uint32_t n)
+{
+    if (off >= sizeof hflash || n > sizeof hflash - off)
+        return -1;
+    memcpy(p, hflash + off, n);
+    return 0;
+}
+static int ses_flash_erase(uint32_t off)
+{
+    if (!hf_in(off, 0x1000u) || (off & 0xFFFu))
+        return -8;
+    memset(hflash + off, 0xFF, 0x1000u);
+    hf_erases[(off - SES_LO) / SES_SECT]++;
+    return 0;
+}
+static int ses_flash_prog(uint32_t off, const void *p, uint32_t n)
+{
+    uint32_t i;
+    if (!hf_in(off, n))
+        return -8;
+    for (i = 0; i < n; i++)
+        hflash[off + i] &= ((const uint8_t *)p)[i];
+    return 0;
+}
+static void ses_isr_sync(void) { fw_run(3); }
 static void key(uint32_t k, int down)
 {
     if (down)
@@ -1140,6 +1173,297 @@ static int cmd_master(void)
     return fails ? 1 : 0;
 }
 
+/* the sessions and snapshots, on the emulated flash: another firmware's data in the area never erased nor changed; a
+ * session saved, the machine changed and started again, loaded: all of it back as it was; snapshots stored and
+ * recalled; saving over one keeps one; a damaged record refused; filled up: NO ROOM, the others' data still whole */
+static uint32_t hf_sum(uint32_t s) { return fnv(2166136261u, hflash + SES_LO + s * SES_SECT, SES_SECT); }
+static void st_norm(st_t *t)                             /* (what may differ and is not the state: the serials) */
+{
+    uint32_t l;
+    for (l = 0; l < NFX; l++)
+        t->x[l].f.serial = 0;
+}
+static int st_same(const st_t *a, const st_t *b)
+{
+    st_t x = *a, y = *b;
+    st_norm(&x);
+    st_norm(&y);
+    return !memcmp(&x, &y, sizeof x);
+}
+static int cmd_sessions(void)
+{
+    static const uint32_t FOREIGN[5] = {0, 1, 2, 10, 20};
+    uint32_t sum[5], i, k, l, n;
+    int fails = 0, rc;
+    st_t a, b, s1, s5;
+    uint32_t nev0, ntrk0, latch0;
+    uint8_t ev0[64];
+    rnd_t r;
+#define SFAIL(...) do { printf("FAIL sessions: " __VA_ARGS__); printf("\n"); fails++; } while (0)
+    memset(hflash, 0xFF, sizeof hflash);
+    rnd_seed(&r, 99);
+    for (i = 0; i < 5u; i++) {                            /* another firmware's: Tonitor's heads, Bigorna's, noise */
+        uint8_t *p = hflash + SES_LO + FOREIGN[i] * SES_SECT;
+        for (k = 0; k < SES_SECT; k++)
+            p[k] = (uint8_t)rnd_next(&r);
+        memcpy(p, i < 3u ? "ACS1" : i == 3u ? "\x00\x00\x00\x00" : "BGN3", 4);
+        sum[i] = hf_sum(FOREIGN[i]);
+    }
+    memset(hf_erases, 0, sizeof hf_erases);
+    fm1_in.notes = fm1_in.buttons = 0;
+    fw_init();
+    /* a state: new patches, levels, sends, a modulation, a scale; a loop; a latched note; two snapshots */
+    press(B_SEL, 50);
+    press(B_HOME, 50);
+    fw_run(30);
+    press(B_EDIT, 50);
+    press(B_HOME, 50);
+    fw_run(30);
+    gen_lvl[1] = 15;
+    gen_pan[2] = -7;
+    fx_mute[2] = 1;
+    ui.rsend[0] = 64;
+    ui.dsend[1] = 30;
+    sends_apply(0);
+    sends_apply(1);
+    ui.rvp[1] = 80;
+    ui.dlp[0] = 30;
+    slot_mod[4].lfo[0].shape = MS_DRIFT;
+    slot_mod[4].lfo[0].rate = 20;
+    slot_mod[4].s[0].src = MSRC_L1;
+    slot_mod[4].s[0].dst = FMD_P0 + 1;
+    slot_mod[4].s[0].amt = 40;
+    ui.scale = 5;
+    ui.root = 3;
+    snap_store(0);
+    st_capture(&s1);
+    gen_lvl[0] = 9;
+    slot_mod[1].s[1].src = MSRC_L2;
+    slot_mod[1].s[1].dst = GMD_PAN;
+    slot_mod[1].s[1].amt = -50;
+    snap_store(4);
+    st_capture(&s5);
+    press(B_FX, 50);
+    press(B_REC, 50);
+    key(0, 1);
+    fw_run(400);
+    key(0, 0);
+    fw_run(300);
+    press(B_REC, 50);
+    key(2, 1);
+    key(KEY_SHIFT, 1);
+    ui_input();
+    key(KEY_SHIFT, 0);
+    key(2, 0);
+    fw_run(200);
+    st_capture(&a);
+    nev0 = loop[0].nev;
+    ntrk0 = loop[0].ntrk;
+    latch0 = ui.latch[0];
+    memcpy(ev0, loop[0].ev, sizeof ev0);
+    rc = ses_save(3);
+    if (rc != SES_OK)
+        SFAIL("save: %d", rc);
+    /* changed, and started again: then loaded */
+    for (l = 0; l < NSLOT; l++) {
+        press(SLOT_BTN[l], 50);
+        press(B_HOME, 50);
+        fw_run(30);
+    }
+    fm1_in.notes = fm1_in.buttons = 0;
+    fw_init();
+    if (!ses_has(3) || ses_has(4))
+        SFAIL("after a start: session 3 %s, 4 %s", ses_has(3) ? "there" : "missing", ses_has(4) ? "there" : "absent");
+    fw_run(10);
+    rc = ses_load_slot(3);
+    fw_run(60);
+    if (rc != SES_OK)
+        SFAIL("load: %d", rc);
+    st_capture(&b);
+    if (!st_same(&a, &b))
+        SFAIL("the state loaded is not the state saved");
+    if (loop[0].ntrk != ntrk0 || loop[0].nev != nev0 || memcmp(ev0, loop[0].ev, sizeof ev0))
+        SFAIL("the loops (%u loops, %u events; saved %u, %u)", loop[0].ntrk, loop[0].nev, ntrk0, nev0);
+    if (!loop[0].play)
+        SFAIL("the loops do not play after the load");
+    if (ui.latch[0] != latch0 || !latch0)
+        SFAIL("the latched notes (%x, saved %x)", ui.latch[0], latch0);
+    if (!snap_has(0) || !snap_has(4) || snap_has(1))
+        SFAIL("the snapshots kept");
+    rc = snap_recall(0);
+    fw_run(60);
+    st_capture(&b);
+    if (rc != SES_OK || !st_same(&s1, &b))
+        SFAIL("snapshot 1 recalled (%d)", rc);
+    rc = snap_recall(4);
+    fw_run(60);
+    st_capture(&b);
+    if (rc != SES_OK || !st_same(&s5, &b))
+        SFAIL("snapshot 5 recalled (%d)", rc);
+    for (i = 0; i < 25u; i++) {                           /* saved over, again and again, with idle blanking between */
+        if ((rc = ses_save(3)) != SES_OK)
+            SFAIL("save over %u: %d", i, rc);
+        fm1_ms += 1100u;
+        ses_idle(1);
+    }
+    for (n = 0, i = 0; i < ses.n; i++)
+        n += ses.num[i] == 3u;
+    if (n != 1u || ses.n != 1u)
+        SFAIL("%u copies of session 3, %u sessions", n, ses.n);
+    {   /* a power cut: the new copy written, the old one not yet retired -- the new one stays; or the new one cut
+         * short (its head, part of its body) -- the old one stays */
+        int j = ses_find(3);
+        uint32_t olds = ses.sect[j], news;
+        static uint8_t keep[0x100000];
+        if ((rc = ses_save(3)) != SES_OK)
+            SFAIL("save: %d", rc);
+        j = ses_find(3);
+        news = ses.sect[j];
+        memset(hflash + SES_LO + olds * SES_SECT + 28u, 0xFF, 4u);   /* (as if the retiring never happened) */
+        memcpy(keep, hflash, sizeof keep);
+        fw_init();
+        j = ses_find(3);
+        if (j < 0 || ses.sect[j] != news || ses.n != 1u)
+            SFAIL("a cut before the old copy was retired: %d sessions, at %d (new %u)", ses.n, j < 0 ? -1 : ses.sect[j], news);
+        memcpy(hflash, keep, sizeof keep);
+        memset(hflash + SES_LO + news * SES_SECT + SES_SECT, 0xFF, SES_SECT);   /* (its second sector never written) */
+        fw_init();
+        j = ses_find(3);
+        if (j < 0 || ses.sect[j] != olds || ses.n != 1u)
+            SFAIL("a cut while the new copy was written: %d sessions, at %d (old %u)", ses.n, j < 0 ? -1 : ses.sect[j], olds);
+        else if (ses_load_slot(3) != SES_OK)
+            SFAIL("the old copy kept after a cut does not load");
+        fw_run(60);
+    }
+    {   /* damaged: one byte of its body -- refused, the machine as it was */
+        int j = ses_find(3);
+        st_t before;
+        st_capture(&before);
+        hflash[SES_LO + ses.sect[j] * SES_SECT + 200u] ^= 0x5Au;
+        if (ses_load_slot(3) == SES_OK)
+            SFAIL("a damaged record loaded");
+        st_capture(&b);
+        if (!st_same(&before, &b))
+            SFAIL("a damaged record changed the machine");
+        hflash[SES_LO + ses.sect[j] * SES_SECT + 200u] ^= 0x5Au;
+    }
+    for (n = 0, k = 1; k <= SES_SLOTS; k++) {             /* filled up */
+        rc = ses_save(k);
+        if (rc == SES_OK)
+            n++;
+        else if (rc != SES_FULL)
+            SFAIL("save %u: %d", k, rc);
+        else
+            break;
+    }
+    printf("sessions: %u saved before NO ROOM (one session: %u sectors)\n", n, ses.nsect[0]);
+    for (i = 0; i < 5u; i++) {
+        if (hf_sum(FOREIGN[i]) != sum[i])
+            SFAIL("another firmware's sector %u changed", FOREIGN[i]);
+        if (hf_erases[FOREIGN[i]])
+            SFAIL("another firmware's sector %u erased", FOREIGN[i]);
+    }
+    if (getenv("SDBG")) {
+        for (i = 0; i < ses.n; i++)
+            printf("  before: %u at %u (%u)\n", ses.num[i], ses.sect[i], ses.nsect[i]);
+        for (i = 0; i < SES_NSECT; i++)
+            printf("%u", ses.st[i]);
+        printf("\n");
+    }
+    fw_init();                                            /* (and found again, every one, at the next start) */
+    if (getenv("SDBG")) {
+        for (i = 0; i < ses.n; i++)
+            printf("  after: %u at %u (%u)\n", ses.num[i], ses.sect[i], ses.nsect[i]);
+        for (i = 0; i < SES_NSECT; i++)
+            printf("%u", ses.st[i]);
+        printf("\n");
+    }
+    if (ses.n != n)
+        SFAIL("%u sessions found at the next start, %u saved", ses.n, n);
+    printf("sessions: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* the LFOs: one on a generator's macro, one on an effect slot's second value -- each changes the sound; the slot drawn
+ * anew (other effects), its LFO goes on moving the value at that place, and the MOD page names the new one */
+static double mod_run(int gen_on, int fx_on)
+{
+    uint32_t l;
+    double d = 0;
+    fm1_in.notes = fm1_in.buttons = 0;
+    ui_init();
+    ui.seed = 777u;
+    gens_init(ui.seed);
+    master_q12 = 4096;
+    for (l = 1; l < NGEN; l++)
+        gen_mute[l] = 1;
+    if (gen_on) {
+        slot_mod[0].lfo[0].rate = 60;
+        slot_mod[0].s[0].src = MSRC_L1;
+        slot_mod[0].s[0].dst = GMD_MAC1;
+        slot_mod[0].s[0].amt = 80;
+    }
+    if (fx_on) {
+        uint32_t s0 = gbuf[0][g_use[0]].nent ? gbuf[0][g_use[0]].ent[0] / FX_N : 0;
+        slot_mod[NGEN + s0].lfo[0].rate = 60;
+        slot_mod[NGEN + s0].s[0].src = MSRC_L1;
+        slot_mod[NGEN + s0].s[0].dst = FMD_P0 + 1;
+        slot_mod[NGEN + s0].s[0].amt = 90;
+    }
+    fw_frames = 0;
+    press(B_FX, 50);
+    key(0, 1);
+    fw_run(1378 * 3);
+    key(0, 0);
+    fw_run(1378);
+    if (gen_on < 0)
+        return 0;
+    for (l = 0; l < fw_frames * 2u && l < sizeof mst_a / sizeof mst_a[0]; l++) {
+        double x = (double)wav2[l] - mst_a[l];
+        d += x * x;
+    }
+    return __builtin_sqrt(d / (fw_frames * 2.0)) / 32768.0;
+}
+static int cmd_mod(void)
+{
+    int fails = 0;
+    double z, g, f;
+    char nm[32];
+    mod_run(0, 0);
+    memcpy(mst_a, wav2, sizeof mst_a);
+    z = mod_run(0, 0);
+    g = mod_run(1, 0);
+    f = mod_run(0, 1);
+    printf("mod: against none -- again %.6f, a generator's LFO %.4f, an effect slot's %.4f\n", z, g, f);
+    if (z != 0.0)
+        printf("FAIL mod: the same run twice differs\n"), fails++;
+    if (g < 0.001)
+        printf("FAIL mod: a generator's LFO changes nothing\n"), fails++;
+    if (f < 0.0005)
+        printf("FAIL mod: an effect slot's LFO changes nothing\n"), fails++;
+    {   /* the slot drawn anew: the LFO on at that place, the page naming the effect there now */
+        uint32_t s0 = 0, k, moved = 0;
+        slot_mod[NGEN].lfo[0].rate = 80;
+        slot_mod[NGEN].s[0].src = MSRC_L1;
+        slot_mod[NGEN].s[0].dst = FMD_P0 + 5;   /* (the second effect's second value) */
+        slot_mod[NGEN].s[0].amt = 90;
+        for (k = 0; k < 6u; k++) {
+            press(B_LFO, 50);
+            press(B_HOME, 50);
+            fw_run(400);
+            mod_dst_name(NGEN + s0, FMD_P0 + 5, nm, sizeof nm);
+            if (strncmp(nm, RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind], str_len(RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind])))
+                printf("FAIL mod: the page names %s, the effect there is %s\n", nm, RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind]), fails++;
+            moved |= fx_mod_p[s0][5] != 0;
+        }
+        if (!moved)
+            printf("FAIL mod: the LFO stopped moving the slot's value after it was drawn anew\n"), fails++;
+        printf("mod: last named %s\n", nm);
+    }
+    printf("mod: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -1381,13 +1705,61 @@ static int cmd_screens(int argc, char **argv)
     SHOT("delay");
     press(B_SEQ, 50);                                    /* the REVERB page */
     SHOT("reverb");
+    press(B_SEQ, 50);                                    /* the MOD page: a generator's MOD A, set */
+    slot_mod[0].lfo[0].rate = 40;
+    slot_mod[0].s[0].src = MSRC_L1;
+    slot_mod[0].s[0].dst = GMD_MAC1;
+    slot_mod[0].s[0].amt = 45;
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 2;
+    ui_input();
+    fw_run(300);
+    SHOT("mod-gen");
     press(B_SEQ, 50);
+    press(B_LFO, 50);                                    /* .. an effect slot's MOD A, on its second effect */
+    slot_mod[NGEN].s[0].src = MSRC_L2;
+    slot_mod[NGEN].s[0].dst = FMD_P0 + 6;
+    slot_mod[NGEN].s[0].amt = -30;
+    press(B_SEQ, 50);
+    press(B_SEQ, 50);
+    press(B_SEQ, 50);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 2;
+    ui_input();
+    SHOT("mod-fx");
+    press(B_FX, 50);
+    press(B_SAVE, 50);                                   /* the SESSIONS page */
+    SHOT("sessions");
+    fm1_in.pressed |= 1u << PANEL_BTN[B_SAVE];           /* SAVE held: asked (none loaded) */
+    fm1_in.buttons |= 1u << PANEL_BTN[B_SAVE];
+    ui_input();
+    fw_run(1200);
+    ui_input();
+    fm1_in.buttons &= ~(1u << PANEL_BTN[B_SAVE]);
+    ui_input();
+    SHOT("save-ask");
+    press(B_SAVE, 50);                                   /* YES: saved -- the whole screen says so */
+    ui.load_at = fm1_ms - 1000u;
+    ui.force = 1;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-saved.ppm", dir);
+    screen_save(name);
+    ui.fl_until = fm1_ms;
+    snap_store(0);
+    snap_store(2);
+    snap_store(5);
+    key(KEY_SHIFT, 1);
+    press(B_SAVE, 50);                                   /* SHIFT + SAVE: the SNAPSHOTS page */
+    key(KEY_SHIFT, 0);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 9;
+    ui_input();
+    SHOT("snapshots");
+    pages_off();
 #undef SHOT
     return 0;
 }
 
 int main(int argc, char **argv)
 {
+    memset(hflash, 0xFF, sizeof hflash);
     wt_init();
     if (argc >= 2 && !strcmp(argv[1], "patches"))
         return cmd_patches(argc, argv);
@@ -1418,6 +1790,16 @@ int main(int argc, char **argv)
         return cmd_looper();
     if (!strcmp(argv[1], "master"))
         return cmd_master();
+    if (!strcmp(argv[1], "sizes")) {
+        printf("st_t %u, snapshots %u, gen_keep_t %u, fx_patch_t %u, mod_t %u, looper_t %u\n", (unsigned)sizeof(st_t),
+               (unsigned)sizeof snap, (unsigned)sizeof(gen_keep_t), (unsigned)sizeof(fx_patch_t), (unsigned)sizeof(mod_t),
+               (unsigned)sizeof(looper_t));
+        return 0;
+    }
+    if (!strcmp(argv[1], "sessions"))
+        return cmd_sessions();
+    if (!strcmp(argv[1], "mod"))
+        return cmd_mod();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

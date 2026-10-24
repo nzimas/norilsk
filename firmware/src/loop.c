@@ -710,6 +710,16 @@ static void loop_retune(void)
     lx_mask = (uint16_t)m;
 }
 
+/* loops the main loop has written into an empty, stopped looper (a session loaded): from their starts, playing or not */
+static void loop_set(uint32_t l, uint32_t play)
+{
+    looper_t *p = &loop[l];
+    if (!p->ntrk || p->rec != LR_IDLE)
+        return;
+    loop_rewind(p);
+    p->nheld = 0;
+    p->play = (uint8_t)(play != 0);
+}
 /* the events the main loop sends the loopers (gens.c events_take) */
 static void loop_event(const ev_t *e)
 {
@@ -720,6 +730,10 @@ static void loop_event(const ev_t *e)
         break;
     case EV_LOOP_XP:                          /* SHIFT and OCT: the loops moved along the scale */
         loop_retune();
+        break;
+    case EV_LOOP_SET:                         /* (a session loaded: val, whether they play) */
+        if (e->slot < NGEN)
+            loop_set(e->slot, e->val);
         break;
     case EV_LOOP_TRK:                         /* (note: the loop, val: in or out) */
         loop_trk_set(e->slot, e->note, e->val);

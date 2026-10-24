@@ -569,6 +569,11 @@ static int32_t ebus_run[NINST][CTL] POOL __attribute__((aligned(32)));
 static int32_t fx_l[CTL], fx_r[CTL];
 static int32_t fx_mdl[CTL], fx_mrv[CTL];   /* the slots' sends to the master delay and reverb (master.c), this block */
 static volatile int32_t fx_rsend[NFX], fx_dsend[NFX];   /* each slot's sends, Q15: the mean of its generators' (gens.c) */
+/* the modulation's offsets (mod.c, worked out before the work is dealt): each slot's effects' values by place (4 k + j),
+ * its level (steps) and pan */
+static int16_t fx_mod_p[NFX][12], fx_mod_lvl[NFX], fx_mod_pan[NFX];
+static uint8_t fx_mod_on[NFX];
+static uint8_t rm_plate_p[NINST][3];             /* (the plate's values as last set: set again when moved) */
 static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was sent into) */
 static uint32_t rack_ticks;                    /* what the last block of the rack took */
 
@@ -620,9 +625,12 @@ static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, i
     default: {                                       /* the plate: stereo */
         rv_t *R = (rv_t *)st;
         int32_t pl[CTL], pr[CTL], g = 8192 + p[3] * (24576 / 100);   /* (its level: 0.25 .. 1) */
-        if (!rm_plate_on[inst]) {
-            rv_param(R, p[0], p[1], p[2], 40);       /* (x 0.64: the tail sums over seconds) */
+        if (!rm_plate_on[inst] || rm_plate_p[inst][0] != p[0] || rm_plate_p[inst][1] != p[1] || rm_plate_p[inst][2] != p[2]) {
+            rv_param(R, p[0], p[1], p[2], 40);       /* (x 0.64: the tail sums over seconds; again when moved) */
             rm_plate_on[inst] = 1;
+            rm_plate_p[inst][0] = p[0];
+            rm_plate_p[inst][1] = p[1];
+            rm_plate_p[inst][2] = p[2];
         }
         for (i = 0; i < CTL; i++)
             pl[i] = pr[i] = 0;
@@ -733,7 +741,15 @@ static void rack_job(void)
             int32_t *x = ebus_run[inst];
             if (!((has >> inst) & 1u) && rm_quiet[inst] >= RM_TAIL)
                 continue;
-            rm_block(inst, &f->e[k], x, sl, sr, (int)out);
+            if (fx_mod_on[s]) {                      /* (moved by the slot's modulation: within the effect's bounds) */
+                fx_eff_t ee = f->e[k];
+                uint32_t j;
+                for (j = 0; j < 4u; j++)
+                    ee.p[j] = (uint8_t)clampi((int32_t)ee.p[j] + fx_mod_p[s][k * 4u + j], RM_LO[ee.kind % NKIND][j],
+                                              RM_HI[ee.kind % NKIND][j]);
+                rm_block(inst, &ee, x, sl, sr, (int)out);
+            } else
+                rm_block(inst, &f->e[k], x, sl, sr, (int)out);
             if (rm_meter[inst] < 8) {
                 if (rm_quiet[inst] < 0xFFFFu)
                     rm_quiet[inst]++;
@@ -784,12 +800,15 @@ static void rack_job(void)
             }
         }
         /* the slot out: its level, its place (the mono parts panned; the plate's stereo as it is), its fade */
-        gw = fx_lvl[s] ? (int32_t)(exp2_q16((fx_lvl[s] - 20) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a step */
+        {
+            int32_t lv = fx_lvl[s] ? clampi(fx_lvl[s] + fx_mod_lvl[s], 0, 23) : 0;   /* (its modulation added) */
+            gw = lv ? (int32_t)(exp2_q16((lv - 20) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a step */
+        }
         if (fading) {
             gw = gw * (int32_t)(fx_count[s] - 1u) / (int32_t)FX_FADE;
             fx_count[s]--;
         }
-        ph = (uint32_t)(fx_pan[s] * (Q15 / 20) + Q15) * 16384u;
+        ph = (uint32_t)(clampi(fx_pan[s] + fx_mod_pan[s], -20, 20) * (Q15 / 20) + Q15) * 16384u;
         g = gw;
         gl = sin_ph(ph + 0x40000000u);
         gr = sin_ph(ph);
@@ -879,6 +898,43 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
             uint32_t ts = s + 1u + (uint32_t)rnd_below(r, (int32_t)(NFX - 1u - s));
             f->xto[k] = (uint16_t)(1u << (ts * FX_N + (uint32_t)rnd_below(r, 2)));
         }
+    RING_PUBLISH();
+    f_pub[s] = (uint8_t)b;
+    return 1;
+}
+
+/* a slot's patch as a session or a snapshot kept it, published as a draw is (each value checked; a patch too large for
+ * the slot's memory as it is now loses its last effects, then FILTER stands in) */
+static int fx_set(uint32_t s, const fx_patch_t *src)
+{
+    uint32_t b = f_use[s] ^ 1u, k, j, room = FX_ARENA, t0 = fm1_ms;
+    fx_patch_t *f = &fbuf[s][b];
+    const fx_patch_t *now = &fbuf[s][f_pub[s]];
+    if (now->seed == src->seed && now->n == src->n && now->recipe == src->recipe && now->out == src->out &&
+        !memcmp(now->e, src->e, sizeof now->e) && !memcmp(now->xto, src->xto, sizeof now->xto))
+        return 1;                                    /* (the same patch: left playing, no fade) */
+    while (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON) {
+        if ((uint32_t)(fm1_ms - t0) > 60u)
+            return 0;
+        fm1_wdt_feed();
+    }
+    *f = *src;
+    f->n = (uint8_t)clampi(f->n, 2, FX_N);
+    f->recipe = (uint8_t)(f->recipe < FR_N ? f->recipe : 0);
+    for (k = 0; k < FX_N; k++) {
+        if (k >= f->n) {
+            memset(&f->e[k], 0, sizeof f->e[k]);
+            f->xto[k] = 0;
+            continue;
+        }
+        if (f->e[k].kind >= NKIND || rm_size(f->e[k].kind) > room)
+            f->e[k].kind = RM_FLT;
+        room -= rm_size(f->e[k].kind);
+        for (j = 0; j < 4u; j++)
+            f->e[k].p[j] = (uint8_t)clampi(f->e[k].p[j], RM_LO[f->e[k].kind][j], RM_HI[f->e[k].kind][j]);
+        f->xto[k] &= (uint16_t)(((1u << NINST) - 1u) & ~((1u << ((s + 1u) * FX_N)) - 1u));   /* (later slots only) */
+    }
+    f->serial = ++fx_serial;
     RING_PUBLISH();
     f_pub[s] = (uint8_t)b;
     return 1;

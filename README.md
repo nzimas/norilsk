@@ -3,7 +3,7 @@
 A firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: build 6.** Textures and drones only: every sound swells in, holds and keeps moving, and nothing sounds on once no note is held, latched or looped. Each generator has Tonitor's looper; Tonitor's master delay and reverb close the chain. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
+**State: build 6.** Textures and drones only: every sound swells in, holds and keeps moving, and nothing sounds on once no note is held, latched or looped. Each generator has Tonitor's looper; Tonitor's master delay and reverb close the chain. Sessions (64) with 16 snapshots each, and two LFOs and four modulation slots on every slot. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
 share a pedalboard. HOME on a generator draws its sound and its cables into the effects; HOME on an effect slot draws
 its chain of two or three effects from a recipe, their values and its cables across to the other effect slots. The
 white keys play the generator chosen last, in the scale chosen. The second core runs the effects. No sessions, no
@@ -24,6 +24,11 @@ patterns, no internal clocks yet. `CHANGELOG.md` says what each build does.
 | **ARP** | the SCALE page: SELECT the scale (23), ALGORITHM the root |
 | **KNOB 3 / KNOB 4** | the delay send / reverb send of the generator the keys play, to the master delay and reverb (after the effect slots) |
 | **SEQ** | the DELAY page, again the REVERB page, again back: KNOB 1 to 4 set TIME, FEEDBACK, DAMP, MIX / SIZE, DECAY, DAMP, MIX |
+| **SAVE** | the SESSIONS page: PRESETS through 64 slots; SAVE loads (or starts a new session in an empty slot) |
+| **SAVE** held | save into the session loaded or chosen (on the page: into the slot shown, asked first) |
+| **SHIFT + SAVE** | the SNAPSHOTS page: a white key recalls its snapshot, held 0.8 s stores the state now, SHIFT + held empties |
+| **SEQ** third press | the MOD page of the slot chosen: PRESETS through LFO 1, LFO 2, MOD A to D; KNOB 1 to 4 their values |
+| **SHIFT + SEQ** | the chosen slot's modulation thrown anew |
 | **REC** | the looper of the generator the keys play: arm a loop (the first note starts it), end it (it plays at once), again to overdub; up to 10 loops |
 | **REC** held 1 s | empty that generator's loops |
 | **SHIFT + REC** | VARY: each loop note drawn anew (level, length, now and then changed or joined) |

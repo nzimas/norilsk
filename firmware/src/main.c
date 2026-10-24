@@ -151,6 +151,32 @@ static int fl_erase4k_quiet(uint32_t off, uint32_t *took)
     return rc;
 }
 
+/* the sessions' flash (sessions.c), Tonitor's: reads anywhere; erases and writes only inside the sessions' area */
+static int ses_flash_read(uint32_t off, void *p, uint32_t n) { return st_read(off, p, n); }
+static int ses_flash_erase(uint32_t off)
+{
+    uint32_t took;
+    if (!FL_IN(off, 0x1000u, SES_LO, SES_HI) || (off & 0xFFFu))
+        return -8;
+    return fl_erase4k_quiet(off, &took);
+}
+static int ses_flash_prog(uint32_t off, const void *p, uint32_t n)
+{
+    if (!FL_IN(off, n, SES_LO, SES_HI))
+        return -8;
+    return fl_write(off, p, n);
+}
+/* every event posted taken by the ISR (it takes them at a block's start: ~0.7 ms) */
+static void ses_isr_sync(void)
+{
+    uint32_t t0 = fm1_ms;
+    while (ev_r != ev_w && (uint32_t)(fm1_ms - t0) < 100u)
+        fm1_wdt_feed();
+    t0 = fm1_ms;
+    while ((uint32_t)(fm1_ms - t0) < 3u)             /* (and a block or two more: the looper's own) */
+        fm1_wdt_feed();
+}
+
 #define OTA_IDENTITY (recovery_active ? "FM-1_000" : MOLECULAR_ID)
 /* the backup protocol (Tonitor's backup.c): none yet -- a message to the host would be answered here */
 static void bk_handle(const uint8_t *m, uint32_t d) { (void)m; (void)d; }
@@ -252,6 +278,7 @@ static void fm1_main(void)
     ui_init();
     gens_init(ui.seed);                              /* three generators and three effect slots drawn (~1 s: the sounds
                                                       * measured) */
+    ses_init(flash_ok);                              /* the sessions in the flash: listed (none loaded: a fresh start) */
     /* CPU1: after a supply setup that held, on a boot after no failed one, and not barred since power-on. It starts
      * through the mask ROM before it reaches our RAM loop: the PC limit only after (Melodee, Tonitor) */
     if (fm1_core1_boot_allowed(fm1_power_ready, bootguard.failed))
@@ -313,6 +340,7 @@ static void fm1_main(void)
         ui_input();
         ui_leds();
         ui_draw();
+        ses_idle(!gens_sounding() && !loops_playing());   /* (Molecular's retired sectors blanked, in silence) */
         while ((uint32_t)(fm1_ms - m) < 15u)        /* ~60 frames a second at most */
             ui_input();
     }

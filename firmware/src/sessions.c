@@ -1,0 +1,782 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * MOLECULAR: sessions and their snapshots -- Tonitor's sessions (sessions.c, the same author), and Bigorna's patterns
+ * as snapshots (projects.c).
+ *
+ * A SESSION is the whole machine at a moment: every generator (its sound, its cables, its modulation by another,
+ * level, pan, mute, sends), every effect slot (its effects and their values, its cables, level, pan, mute), the master
+ * delay and reverb, the six slots' LFOs, the scale and root, the octave, the slot chosen, the loops' move along the
+ * scale; every looper's loops; the latched notes; and its 16 SNAPSHOTS. 64 slots (Tonitor's).
+ * A SNAPSHOT is the machine's state inside a session: all of the above but the loops, the latched notes, the octave
+ * and the slot chosen (they go on as they are). Stored and recalled in RAM (SHIFT + SAVE: the SNAPSHOTS page); kept in
+ * the flash with the session when it is saved.
+ *
+ * A sound is kept as what draws it again bit for bit (its family, seed, path and generation: mol.c's contract) and
+ * the level it was measured at; an effect slot's patch whole (its effects and values: a later build that draws
+ * recipes otherwise does not change it).
+ *
+ * In flash, in the area Tonitor and Bigorna keep theirs in (0x97000 .. 0xE0000, 73 sectors of 4 KiB). A session is
+ * one record, from the start of a sector over as many as it needs (Tonitor's): a head (32 B: magic "MOL1", its number,
+ * format, length, a sequence number -- the newest copy wins --, a CRC of the body, one of the head; and a word that
+ * stays 0xFFFFFFFF while the record lives), then the body. Saving over a session writes the new copy into free
+ * sectors first and only then retires the old one, by programming its last word to zero (no erase): a power cut in
+ * between leaves the old or both, never neither.
+ * MOLECULAR, unlike Tonitor: the area is shared with the other firmwares this FM-1 runs, so a sector is written only
+ * if it is blank or holds a record of Molecular's own that has been retired; anything else in the area (Tonitor's
+ * sessions, Bigorna's, SLOOP's projects) is never erased. Erasing a sector silences the audio for a moment: the
+ * main loop blanks Molecular's retired sectors one at a time while nothing sounds (ses_idle). */
+
+#define SES_LO 0x00097000u
+#define SES_HI 0x000E0000u
+#define SES_SECT 4096u
+#define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
+#define SES_MAGIC 0x314C4F4Du    /* "MOL1" */
+#define SES_LIVE 0xFFFFFFFFu     /* the head's last word while the record lives */
+#define SES_FORMAT 1u
+#define SES_MAX 73u              /* records in the list (one a sector at most) */
+
+/* the flash, for the target (main.c) or the host test (host.c); offsets from the flash's start */
+static int ses_flash_read(uint32_t off, void *p, uint32_t n);
+static int ses_flash_erase(uint32_t off);   /* a 4 KiB sector */
+static int ses_flash_prog(uint32_t off, const void *p, uint32_t n);
+static void ses_isr_sync(void);             /* (the ISR has taken every event posted: main.c, host.c) */
+
+typedef struct {
+    uint32_t magic;
+    uint16_t num, format;
+    uint32_t len;                /* head and body, bytes */
+    uint32_t seq;
+    uint16_t body_crc, rsv0;
+    uint32_t rsv1;
+    uint16_t head_crc, rsv2;     /* head_crc: of the 24 bytes before it */
+    uint32_t live;               /* SES_LIVE; 0: retired */
+} ses_head_t;
+typedef char ses_head_is_32[sizeof(ses_head_t) == 32u ? 1 : -1];
+
+/* what a sector holds, as the scan found it */
+enum { SC_UNKNOWN, SC_BLANK, SC_USED, SC_MINE, SC_OTHER };   /* (MINE: Molecular's, retired: may be erased) */
+static struct {
+    uint8_t n;                   /* sessions found */
+    uint16_t num[SES_MAX];       /* sorted by number */
+    uint8_t sect[SES_MAX];       /* the first sector of each */
+    uint8_t nsect[SES_MAX];
+    uint32_t seq;                /* the highest sequence number seen */
+    uint8_t st[SES_NSECT];       /* SC_* */
+    uint16_t current;            /* the session loaded, saved or chosen, 0 = none */
+    uint8_t ok;                  /* the flash is the expected part */
+} ses;
+
+/* ------------------------------------------------------- the machine's state --- */
+typedef struct {
+    gen_keep_t g;
+    int8_t lvl, pan;
+    uint8_t mute, rsend, dsend, rsv[3];
+} st_gen_t;
+typedef struct {
+    fx_patch_t f;
+    int8_t lvl, pan;
+    uint8_t mute, rsv;
+} st_fx_t;
+typedef struct {
+    st_gen_t g[NGEN];
+    st_fx_t x[NFX];
+    int8_t rvp[4], dlp[4];
+    mod_t mod[NSLOT];
+    uint8_t scale, root, rsv[2];
+} st_t;
+static struct {
+    st_t s[NSNAP];
+    uint16_t used;               /* a bit a snapshot that holds a state */
+    int8_t cur;                  /* the snapshot last stored or recalled, -1 none */
+} snap;
+
+static void st_capture(st_t *t)
+{
+    uint32_t l;
+    memset(t, 0, sizeof *t);
+    for (l = 0; l < NGEN; l++) {
+        gen_keep(l, &t->g[l].g);
+        t->g[l].lvl = gen_lvl[l];
+        t->g[l].pan = gen_pan[l];
+        t->g[l].mute = gen_mute[l];
+        t->g[l].rsend = (uint8_t)ui.rsend[l];
+        t->g[l].dsend = (uint8_t)ui.dsend[l];
+    }
+    for (l = 0; l < NFX; l++) {
+        t->x[l].f = fbuf[l][f_pub[l]];
+        t->x[l].lvl = fx_lvl[l];
+        t->x[l].pan = fx_pan[l];
+        t->x[l].mute = fx_mute[l];
+    }
+    memcpy(t->rvp, ui.rvp, sizeof t->rvp);
+    memcpy(t->dlp, ui.dlp, sizeof t->dlp);
+    memcpy(t->mod, slot_mod, sizeof t->mod);
+    t->scale = ui.scale;
+    t->root = ui.root;
+}
+/* the state given back: each part checked; returns SES_OK, or SES_BUSY if a slot could not take its patch in time */
+static int st_apply(const st_t *t)
+{
+    uint32_t l, k;
+    int ok = 1;
+    for (l = 0; l < NGEN; l++) {
+        ok &= gen_set(l, &t->g[l].g);
+        gen_lvl[l] = (int8_t)clampi(t->g[l].lvl, 0, LEVEL_MAX);
+        gen_pan[l] = (int8_t)clampi(t->g[l].pan, -PAN_MAX, PAN_MAX);
+        gen_mute[l] = (uint8_t)(t->g[l].mute != 0);
+        ui.rsend[l] = (int8_t)clampi(t->g[l].rsend, 0, 100);
+        ui.dsend[l] = (int8_t)clampi(t->g[l].dsend, 0, 100);
+        sends_apply(l);
+    }
+    for (l = 0; l < NFX; l++) {
+        ok &= fx_set(l, &t->x[l].f);
+        fx_lvl[l] = (int8_t)clampi(t->x[l].lvl, 0, 23);
+        fx_pan[l] = (int8_t)clampi(t->x[l].pan, -20, 20);
+        fx_mute[l] = (uint8_t)(t->x[l].mute != 0);
+    }
+    for (k = 0; k < 4u; k++) {
+        ui.rvp[k] = (int8_t)clampi(t->rvp[k], 0, 100);
+        ui.dlp[k] = (int8_t)clampi(t->dlp[k], 0, 100);
+    }
+    rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+    mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    for (l = 0; l < NSLOT; l++) {
+        mod_t m = t->mod[l];
+        mod_check(&m, l);
+        slot_mod[l] = m;
+    }
+    ui.scale = (uint8_t)(t->scale < NSCALE ? t->scale : 1u);
+    ui.root = (uint8_t)(t->root % 12u);
+    rack_root = SCALE_BASE + ui.root;
+    lx_post();
+    ui.force = 1;
+    return ok ? SES_OK : SES_BUSY;
+}
+
+/* the snapshots (SHIFT + SAVE): in RAM, with the session */
+static void snap_store(uint32_t i)
+{
+    if (i >= NSNAP)
+        return;
+    st_capture(&snap.s[i]);
+    snap.used |= (uint16_t)(1u << i);
+    snap.cur = (int8_t)i;
+}
+static int snap_recall(uint32_t i)
+{
+    if (i >= NSNAP || !((snap.used >> i) & 1u))
+        return SES_FAIL;
+    snap.cur = (int8_t)i;
+    return st_apply(&snap.s[i]);
+}
+static void snap_clear(uint32_t i)
+{
+    if (i >= NSNAP)
+        return;
+    snap.used &= (uint16_t)~(1u << i);
+    if (snap.cur == (int8_t)i)
+        snap.cur = -1;
+}
+static int snap_has(uint32_t i) { return i < NSNAP && ((snap.used >> i) & 1u); }
+static int snap_current(void) { return snap.cur; }
+
+/* ------------------------------------------------------------ the stream --- */
+/* A record goes to and from the flash through one sector's buffer, a sector at a time (Tonitor's): counted first (its
+ * length and CRC, for its head), then written; read back through the same buffer */
+static uint8_t ses_chunk[SES_SECT];
+static uint16_t ses_crc(const uint8_t *p, uint32_t n, uint32_t c)   /* CRC16, poly 0x1021 */
+{
+    uint32_t i;
+    while (n--) {
+        c ^= (uint32_t)*p++ << 8;
+        for (i = 0; i < 8u; i++)
+            c = c & 0x8000u ? (c << 1) ^ 0x1021u : c << 1;
+        c &= 0xFFFFu;
+    }
+    return (uint16_t)c;
+}
+enum { SS_COUNT, SS_WRITE, SS_READ };
+static struct {
+    uint8_t mode;
+    int err;
+    uint32_t base, pos;          /* the record's place in the flash; bytes so far */
+    uint16_t crc;                /* of its body (after the head) so far */
+    uint32_t window;             /* SS_READ: the part of the record in ses_chunk (its offset), ~0: none */
+} ss;
+static void ss_begin(uint32_t mode, uint32_t base)
+{
+    ss.mode = (uint8_t)mode;
+    ss.err = 0;
+    ss.base = base;
+    ss.pos = 0;
+    ss.crc = 0;
+    ss.window = 0xFFFFFFFFu;
+}
+static void ss_crc(const uint8_t *b, uint32_t n)       /* (the head is not the body's) */
+{
+    if (ss.pos + n <= sizeof(ses_head_t))
+        return;
+    if (ss.pos < sizeof(ses_head_t)) {
+        b += sizeof(ses_head_t) - ss.pos;
+        n -= sizeof(ses_head_t) - ss.pos;
+    }
+    ss.crc = ses_crc(b, n, ss.crc);
+}
+static void ses_out(const void *src, uint32_t n)       /* n bytes out: counted, or into the buffer, a full one written */
+{
+    const uint8_t *b = src;
+    while (n) {
+        uint32_t at = ss.pos % SES_SECT, k = SES_SECT - at < n ? SES_SECT - at : n;
+        ss_crc(b, k);
+        if (ss.mode == SS_WRITE) {
+            memcpy(ses_chunk + at, b, k);
+            if (at + k == SES_SECT && ses_flash_prog(ss.base + ss.pos + k - SES_SECT, ses_chunk, SES_SECT))
+                ss.err = 1;
+        }
+        ss.pos += k;
+        b += k;
+        n -= k;
+    }
+}
+static void ss_end(void)                               /* (the last part of a sector) */
+{
+    uint32_t at = ss.pos % SES_SECT;
+    if (ss.mode == SS_WRITE && at && ses_flash_prog(ss.base + ss.pos - at, ses_chunk, at))
+        ss.err = 1;
+}
+static void ses_in(void *dst, uint32_t n)              /* n bytes in, through the sector's buffer */
+{
+    uint8_t *d = dst;
+    while (n) {
+        uint32_t w = ss.pos / SES_SECT * SES_SECT, at = ss.pos - w, k = SES_SECT - at < n ? SES_SECT - at : n;
+        if (ss.window != w) {
+            if (ses_flash_read(ss.base + w, ses_chunk, SES_SECT))
+                ss.err = 1;
+            ss.window = w;
+        }
+        ss_crc(ses_chunk + at, k);
+        if (d) {
+            memcpy(d, ses_chunk + at, k);
+            d += k;
+        }
+        ss.pos += k;
+        n -= k;
+    }
+}
+static void ses_io(void *p, uint32_t n)                /* (the body is written and read by the same code) */
+{
+    if (ss.mode == SS_READ)
+        ses_in(p, n);
+    else
+        ses_out(p, n);
+}
+
+/* ------------------------------------------------------------- the list --- */
+static int ses_head_ok(const ses_head_t *h)
+{
+    return h->magic == SES_MAGIC && h->len >= sizeof(ses_head_t) && h->len <= SES_NSECT * SES_SECT &&
+           h->head_crc == ses_crc((const uint8_t *)h, 24u, 0);
+}
+static void ses_list_add(uint32_t num, uint32_t sect, uint32_t nsect)
+{
+    uint32_t i = ses.n, k;
+    if (ses.n >= SES_MAX)
+        return;
+    while (i > 0 && ses.num[i - 1u] > num)
+        i--;
+    for (k = ses.n; k > i; k--) {
+        ses.num[k] = ses.num[k - 1u];
+        ses.sect[k] = ses.sect[k - 1u];
+        ses.nsect[k] = ses.nsect[k - 1u];
+    }
+    ses.num[i] = (uint16_t)num;
+    ses.sect[i] = (uint8_t)sect;
+    ses.nsect[i] = (uint8_t)nsect;
+    ses.n++;
+}
+static int ses_find(uint32_t num)
+{
+    uint32_t i;
+    for (i = 0; i < ses.n; i++)
+        if (ses.num[i] == num)
+            return (int)i;
+    return -1;
+}
+static void ses_list_drop(uint32_t i)
+{
+    for (; i + 1u < ses.n; i++) {
+        ses.num[i] = ses.num[i + 1u];
+        ses.sect[i] = ses.sect[i + 1u];
+        ses.nsect[i] = ses.nsect[i + 1u];
+    }
+    ses.n--;
+}
+/* retire a record in place: its last word programmed to zero (bits only go 1 -> 0: no erase); its sectors Molecular's
+ * to blank */
+static void ses_kill(uint32_t sect, uint32_t nsect)
+{
+    uint32_t zero = 0, k;                              /* (in RAM: the flash is programmed from RAM only) */
+    ses_flash_prog(SES_LO + sect * SES_SECT + 28u, &zero, 4u);
+    for (k = 0; k < nsect && sect + k < SES_NSECT; k++)
+        ses.st[sect + k] = SC_MINE;
+}
+/* a record's body as its head says (its CRC): whole */
+static int ses_body_ok(uint32_t sect, const ses_head_t *h)
+{
+    ss_begin(SS_READ, SES_LO + sect * SES_SECT);
+    ses_in(0, h->len);
+    return !ss.err && ss.crc == h->body_crc;
+}
+/* boot: the records in the area. Two copies of a number (a save cut short): the newer one stays -- if it is whole
+ * (a power cut while its sectors were written leaves its head and part of its body: the older one stays then) */
+static void ses_scan(int flash_ok)
+{
+    uint32_t s = 0;
+    memset(&ses, 0, sizeof ses);
+    ses.ok = (uint8_t)flash_ok;
+    if (!flash_ok)
+        return;
+    while (s < SES_NSECT) {
+        ses_head_t h;
+        uint32_t ns;
+        ses_flash_read(SES_LO + s * SES_SECT, &h, sizeof h);
+        if (h.magic == 0xFFFFFFFFu) {                   /* blank, or so its start says: checked when wanted */
+            ses.st[s++] = SC_UNKNOWN;
+            continue;
+        }
+        if (h.magic != SES_MAGIC) {                     /* another firmware's: never touched */
+            ses.st[s++] = SC_OTHER;
+            continue;
+        }
+        if (!ses_head_ok(&h)) {                         /* Molecular's, its head cut short: blanked in time */
+            ses.st[s++] = SC_MINE;
+            continue;
+        }
+        ns = (h.len + SES_SECT - 1u) / SES_SECT;
+        if (s + ns > SES_NSECT)
+            ns = SES_NSECT - s;
+        if (h.live != SES_LIVE) {                       /* retired: its sectors Molecular's to blank -- but a sector of
+                                                         * it may have been blanked and begin another record since:
+                                                         * each one after the first looked at on its own */
+            ses.st[s++] = SC_MINE;
+            for (; ns > 1u && s < SES_NSECT; ns--, s++) {
+                uint32_t w;
+                ses_flash_read(SES_LO + s * SES_SECT, &w, sizeof w);
+                if (w == SES_MAGIC || w == 0xFFFFFFFFu)
+                    break;                              /* (a record's start, or blank: the scan's own) */
+                ses.st[s] = SC_MINE;
+            }
+            continue;
+        }
+        {
+            int dup = ses_find(h.num);
+            if (h.seq > ses.seq)
+                ses.seq = h.seq;
+            if (dup >= 0) {                             /* keep the newer, if whole */
+                ses_head_t o;
+                ses_flash_read(SES_LO + ses.sect[dup] * SES_SECT, &o, sizeof o);
+                if (o.seq > h.seq ? ses_body_ok(ses.sect[dup], &o) || !ses_body_ok(s, &h)
+                                  : !ses_body_ok(s, &h) && ses_body_ok(ses.sect[dup], &o)) {
+                    ses_kill(s, ns);
+                    s += ns;
+                    continue;
+                }
+                ses_kill(ses.sect[dup], ses.nsect[dup]);
+                ses_list_drop((uint32_t)dup);
+            }
+            if (h.num >= 1u && h.num <= SES_SLOTS)
+                ses_list_add(h.num, s, ns);
+            for (; ns; ns--, s++)
+                ses.st[s] = SC_USED;
+        }
+    }
+}
+/* a sector is blank (all 0xFF) */
+static int ses_blank(uint32_t s)
+{
+    uint32_t buf[64], o, i;
+    for (o = 0; o < SES_SECT; o += sizeof buf) {
+        if (ses_flash_read(SES_LO + s * SES_SECT + o, buf, sizeof buf))
+            return 0;
+        for (i = 0; i < 64u; i++)
+            if (buf[i] != 0xFFFFFFFFu)
+                return 0;
+    }
+    return 1;
+}
+/* a sector Molecular may write: blank, or its own retired (erased first) */
+static int ses_free(uint32_t s)
+{
+    if (ses.st[s] == SC_UNKNOWN)
+        ses.st[s] = (uint8_t)(ses_blank(s) ? SC_BLANK : SC_OTHER);
+    return ses.st[s] == SC_BLANK || ses.st[s] == SC_MINE;
+}
+/* where n sectors fit: a run of free ones, blank ones if there are (no erase, no gap in the sound) */
+static int ses_alloc(uint32_t n)
+{
+    uint32_t s, k, best = SES_NSECT, best_dirty = 0xFFFFu;
+    for (s = 0; s + n <= SES_NSECT; s++) {
+        uint32_t d = 0;
+        for (k = 0; k < n && ses_free(s + k); k++)
+            d += ses.st[s + k] == SC_MINE;
+        if (k < n)
+            continue;
+        if (d < best_dirty) {
+            best = s;
+            best_dirty = d;
+            if (!d)
+                break;
+        }
+    }
+    return best < SES_NSECT ? (int)best : -1;
+}
+/* room for a record of len bytes: blank now (Molecular's own erased if need be); the first, or -SES_FULL / -SES_FAIL */
+static int ses_place(uint32_t len, uint32_t *nsect)
+{
+    uint32_t ns = (len + SES_SECT - 1u) / SES_SECT, k;
+    int s = ses_alloc(ns);
+    *nsect = ns;
+    if (s < 0)
+        return -SES_FULL;
+    for (k = 0; k < ns; k++) {
+        uint32_t q = (uint32_t)s + k;
+        if (ses.st[q] == SC_MINE) {
+            if (ses_flash_erase(SES_LO + q * SES_SECT))
+                return -SES_FAIL;
+            ses.st[q] = SC_BLANK;
+        }
+        if (ses.st[q] != SC_BLANK)                     /* (never anything but a blank sector written) */
+            return -SES_FAIL;
+    }
+    for (k = 0; k < ns; k++)                           /* (a write that fails leaves them Molecular's, to blank) */
+        ses.st[(uint32_t)s + k] = SC_MINE;
+    return s;
+}
+/* the record written at sector s is number num's now: its head read back, and only then the old copy retired */
+static int ses_commit(uint32_t num, int s, uint32_t ns, const ses_head_t *head)
+{
+    uint32_t k;
+    int old;
+    ses_head_t h;
+    ses_flash_read(SES_LO + (uint32_t)s * SES_SECT, &h, sizeof h);
+    if (memcmp(&h, head, sizeof h))
+        return SES_FAIL;
+    for (k = 0; k < ns; k++)
+        ses.st[(uint32_t)s + k] = SC_USED;
+    old = ses_find(num);
+    if (old >= 0) {
+        ses_kill(ses.sect[old], ses.nsect[old]);
+        ses.sect[old] = (uint8_t)s;
+        ses.nsect[old] = (uint8_t)ns;
+    } else
+        ses_list_add(num, (uint32_t)s, ns);
+    return SES_OK;
+}
+
+/* ------------------------------------------------------------- the body --- */
+typedef struct {
+    uint8_t scale, root, gen, sel;   /* (scale, root: the live state's too; kept here for a quick look) */
+    int8_t oct, lx, lxt[NGEN];
+    int8_t snap_cur;
+    uint16_t snap_used;
+    uint8_t rsv[4];
+} ses_glob_t;
+typedef struct {
+    uint8_t ntrk, dmode, rate, vary, play, rsv[3];
+    uint16_t mute, nev;
+} ses_loop_t;
+typedef struct { uint32_t len; uint16_t first, n; int8_t xb, rsv[3]; } ses_trk_t;
+static st_t ses_live;                                  /* (the state saved: captured once, counted and written alike) */
+static uint8_t ses_lplay[NGEN];                        /* (a session read: whether each generator's loops were playing) */
+
+/* the body, out (SS_COUNT, SS_WRITE: from the machine) or in (SS_READ: into ses_live, the snapshots, the globals of
+ * gl, the latches and loops left in the flash for ses_take_loops) */
+static void ses_body(ses_glob_t *gl)
+{
+    uint32_t l, k;
+    ses_io(gl, sizeof *gl);
+    ses_io(&ses_live, sizeof ses_live);
+    ses_io(snap.s, sizeof snap.s);
+    for (l = 0; l < NGEN; l++) {                       /* the latched notes */
+        ses_io(&ui.latch[l], sizeof ui.latch[l]);
+        ses_io(ui.latch_note[l], NKEY);
+    }
+    for (l = 0; l < NGEN; l++) {                       /* the loops */
+        looper_t *p = &loop[l];
+        ses_loop_t h;
+        memset(&h, 0, sizeof h);
+        if (ss.mode != SS_READ) {
+            h.ntrk = p->ntrk;
+            h.dmode = p->dmode;
+            h.rate = p->rate;
+            h.vary = p->vary;
+            h.play = p->play;
+            h.mute = p->mute;
+            h.nev = (uint16_t)p->nev;
+        }
+        ses_io(&h, sizeof h);
+        if (ss.mode == SS_READ) {                      /* (into the looper, which the ISR has let go: ses_load) */
+            h.ntrk = (uint8_t)(h.ntrk <= LOOP_TRK ? h.ntrk : 0);
+            h.nev = (uint16_t)(h.nev <= LOOP_N ? h.nev : 0);
+            p->dmode = (uint8_t)(h.dmode <= LD_RAND ? h.dmode : LD_FWD);
+            p->rate = (uint8_t)(h.rate <= LS_DOUBLE ? h.rate : LS_NORMAL);
+            p->vary = (uint8_t)(h.vary != 0);
+            p->mute = h.mute;
+            p->nev = h.nev;
+        }
+        for (k = 0; k < h.ntrk; k++) {
+            ses_trk_t t;
+            memset(&t, 0, sizeof t);
+            if (ss.mode != SS_READ) {
+                t.len = p->trk[k].len;
+                t.first = p->trk[k].first;
+                t.n = p->trk[k].n;
+                t.xb = p->trk[k].xb;
+            }
+            ses_io(&t, sizeof t);
+            if (ss.mode == SS_READ) {
+                if (t.first + (uint32_t)t.n > h.nev || t.len < 2u || t.len > 0xFFFFFFu) {
+                    h.ntrk = (uint8_t)k;                 /* (a loop that does not check: it and those after dropped) */
+                    break;
+                }
+                p->trk[k].len = t.len;
+                p->trk[k].first = t.first;
+                p->trk[k].n = t.n;
+                p->trk[k].xb = t.xb;
+            }
+        }
+        ses_io(p->ev, h.nev * 4u);
+        if (ss.mode == SS_READ) {
+            p->ntrk = h.ntrk;                          /* (stopped: ses_load hands them to the ISR, EV_LOOP_SET) */
+            ses_lplay[l] = (uint8_t)(h.play && h.ntrk);
+        }
+    }
+}
+static void ses_head_fill(ses_head_t *h, uint32_t num, uint32_t len, uint16_t crc)
+{
+    memset(h, 0, sizeof *h);
+    h->magic = SES_MAGIC;
+    h->num = (uint16_t)num;
+    h->format = SES_FORMAT;
+    h->len = len;
+    h->seq = ++ses.seq;
+    h->body_crc = crc;
+    h->head_crc = ses_crc((const uint8_t *)h, 24u, 0);
+    h->live = SES_LIVE;
+}
+static void ses_glob_now(ses_glob_t *g)
+{
+    uint32_t l;
+    memset(g, 0, sizeof *g);
+    g->scale = ui.scale;
+    g->root = ui.root;
+    g->gen = ui.gen;
+    g->sel = ui.sel;
+    g->oct = ui.oct;
+    g->lx = ui.lx;
+    for (l = 0; l < NGEN; l++)
+        g->lxt[l] = ui.lxt[l];
+    g->snap_cur = snap.cur;
+    g->snap_used = snap.used;
+}
+
+/* save the machine as session num (a new one, or over the one of that number). Counted, then written a sector at a
+ * time; should a loop change in between (a recording ending), again */
+static int ses_save(uint32_t num)
+{
+    uint32_t tries;
+    if (!ses.ok)
+        return SES_NOFLASH;
+    if (num < 1u || num > SES_SLOTS)
+        return SES_FAIL;
+    st_capture(&ses_live);
+    for (tries = 0; tries < 2u; tries++) {
+        ses_head_t h;
+        ses_glob_t g;
+        uint32_t len, ns, l, nev[NGEN];
+        uint16_t crc;
+        int s;
+        ses_glob_now(&g);
+        for (l = 0; l < NGEN; l++)
+            nev[l] = loop[l].nev | (uint32_t)loop[l].ntrk << 16;
+        ss_begin(SS_COUNT, 0);
+        ss.pos = sizeof h;
+        ses_body(&g);
+        len = ss.pos;
+        crc = ss.crc;
+        s = ses_place(len, &ns);
+        if (s < 0)
+            return -s;
+        ses_head_fill(&h, num, len, crc);
+        ss_begin(SS_WRITE, SES_LO + (uint32_t)s * SES_SECT);
+        ses_out(&h, sizeof h);
+        ses_body(&g);
+        ss_end();
+        for (l = 0; l < NGEN; l++)
+            if (nev[l] != (loop[l].nev | (uint32_t)loop[l].ntrk << 16))
+                ss.err = 2;                             /* (the loops changed under it: again) */
+        if (ss.err || ss.pos != len || ss.crc != crc)
+            continue;                                   /* (its sectors are Molecular's to blank: ses_place) */
+        if (ses_commit(num, s, ns, &h) != SES_OK)
+            return SES_FAIL;
+        ses.current = (uint16_t)num;
+        return SES_OK;
+    }
+    return SES_FAIL;
+}
+
+/* every latched note let go, every loop emptied (the ISR's: through events, waited for) */
+static void ses_quiet_all(void)
+{
+    uint32_t l, k;
+    for (l = 0; l < NGEN; l++) {
+        for (k = 0; k < NKEY; k++)
+            if ((ui.latch[l] >> k) & 1u)
+                ev_post(EV_OFF, l, ui.latch_note[l][k], 0);
+        ui.latch[l] = 0;
+        ev_post(EV_LOOP_CLEAR, l, 0, 0);
+    }
+    ses_isr_sync();
+}
+/* the latched notes held again (as ui.latch has them) */
+static void ses_latch_all(void)
+{
+    uint32_t l, k;
+    for (l = 0; l < NGEN; l++)
+        for (k = 0; k < NKEY; k++)
+            if ((ui.latch[l] >> k) & 1u) {
+                ev_post(EV_ON, l, ui.latch_note[l][k], 0);
+                ev_post(EV_LATCH, l, ui.latch_note[l][k], 0);
+            }
+}
+
+/* session i of the list loaded: checked whole first (its CRC), then given to the machine */
+static int ses_load(uint32_t i)
+{
+    ses_head_t h;
+    ses_glob_t g;
+    uint32_t base, l, k;
+    if (!ses.ok)
+        return SES_NOFLASH;
+    if (i >= ses.n)
+        return SES_FAIL;
+    base = SES_LO + ses.sect[i] * SES_SECT;
+    ses_flash_read(base, &h, sizeof h);
+    if (!ses_head_ok(&h) || h.format != SES_FORMAT)
+        return SES_FAIL;
+    ss_begin(SS_READ, base);                            /* (the CRC first: nothing taken from a record that fails) */
+    ses_in(0, h.len);
+    if (ss.err || ss.crc != h.body_crc)
+        return SES_FAIL;
+    ses_quiet_all();                                    /* (the loopers empty and still: theirs to be written) */
+    ss_begin(SS_READ, base);
+    ses_in(0, sizeof h);
+    ses_body(&g);
+    if (ss.err)
+        return SES_FAIL;
+    snap.used = g.snap_used;
+    snap.cur = (int8_t)(g.snap_cur >= 0 && g.snap_cur < (int8_t)NSNAP ? g.snap_cur : -1);
+    ui.gen = (uint8_t)(g.gen < NGEN ? g.gen : 0);
+    ui.sel = (uint8_t)(g.sel < NSLOT ? g.sel : ui.gen);
+    ui.oct = (int8_t)clampi(g.oct, -3, 3);
+    ui.lx = (int8_t)clampi(g.lx, -24, 24);
+    for (l = 0; l < NGEN; l++) {
+        ui.lxt[l] = (int8_t)clampi(g.lxt[l], -24, 24);
+        for (k = 0; k < NKEY; k++)
+            if (((ui.latch[l] >> k) & 1u) && (ui.latch_note[l][k] > 127u || white_ix(k) < 0))
+                ui.latch[l] &= ~(1u << k);
+        ui.latch[l] &= (1u << NKEY) - 1u;
+    }
+    st_apply(&ses_live);
+    for (l = 0; l < NGEN; l++)                          /* the loops, to the ISR: from their starts */
+        ev_post(EV_LOOP_SET, l, 0, ses_lplay[l]);
+    ses_latch_all();
+    ses.current = ses.num[i];
+    return SES_OK;
+}
+static int ses_has(uint32_t num) { return ses_find(num) >= 0; }
+static uint32_t ses_current(void) { return ses.current; }
+static int ses_load_slot(uint32_t num)
+{
+    int i = ses_find(num);
+    return i < 0 ? SES_FAIL : ses_load((uint32_t)i);
+}
+/* the first empty slot, 0 = none */
+static uint32_t ses_next_number(void)
+{
+    uint32_t n;
+    for (n = 1; n <= SES_SLOTS; n++)
+        if (!ses_has(n))
+            return n;
+    return 0;
+}
+/* a clean slate in slot num (not saved until SAVE is held): as at power-on -- every slot drawn anew, the loops and
+ * latches gone, the snapshots empty, every setting at its default */
+static void ses_fresh(uint32_t num)
+{
+    uint32_t l;
+    ses_quiet_all();
+    for (l = 0; l < NGEN; l++) {
+        ui.lxt[l] = 0;
+        gen_lvl[l] = LEVEL_UNITY - 2;
+        gen_pan[l] = GEN_PAN0[l];
+        gen_mute[l] = 0;
+        ui.rsend[l] = RSEND_DEF;
+        ui.dsend[l] = 0;
+        sends_apply(l);
+    }
+    for (l = 0; l < NFX; l++) {
+        fx_lvl[l] = 20 - 2;
+        fx_pan[l] = (int8_t)((int32_t)l * 10 - 10);
+        fx_mute[l] = 0;
+    }
+    for (l = 0; l < 4u; l++) {
+        ui.rvp[l] = RV_DEF[l];
+        ui.dlp[l] = DL_DEF[l];
+    }
+    rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+    mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    memset(slot_mod, 0, sizeof slot_mod);
+    ui.scale = 1;
+    ui.root = 0;
+    rack_root = SCALE_BASE;
+    ui.lx = 0;
+    ui.oct = 0;
+    lx_post();
+    for (l = 0; l < NSLOT; l++)
+        new_patch(l, 0);
+    memset(&snap, 0, sizeof snap);
+    snap.cur = -1;
+    ses.current = (uint16_t)num;
+    ui.force = 1;
+}
+static void ses_init(int flash_ok)
+{
+    ses_scan(flash_ok);
+    memset(&snap, 0, sizeof snap);
+    snap.cur = -1;
+}
+
+/* the main loop, now and then: one of Molecular's retired sectors blanked, while nothing sounds (the erase silences
+ * the audio for some tens of ms). Nothing else in the area is ever erased */
+static uint32_t ses_idle_at;
+static void ses_idle(int quiet)
+{
+    uint32_t s;
+    if (!ses.ok || !quiet || (uint32_t)(fm1_ms - ses_idle_at) < 1000u)
+        return;
+    ses_idle_at = fm1_ms;
+    for (s = 0; s < SES_NSECT; s++)
+        if (ses.st[s] == SC_MINE) {
+            if (!ses_flash_erase(SES_LO + s * SES_SECT))
+                ses.st[s] = SC_BLANK;
+            return;
+        }
+}
+/* sectors Molecular can still write (blank, or its own retired): the SESSIONS page's room */
+static uint32_t ses_room(void)
+{
+    uint32_t s, n = 0;
+    for (s = 0; s < SES_NSECT; s++)
+        n += ses.st[s] == SC_BLANK || ses.st[s] == SC_MINE || ses.st[s] == SC_UNKNOWN;
+    return n;
+}
