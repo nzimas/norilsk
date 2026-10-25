@@ -112,8 +112,7 @@ dark.
 Made for low vision: few words, very large, high contrast. The main view is a place. At the top, smog, drifting
 slowly, the audio's load at the left and the battery at the right on black. Under the ground, the three effect slots
 as rusty pipes, one above another, each effect a section between bolted flanges, its name on a dark plate: FLT filter,
-FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, DLY delay, TAP tape, RVS reverse, SPR spring, REV
-reverb, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank. Under each name a band in the
+FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, TAP tape, RVS reverse, SPR spring, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank. Under each name a band in the
 colours of the generators feeding it; the plates the chosen generator feeds are filled with its colour; a section
 glows hotter as sound passes through it; a muted pipe is cold grey. At the foot, the three generators as brick
 furnaces, the fire in the mouth in their colours (red, blue, green), brighter as they sound, dark when muted. The chosen
@@ -145,7 +144,8 @@ repeaters; none of their code.)
 
 ## The effect slots
 
-Nineteen effects, two or three to a slot:
+Seventeen effects drawn, two or three to a slot (build 30: DELAY and REVERB are the master's; a session saved with
+them in a slot still plays them):
 
 | Effect | What it is |
 |---|---|
@@ -156,11 +156,9 @@ Nineteen effects, two or three to a slot:
 | MODAL | three tuned resonators, spread inharmonically, ringing to Q 325 |
 | STRING | three Karplus strings on the scale's root, ringing up to 8 s |
 | VOWEL | three formants morphing through the vowels, driven |
-| DELAY | an echo on a mu-law line; a change of time cross-fades, never bends |
 | TAPE | an echo through a worn head: dropouts, saturation, age, hiss under the sound |
 | REVERSE | windows of the sound read backwards, fed back |
 | SPRING | a spring tank, its chirps |
-| REVERB | a plate |
 | GLITCH | Russolo's bent buffers: jumps and stutters through the last 0.74 s, never another pitch |
 | CLOUD | a granular cloud; it can freeze what it holds |
 | SCREAM | a feedback howl, shaped |

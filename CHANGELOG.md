@@ -2,6 +2,13 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 30 (2026-10-25): DELAY and REVERB left to the master
+
+- **DELAY and REVERB are no longer drawn into the effect slots**: they are the master's (KNOB 3 / KNOB 4, SEQ), and a
+  plate in a slot cost as much as several other effects. The recipes that had them take SPRING, TAPE or CLOUD in their
+  place, or leave the place out. A session or snapshot saved with them still plays them as saved. Test: `host modules`
+  (thousands of draws on every path, none with DELAY or REVERB).
+
 ## Build 29 (2026-10-25): LANES by default; the session pages redrawn; the main view as a place
 
 - **LANES is the default**: at power-on and in a new session. Sessions saved as MESH load as MESH.

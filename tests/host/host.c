@@ -987,21 +987,28 @@ static int cmd_modules(int argc, char **argv)
                 const fx_patch_t *f;
                 uint32_t k, mem = 0;
                 fw_run(30);                             /* (the last one taken) */
+                draw_path = (uint8_t)(t / FR_N % DP_N);  /* (every path) */
                 if (!fx_draw(s, (int32_t)(t % FR_N), 1000u + t * 3u + s)) {
                     printf("FAIL fx_draw busy\n");
                     fails++;
                     continue;
                 }
                 f = &fbuf[s][f_pub[s]];
-                for (k = 0; k < f->n; k++)
+                for (k = 0; k < f->n; k++) {
                     mem += rm_size(f->e[k].kind);
+                    if (f->e[k].kind == RM_DLY || f->e[k].kind == RM_REV) {   /* (build 30: the master's only) */
+                        printf("FAIL recipe %s drew %s\n", FR_NAME[f->recipe], RM_NAME[f->e[k].kind]);
+                        fails++;
+                    }
+                }
                 worst = mem > worst ? mem : worst;
                 if (mem > FX_ARENA || f->n < 2u || f->n > FX_N) {
                     printf("FAIL recipe %s: %u effects, %u B\n", FR_NAME[f->recipe], f->n, mem);
                     fails++;
                 }
             }
-        printf("recipes: the largest slot %u B of %u\n", worst, FX_ARENA);
+        draw_path = DP_ANY;
+        printf("recipes: the largest slot %u B of %u (no DELAY, no REVERB drawn)\n", worst, FX_ARENA);
     }
     printf("modules: %d failures\n", fails);
     return fails ? 1 : 0;

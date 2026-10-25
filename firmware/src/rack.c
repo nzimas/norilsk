@@ -879,30 +879,31 @@ static const char *const FR_NAME[FR_N] = {"SPACE", "ECHO", "METAL", "STRINGS", "
                                           "FOLDS", "TELEPHONE", "HELL", "FACTORY", "GLITCH", "BROADCAST", "ABYSS", "RUST",
                                           "FREEZER", "FEEDBACK", "FOUNDRY", "GONG", "SPECTRE", "SPUTTER"};
 #define FX_OPT 0x80000000u       /* (a place that may be left out) */
-static const uint32_t FR_PLACE[FR_N][FX_N] = {
-    {K(FLT) | K(VOW), K(DLY) | K(TAP), K(REV) | K(SPR)},                        /* SPACE: a colour, an echo, a room */
-    {K(TAP) | K(DLY), K(SPR) | K(REV), FX_OPT | K(FLT)},                        /* ECHO */
-    {K(MDL) | K(SHF), K(FLD) | K(FLT), FX_OPT | K(REV) | K(SPR)},               /* METAL: struck, bent, a room */
-    {K(STR), K(TAP) | K(DLY) | K(FLT), FX_OPT | K(REV)},                        /* STRINGS: everything rings */
-    {K(MU) | K(FLD), K(RVS) | K(TAP), FX_OPT | K(DLY) | K(SPR)},                /* EROSION */
-    {K(FLT) | K(VOW), K(RVS), K(REV) | K(DLY) | K(SPR)},                        /* GHOST: the sound reversed, far off */
-    {K(SHF), K(VOW) | K(FLT), FX_OPT | K(DLY) | K(SPR)},                        /* SPECTRAL: the partials moved */
-    {K(VOW) | K(MDL), K(STR) | K(SPR), FX_OPT | K(DLY)},                        /* RESONANT */
+static const uint32_t FR_PLACE[FR_N][FX_N] = {   /* (build 30: DELAY and REVERB no longer drawn -- they are the
+                                                 * master's; a session saved with them still plays them) */
+    {K(FLT) | K(VOW), K(TAP), K(SPR) | K(CLD)},                                 /* SPACE: a colour, an echo, a room */
+    {K(TAP), K(SPR), FX_OPT | K(FLT)},                                          /* ECHO */
+    {K(MDL) | K(SHF), K(FLD) | K(FLT), FX_OPT | K(SPR)},                        /* METAL: struck, bent, a room */
+    {K(STR), K(TAP) | K(FLT), FX_OPT | K(SPR)},                                 /* STRINGS: everything rings */
+    {K(MU) | K(FLD), K(RVS) | K(TAP), FX_OPT | K(SPR)},                         /* EROSION */
+    {K(FLT) | K(VOW), K(RVS), K(SPR) | K(CLD)},                                 /* GHOST: the sound reversed, far off */
+    {K(SHF), K(VOW) | K(FLT), FX_OPT | K(TAP) | K(SPR)},                        /* SPECTRAL: the partials moved */
+    {K(VOW) | K(MDL), K(STR) | K(SPR), FX_OPT | K(TAP)},                        /* RESONANT */
     {K(FLD), K(FLT) | K(VOW), FX_OPT | K(SPR) | K(TAP)},                        /* FOLDS */
-    {K(MU), K(SHF) | K(FLT), FX_OPT | K(REV) | K(DLY)},                         /* TELEPHONE */
+    {K(MU), K(SHF) | K(FLT), FX_OPT | K(SPR) | K(TAP)},                         /* TELEPHONE */
     /* build 10: hellscapes, atmospheric industrial, abstract glitch */
-    {K(FLD) | K(MU) | K(STV), K(SPR) | K(MDL) | K(SCR), K(REV) | K(CLD)},       /* HELL: torn, rung, a vast room */
-    {K(MU) | K(STV), K(MDL) | K(STR) | K(BNK) | K(RNG), FX_OPT | K(DLY) | K(TAP)},   /* FACTORY: crushed, metal resonance */
-    {K(GLT), K(RVS) | K(MU), FX_OPT | K(DLY)},                                  /* GLITCH: bent buffers */
+    {K(FLD) | K(MU) | K(STV), K(SPR) | K(MDL) | K(SCR), K(SPR) | K(CLD)},       /* HELL: torn, rung, a vast room */
+    {K(MU) | K(STV), K(MDL) | K(STR) | K(BNK) | K(RNG), FX_OPT | K(TAP)},        /* FACTORY: crushed, metal resonance */
+    {K(GLT), K(RVS) | K(MU), FX_OPT | K(TAP)},                                  /* GLITCH: bent buffers */
     {K(GLT) | K(MU), K(VOW) | K(FLT), FX_OPT | K(TAP)},                         /* BROADCAST: a broken transmission */
-    {K(SHF) | K(RNG), K(STR) | K(MDL) | K(BNK), K(REV) | K(CLD)},               /* ABYSS: moved partials ringing, deep */
-    {K(SPR), K(FLD) | K(GLT), FX_OPT | K(REV)},                                 /* RUST: a spring, torn, glitched */
+    {K(SHF) | K(RNG), K(STR) | K(MDL) | K(BNK), K(SPR) | K(CLD)},               /* ABYSS: moved partials ringing, deep */
+    {K(SPR), K(FLD) | K(GLT), FX_OPT | K(TAP)},                                 /* RUST: a spring, torn, glitched */
     /* build 11: the drastic ones */
-    {K(CLD), K(BNK) | K(VOW) | K(SHF), FX_OPT | K(REV) | K(DLY)},               /* FREEZER: a cloud held, coloured */
-    {K(SCR), K(FLT) | K(BNK) | K(STV), FX_OPT | K(GLT) | K(REV)},               /* FEEDBACK: a howl, shaped, torn */
-    {K(RNG), K(STV) | K(FLD) | K(CHB), FX_OPT | K(SPR) | K(DLY)},               /* FOUNDRY: clangour through a fuzz */
-    {K(BNK), K(RNG) | K(SHF) | K(CLD), FX_OPT | K(REV)},                        /* GONG: a struck body, ringing */
-    {K(CHB), K(CLD) | K(RVS), FX_OPT | K(REV) | K(SCR)},                        /* SPECTRE: re-voiced, smeared */
+    {K(CLD), K(BNK) | K(VOW) | K(SHF), FX_OPT | K(SPR) | K(TAP)},               /* FREEZER: a cloud held, coloured */
+    {K(SCR), K(FLT) | K(BNK) | K(STV), FX_OPT | K(GLT)},                        /* FEEDBACK: a howl, shaped, torn */
+    {K(RNG), K(STV) | K(FLD) | K(CHB), FX_OPT | K(SPR)},                        /* FOUNDRY: clangour through a fuzz */
+    {K(BNK), K(RNG) | K(SHF) | K(CLD), FX_OPT | K(SPR)},                        /* GONG: a struck body, ringing */
+    {K(CHB), K(CLD) | K(RVS), FX_OPT | K(SCR)},                                 /* SPECTRE: re-voiced, smeared */
     {K(STV), K(GLT) | K(MU) | K(RNG), FX_OPT | K(SPR) | K(TAP)},                /* SPUTTER: torn and broken */
 };
 static const uint8_t FR_W[FR_N] = {4, 4, 4, 3, 4, 3, 3, 3, 3, 2, 4, 4, 4, 3, 4, 3, 5, 4, 5, 4, 4, 4};
