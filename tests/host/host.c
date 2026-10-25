@@ -57,6 +57,7 @@ static void fmt_fix(char *b, int32_t v, int decimals)
 static void fmt_int(char *b, int32_t v) { fmt_fix(b, v, 0); }
 /* the screen: a framebuffer instead of the panel */
 static uint16_t fb[240 * 240];
+static uint32_t fb_px;                                   /* (pixels sent to the panel: the paint test's) */
 static void lcd_sync(void) {}
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px)
 {
@@ -66,6 +67,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
             if (x + i < 240u && y + j < 240u) {
                 uint16_t c = px[j * w + i];
                 fb[(y + j) * 240u + x + i] = (uint16_t)((c >> 8) | (c << 8));
+                fb_px++;
             }
 }
 static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
@@ -73,8 +75,10 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
     uint32_t i, j;
     for (j = 0; j < h; j++)
         for (i = 0; i < w; i++)
-            if (x + i < 240u && y + j < 240u)
+            if (x + i < 240u && y + j < 240u) {
                 fb[(y + j) * 240u + x + i] = c;
+                fb_px++;
+            }
 }
 static void screen_save(const char *path)
 {
@@ -1464,6 +1468,91 @@ static int cmd_mod(void)
     return fails ? 1 : 0;
 }
 
+/* every page painted whole in one pass: the screen flooded with a colour no page uses, the page entered and drawn
+ * once -- not a pixel of the flood may be left */
+#define PAINT_FLOOD 0xF81Fu
+static int paint_one(const char *nm)
+{
+    uint32_t i, left = 0;
+    for (i = 0; i < 240u * 240u; i++)
+        fb[i] = PAINT_FLOOD;
+    ui.shown_page = 0xFE;                                /* (entered from somewhere else) */
+    ui.load_at = fm1_ms - 1000u;
+    fb_px = 0;
+    ui_draw();
+    for (i = 0; i < 240u * 240u; i++)
+        left += fb[i] == PAINT_FLOOD;
+    printf("  %-12s %5u pixels left unpainted, %.2f screens sent\n", nm, left, fb_px / 57600.0);
+    return left ? 1 : 0;
+}
+static int cmd_paint(void)
+{
+    int fails = 0;
+    fm1_in.notes = fm1_in.buttons = 0;
+    batt_raw = 600;
+    fw_init();
+    fw_run(50);
+    fails += paint_one("main");
+    ui.sc_page = 1;
+    fails += paint_one("scale");
+    pages_off();
+    ui.fx_page = 1;
+    fails += paint_one("delay");
+    ui.fx_page = 2;
+    fails += paint_one("reverb");
+    ui.fx_page = 3;
+    fails += paint_one("mod gen");
+    ui.mod_ix = 3;
+    ui.sel = NGEN + 1;
+    fails += paint_one("mod slot");
+    pages_off();
+    ui.sel = 0;
+    ui.ovd = 1;
+    fails += paint_one("loops");
+    ui.ovd = 0;
+    ui.ses_page = SP_LIST;
+    ui.ses_ix = 5;
+    fails += paint_one("sessions");
+    ui.ses_page = SP_ASK;
+    fails += paint_one("asked");
+    pages_off();
+    ui.snap_page = 1;
+    fails += paint_one("snapshots");
+    pages_off();
+    flash("SAVED", "12", C_OK);
+    fails += paint_one("flash");
+    flash("NO ROOM", "", C_FULL);
+    fails += paint_one("flash, one");
+    ui.fl_until = fm1_ms;
+    {   /* the main page up, a slot drawn anew again and again (two effects, three): what is shown is what a whole
+         * repaint of the same moment shows -- no tile of before left behind */
+        static uint16_t was[240 * 240];
+        uint32_t t, i, diff = 0, n2 = 0, n3 = 0;
+        pages_off();
+        ui_draw();
+        for (t = 0; t < 24u; t++) {
+            press(B_LFO, 20);
+            press(B_HOME, 20);
+            fw_run(200);
+            ui_draw();
+            ui_draw();
+            n2 += fbuf[0][f_use[0]].n == 2u;
+            n3 += fbuf[0][f_use[0]].n == 3u;
+            memcpy(was, fb, sizeof was);
+            ui.force = 1;
+            ui_draw();
+            for (i = 0; i < 240u * 240u; i++)
+                diff += was[i] != fb[i];
+        }
+        printf("  %-12s %5u pixels differ from a whole repaint (%u draws of two effects, %u of three)\n", "redrawn", diff,
+               n2, n3);
+        if (diff)
+            fails++;
+    }
+    printf("paint: %d pages with pixels left\n", fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -1800,6 +1889,8 @@ int main(int argc, char **argv)
         return cmd_sessions();
     if (!strcmp(argv[1], "mod"))
         return cmd_mod();
+    if (!strcmp(argv[1], "paint"))
+        return cmd_paint();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

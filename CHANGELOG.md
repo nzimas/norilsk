@@ -2,6 +2,16 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 9 (2026-10-25): pages paint in one pass
+
+- Every page used to be painted twice on the way in: the whole screen filled with black first (Tonitor never does),
+  then the page -- two sweeps down the screen at 12 MHz, ~77 ms each, seen as the page unfurling. Now each page paints
+  every one of its pixels itself and nothing else: one pass, as Tonitor's. Back on the playing page only the gaps
+  between its parts are painted, an effect row blanks only between its tiles, and a whole redraw (or a row that
+  changed) draws its tiles in the same frame.
+- A new test, `host paint`: every page entered over a flood of a colour no page uses -- none left, and exactly one
+  screen of pixels sent; a slot drawn anew 24 times under the playing page, the screen the same as a whole repaint.
+
 ## Build 8 (2026-10-25): sessions, snapshots, LFOs
 
 - **Sessions** (Tonitor's, `sessions.c`): SAVE opens the SESSIONS page -- PRESETS through 64 slots (the number very

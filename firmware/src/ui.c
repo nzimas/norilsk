@@ -1048,6 +1048,24 @@ static void draw_row(uint32_t s, int32_t key)
     lcd_fill(0, y, 3, FXR_H, c);
     lcd_fill(237, y, 3, FXR_H, c);
 }
+/* a row's inside blanked where its tiles do not cover it (the edge, the gaps between them, the line under them): the
+ * tiles paint the rest, so each pixel goes to the panel once. A slot being cleared (no tiles): all of it */
+static void row_clear(uint32_t s)
+{
+    const fx_patch_t *f = &fbuf[s][f_use[s]];
+    uint32_t y = FXR_Y + s * FXR_H, n = f->n, k, pitch;
+    if (fx_phase[s] == FS_CLEAR || n < 1u || n > FX_N) {
+        lcd_fill(3, y + 3, 234, FXR_H - 6, C_BLACK);
+        return;
+    }
+    pitch = 234u / n;
+    lcd_fill(3, y + 3, 1, FXR_H - 7, C_BLACK);             /* (draw_tile: a tile k at 3 + k pitch + 1, pitch - 2 wide, */
+    for (k = 0; k < n; k++) {                               /* FXR_H - 7 high, from y + 3) */
+        uint32_t x1 = 3u + k * pitch + 1u + pitch - 2u;
+        lcd_fill(x1, y + 3, k + 1u < n ? 2u : 237u - x1, FXR_H - 7, C_BLACK);
+    }
+    lcd_fill(3, y + FXR_H - 4, 234, 1, C_BLACK);
+}
 /* an effect's tile: its name; round it, a border in the colours of the generators wired into it (shared out equally);
  * filled with the colour of the generator the keys play when that one is wired into it; brighter as sound passes */
 static int32_t tile_key(uint32_t inst, const uint32_t *mods)
@@ -1193,12 +1211,13 @@ static int draw_flash(void)
         }
         return 0;
     }
-    if (!ui.fl_shown) {
-        lcd_fill(0, 0, 240, 240, C_BLACK);
+    if (!ui.fl_shown) {                          /* (every pixel painted once, top to bottom: no clear first) */
+        CV_AREA(0, 0, 240, 50, C_BLACK) {
+        }
         CV_AREA(0, 50, 240, 70, C_BLACK)
             cv_text_fit(10, &FONT_M, ui.fl1, ui.fl_col);
-        if (ui.fl2[0])
-            CV_AREA(0, 120, 240, 110, C_BLACK)
+        CV_AREA(0, 120, 240, 120, C_BLACK)
+            if (ui.fl2[0])
                 cv_text_c(4, &FONT_XL, ui.fl2, C_WHITE);
         ui.fl_shown = 1;
     }
@@ -1390,14 +1409,13 @@ static void draw_mod_page(void)
 
 static void ui_draw(void)
 {
-    uint32_t l, n = 0, mods[NGEN];
+    uint32_t l, n = 0, mods[NGEN], all;
     if (draw_flash())
         return;
     if (ui.ses_page || ui.snap_page) {
         uint8_t id = ui.ses_page ? 8u : 9u;
         if (ui.shown_page != id) {
             ui.force = 1;
-            lcd_fill(0, 0, 240, 240, C_BLACK);
         }
         ui.shown_page = id;
         if (ui.ses_page)
@@ -1410,7 +1428,6 @@ static void ui_draw(void)
     if (ui.fx_page == 3u) {                      /* MOD (SEQ's third) */
         if (ui.shown_page != 7u) {
             ui.force = 1;
-            lcd_fill(0, 0, 240, 240, C_BLACK);
         }
         ui.shown_page = 7;
         if (ui.force || (uint32_t)(fm1_ms - ui.mod_drawn_at) >= 40u)
@@ -1421,7 +1438,6 @@ static void ui_draw(void)
     if (ui.ovd) {
         if (ui.shown_page != 2u) {
             ui.force = 1;
-            lcd_fill(0, 0, 240, 240, C_BLACK);
         }
         ui.shown_page = 2;
         draw_ovd_page();
@@ -1431,7 +1447,6 @@ static void ui_draw(void)
     if (ui.fx_page) {
         if (ui.shown_page != 2u + ui.fx_page) {
             ui.force = 1;
-            lcd_fill(0, 0, 240, 240, C_BLACK);
         }
         ui.shown_page = (uint8_t)(2u + ui.fx_page);
         draw_fx_page();
@@ -1446,12 +1461,19 @@ static void ui_draw(void)
         ui.force = 0;
         return;
     }
-    if (ui.shown_page != 0u) {
+    if (ui.shown_page != 0u) {                   /* back to playing: only the gaps between the parts painted (each
+                                                  * part paints itself whole: no clear first) */
         ui.force = 1;
-        lcd_fill(0, 0, 240, 240, C_BLACK);
+        lcd_fill(0, TOP_H, 240, GEN_Y - TOP_H, C_BLACK);
+        lcd_fill(0, GEN_Y + GEN_H, 240, FXR_Y - GEN_Y - GEN_H, C_BLACK);
+        lcd_fill(0, FXR_Y + NFX * FXR_H, 240, 240 - FXR_Y - NFX * FXR_H, C_BLACK);
+        for (l = 0; l <= NGEN; l++)              /* (between the generators' blocks, and at the edges) */
+            lcd_fill(l * GEN_P >= 1u ? l * GEN_P - 1u : 0u, GEN_Y, l * GEN_P >= 1u && l < NGEN ? 2u : 1u, GEN_H, C_BLACK);
     }
     ui.shown_page = 0;
-    if (ui.force)                                /* (forced: every part owed; the tiles drawn six a frame) */
+    all = ui.force;                              /* (forced: every part owed, the tiles all in this frame; else the
+                                                  * tiles that changed, six a frame) */
+    if (ui.force)
         for (l = 0; l < NINST; l++)
             ui.shown_tile[l] = -1;
     draw_top();
@@ -1465,10 +1487,11 @@ static void ui_draw(void)
     }
     for (l = 0; l < NFX; l++) {
         int32_t k = row_key(l);
-        if (ui.force || k != ui.shown_row[l]) {   /* (a row changed: its frame, its inside cleared, its tiles owed) */
-            uint32_t j, y = FXR_Y + l * FXR_H;
-            lcd_fill(3, y + 3, 234, FXR_H - 6, C_BLACK);
+        if (ui.force || k != ui.shown_row[l]) {   /* (a row changed: its frame, its gaps, its tiles at once) */
+            uint32_t j;
+            row_clear(l);
             draw_row(l, k);
+            all = 1;
             ui.shown_row[l] = k;
             for (j = 0; j < FX_N; j++)
                 ui.shown_tile[l * FX_N + j] = -1;
@@ -1476,7 +1499,7 @@ static void ui_draw(void)
     }
     for (l = 0; l < NINST; l++) {
         int32_t k = tile_key(l, mods);
-        if (k != ui.shown_tile[l] && n < 6u) {
+        if (k != ui.shown_tile[l] && (all || n < 6u)) {   /* (a whole redraw: every tile at once) */
             draw_tile(l, k);
             ui.shown_tile[l] = k;
             n++;
