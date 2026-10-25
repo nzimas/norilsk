@@ -3538,6 +3538,12 @@ static int cmd_screens(int argc, char **argv)
     ui_draw();
     snprintf(name, sizeof name, "%s/screen-saved.ppm", dir);
     screen_save(name);
+    ses_done(SES_OK, SD_SNAP, "STORED", 6);             /* (a snapshot stored: SNAPSHOT, STORED, 6) */
+    ui.load_at = fm1_ms - 1000u;
+    ui.force = 1;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-stored.ppm", dir);
+    screen_save(name);
     ui.fl_until = fm1_ms;
     snap_store(0);
     snap_store(2);

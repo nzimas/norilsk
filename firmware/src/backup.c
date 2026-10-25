@@ -16,7 +16,7 @@
  * and the website's backup page (docs/js/backup.js) use it. All in the main loop. */
 
 static int bk_wire(const uint8_t *p, uint32_t n);   /* one F0 .. F7 message to the host (main.c; host.c) */
-static void bk_done(uint32_t num) { ses_done(SES_OK, "RESTORED", num); }   /* (the screen says so: ui.c) */
+static void bk_done(uint32_t num) { ses_done(SES_OK, SD_SES, "RESTORED", num); }   /* (the screen says so: ui.c) */
 
 #define BK_DATA 256u
 static struct {

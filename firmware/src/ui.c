@@ -204,7 +204,9 @@ static struct {
     uint8_t mod_ix;              /* the MOD page's entry: LFO 1, LFO 2, MOD A .. H */
     int8_t mod_touched;
     uint32_t mod_touch_until, mod_drawn_at;
-    char fl1[14], fl2[8];        /* the whole screen's message, until fl_until */
+    char fl0[10], fl1[14], fl2[8];   /* the whole screen's message, until fl_until: (build 27) what it is about -- SESSION,
+                                  * SNAPSHOT --, what happened, a number */
+    uint16_t fl0_col;
     uint16_t fl_col;
     uint32_t fl_until;
     uint8_t fl_shown;
@@ -257,6 +259,7 @@ static void say_n(const char *s, int32_t n, const char *t, uint32_t ms)   /* "s"
 /* the whole screen, for 1.5 s: l1 over l2, in colour c (SAVED 3, LOADED 3, NEW 3) */
 static void flash(const char *l1, const char *l2, uint16_t c)
 {
+    ui.fl0[0] = 0;                               /* (no subject: ses_done gives one) */
     str_cpy(ui.fl1, l1, sizeof ui.fl1);
     str_cpy(ui.fl2, l2, sizeof ui.fl2);
     ui.fl_col = c;
@@ -365,8 +368,11 @@ static void pages_off(void)
     ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = 0;
     ui.force = 1;
 }
-/* a session's or a snapshot's outcome, on the whole screen */
-static void ses_done(int rc, const char *what, uint32_t num)
+/* a session's or a snapshot's outcome, on the whole screen, saying which (build 27): SESSION or SNAPSHOT, in its
+ * colour, at the top; what happened; its number, very large */
+#define SD_SES 0
+#define SD_SNAP 1
+static void ses_done(int rc, int subj, const char *what, uint32_t num)
 {
     char n[8];
     fmt_int(n, (int32_t)num);
@@ -374,13 +380,15 @@ static void ses_done(int rc, const char *what, uint32_t num)
         flash(what, num ? n : "", C_OK);
     else
         flash(rc == SES_FULL ? "NO ROOM" : rc == SES_NOFLASH ? "NO FLASH" : rc == SES_BUSY ? "BUSY" : "FAILED", "", C_FULL);
+    str_cpy(ui.fl0, subj == SD_SNAP ? "SNAPSHOT" : "SESSION", sizeof ui.fl0);
+    ui.fl0_col = subj == SD_SNAP ? C_SNAP : C_SES;
 }
 /* SAVE held (Tonitor's save_long); on the SNAPSHOTS page, the state now stored into the snapshot framed */
 static void save_long(void)
 {
     if (ui.snap_page) {
         snap_store(ui.snap_ix);
-        ses_done(SES_OK, "STORED", ui.snap_ix + 1u);
+        ses_done(SES_OK, SD_SNAP, "STORED", ui.snap_ix + 1u);
         ui.force = 1;
         return;
     }
@@ -396,13 +404,13 @@ static void save_long(void)
     }
     if (ses_current()) {                         /* a session loaded or chosen: saved over it, at once */
         ui.ses_page = 0;
-        ses_done(ses_save(ses_current()), "SAVED", ses_current());
+        ses_done(ses_save(ses_current()), SD_SES, "SAVED", ses_current());
         ui.force = 1;
         return;
     }
     ui.ses_new = (uint16_t)ses_next_number();   /* none chosen: the first empty slot, asked first */
     if (!ui.ses_new) {
-        ses_done(SES_FULL, "", 0);
+        ses_done(SES_FULL, SD_SES, "", 0);
         return;
     }
     ui.ses_over = 0;
@@ -442,7 +450,7 @@ static void save_short(void)
             say("NOT SAVED", 1500);
             return;
         }
-        ses_done(ses_save(num), "SAVED", num);
+        ses_done(ses_save(num), SD_SES, "SAVED", num);
         return;
     }
     if (ui.ses_page == SP_LIST) {                /* the slot shown: loaded (or, empty, a new session), and back */
@@ -450,10 +458,10 @@ static void save_short(void)
         ui.ses_page = 0;
         ui.force = 1;
         if (ses_has(num))
-            ses_done(ses_load_slot(num), "LOADED", num);
+            ses_done(ses_load_slot(num), SD_SES, "LOADED", num);
         else {
             ses_fresh(num);                      /* a clean slate; SAVE held writes it there */
-            ses_done(SES_OK, "NEW", num);
+            ses_done(SES_OK, SD_SES, "NEW", num);
         }
         return;
     }
@@ -832,16 +840,16 @@ static void ui_input(void)
                 ui.snap_done = 1;                /* held: stored, or (SHIFT) emptied */
                 if (ui.snap_sh || shift_held()) {
                     snap_clear((uint32_t)ui.snap_key);
-                    say("EMPTIED", 1000);
+                    ses_done(SES_OK, SD_SNAP, "EMPTIED", (uint32_t)ui.snap_key + 1u);
                 } else {
                     snap_store((uint32_t)ui.snap_key);
-                    ses_done(SES_OK, "STORED", (uint32_t)ui.snap_key + 1u);
+                    ses_done(SES_OK, SD_SNAP, "STORED", (uint32_t)ui.snap_key + 1u);
                 }
                 ui.force = 1;
             } else if (!down) {                  /* let go soon: recalled */
                 if (!ui.snap_done) {
                     if (snap_has((uint32_t)ui.snap_key))
-                        ses_done(snap_recall((uint32_t)ui.snap_key), "RECALLED", (uint32_t)ui.snap_key + 1u);
+                        ses_done(snap_recall((uint32_t)ui.snap_key), SD_SNAP, "RECALLED", (uint32_t)ui.snap_key + 1u);
                     else
                         say("EMPTY", 900);
                 }
@@ -1436,8 +1444,9 @@ static int draw_flash(void)
         return 0;
     }
     if (!ui.fl_shown) {                          /* (every pixel painted once, top to bottom: no clear first) */
-        CV_AREA(0, 0, 240, 50, C_BLACK) {
-        }
+        CV_AREA(0, 0, 240, 50, C_BLACK)
+            if (ui.fl0[0])
+                cv_text_fit((50 - FONT_M.h) / 2 + 4, &FONT_M, ui.fl0, ui.fl0_col);
         CV_AREA(0, 50, 240, 70, C_BLACK)
             cv_text_fit(10, &FONT_M, ui.fl1, ui.fl_col);
         CV_AREA(0, 120, 240, 120, C_BLACK)

@@ -2,6 +2,12 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 27 (2026-10-25): the messages say what was saved
+
+- **A session's or a snapshot's message names it**: SESSION (in the sessions' yellow) or SNAPSHOT (in the snapshots'
+  blue) across the top, then what happened -- SAVED, STORED, LOADED, NEW, RECALLED, EMPTIED, RESTORED, or NO ROOM,
+  BUSY, FAILED -- then its number, very large. (A snapshot emptied said only EMPTIED before.)
+
 ## Build 26 (2026-10-25): tails kept; USB audio; the keys only on a generator
 
 - **The master delay's and reverb's tails ring out whole**: whatever reaches them -- a voice let go, a generator or an

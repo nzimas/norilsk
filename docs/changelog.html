@@ -44,6 +44,10 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-27-2026-10-25-the-messages-say-what-was-saved">Build 27 (2026-10-25): the messages say what was saved</h2>
+<ul>
+<li><b>A session's or a snapshot's message names it</b>: SESSION (in the sessions' yellow) or SNAPSHOT (in the snapshots' blue) across the top, then what happened — SAVED, STORED, LOADED, NEW, RECALLED, EMPTIED, RESTORED, or NO ROOM, BUSY, FAILED — then its number, very large. (A snapshot emptied said only EMPTIED before.)</li>
+</ul>
 <h2 id="build-26-2026-10-25-tails-kept-usb-audio-the-keys-only-on-a-generator">Build 26 (2026-10-25): tails kept; USB audio; the keys only on a generator</h2>
 <ul>
 <li><b>The master delay's and reverb's tails ring out whole</b>: whatever reaches them — a voice let go, a generator or an effect slot muted, the effect slots closing — they decay as they will, then stop running once spent (before, they were faded out 2 s after the last voice). Nothing else lingers: the voices and the effect slots end as before. Test: <code>host mtails</code> (fails on build 25); <code>host tails</code> and the looper's check measure the voices and slots alone.</li>
