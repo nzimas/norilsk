@@ -32,7 +32,10 @@
  *   the 2nd black key         the ABRASIVE path on or off (lit while on): what HOME draws, gnarly, textural, abrasive
  *   the 3rd black key         the DARK path on or off: dark ambient, drones, quieter. One path at a time; neither:
  *                             anything goes. Kept with the session
- *   the 4th .. 8th black keys its loops REVERSE, PENDULUM, RANDOM; HALF, DOUBLE speed (pressed again: as recorded)
+ *   PLAY held + the 4th .. 8th black keys  the loops of the generator the keys play: REVERSE, PENDULUM, RANDOM; HALF,
+ *                             DOUBLE speed (pressed again: as recorded). While PLAY is held they glow dimly, the ones
+ *                             on lit (Tonitor's); playing, they do nothing and stay dark (for what comes later). The
+ *                             black keys do what the view they are in gives them
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
  *   KNOB 3, KNOB 4            the delay send and the reverb send of the generator the keys play, 0 .. 100 (Tonitor's
@@ -813,21 +816,8 @@ static void ui_input(void)
         midi_take();
         return;
     }
-    if (((ch & keys) >> KEY_REWIRE & 1u) && shift_held()) {   /* SHIFT and the first black key: the chosen slot's
-                                                               * values (an effect slot) or sound (a generator) anew */
-        int ok = ui.sel < NGEN ? gen_resound(ui.sel, next_seed()) : fx_revalue(ui.sel - NGEN, next_seed());
-        say_n(ok ? (ui.sel < NGEN ? "NEW SOUND " : "NEW VALUES ") : "BUSY ", (int32_t)ui.sel + 1, "", 1000);
-        ui.force = 1;
-    } else if ((ch & keys) >> KEY_REWIRE & 1u) { /* the first black key: the chosen slot rewired */
-        int ok = ui.sel < NGEN ? gen_rewire(ui.sel, next_seed()) : fx_rewire(ui.sel - NGEN, next_seed());
-        say_n(ok ? "REWIRED " : "BUSY ", (int32_t)ui.sel + 1, "", 1000);
-    }
-    if (((ch & keys) >> KEY_ROUGH & 1u) || ((ch & keys) >> KEY_DARK & 1u)) {   /* the paths: on, off, or the other */
-        uint8_t want = ((ch & keys) >> KEY_ROUGH & 1u) ? DP_ROUGH : DP_DARK;
-        draw_path = draw_path == want ? DP_ANY : want;
-        say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : "ANY PATH", 1200);
-    }
-    {   /* the loops' direction (REVERSE, PENDULUM, RANDOM) and speed (HALF, DOUBLE); pressed again, as recorded */
+    if (ui.ovd) {                                /* PLAY held: the black keys are the loops' (Tonitor's): their
+                                                  * direction and speed; pressed again, as recorded */
         const looper_t *p = &loop[ui.gen];
         uint32_t dn = ch & keys;
         if ((dn >> KEY_REV & 1u) || (dn >> KEY_PEND & 1u) || (dn >> KEY_RAND & 1u)) {
@@ -842,6 +832,20 @@ static void ui_input(void)
             ev_post(EV_LOOP_MODE, ui.gen, 1, want);
             say(want == LS_HALF ? "HALF SPEED" : want == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
         }
+    } else if (((ch & keys) >> KEY_REWIRE & 1u) && shift_held()) {   /* SHIFT and the first black key: the chosen slot's
+                                                               * values (an effect slot) or sound (a generator) anew */
+        int ok = ui.sel < NGEN ? gen_resound(ui.sel, next_seed()) : fx_revalue(ui.sel - NGEN, next_seed());
+        say(ok ? "RAND PARAMS" : "BUSY", 1000);
+        ui.force = 1;
+    } else if ((ch & keys) >> KEY_REWIRE & 1u) { /* the first black key: the chosen slot rewired */
+        int ok = ui.sel < NGEN ? gen_rewire(ui.sel, next_seed()) : fx_rewire(ui.sel - NGEN, next_seed());
+        say_n(ok ? "REWIRED " : "BUSY ", (int32_t)ui.sel + 1, "", 1000);
+    }
+    if (!ui.ovd && (((ch & keys) >> KEY_ROUGH & 1u) || ((ch & keys) >> KEY_DARK & 1u))) {   /* the paths: on, off, or
+                                                                                         * the other (playing) */
+        uint8_t want = ((ch & keys) >> KEY_ROUGH & 1u) ? DP_ROUGH : DP_DARK;
+        draw_path = draw_path == want ? DP_ANY : want;
+        say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : "ANY PATH", 1200);
     }
     if ((ch & keys) >> KEY_SHIFT & 1u)           /* SHIFT pressed: the keys held latched */
         for (k = 0; k < NKEY; k++)
@@ -930,16 +934,18 @@ static void ui_leds(void)
         if (ui.snap_page)                        /* .. the one chosen lit, the one a morph flows into blinking */
             fm1_led_key(14u + k, stored && (w == snap_morph_target() ? (int)((fm1_ms / 250u) & 1u)
                                                                      : w == snap_current() && snap_morph_target() < 0));
-        else if (ui.ovd)                         /* PLAY held: the loops that play, lit */
-            fm1_led_key(14u + k, w >= 0 && (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
-        else if (w >= 0)
+        else if (ui.ovd && w >= 0)               /* PLAY held: the loops that play, lit */
+            fm1_led_key(14u + k, (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
+        else if (ui.ovd) {                       /* .. the loops' modes: each glows dimly, the ones on lit (Tonitor's) */
+            int mk = k == KEY_REV || k == KEY_PEND || k == KEY_RAND || k == KEY_HALF || k == KEY_DOUBLE;
+            led_dim_key(14u + k, mk);
+            fm1_led_key(14u + k, mk && ((k == KEY_REV && p->dmode == LD_REV) || (k == KEY_PEND && p->dmode == LD_PEND) ||
+                                        (k == KEY_RAND && p->dmode == LD_RAND) || (k == KEY_HALF && p->rate == LS_HALF) ||
+                                        (k == KEY_DOUBLE && p->rate == LS_DOUBLE)));
+        } else if (w >= 0)
             fm1_led_key(14u + k, ((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u));
-        else if (k == KEY_ROUGH || k == KEY_DARK)  /* the path chosen, lit */
+        else                                     /* playing: the path chosen lit; the other black keys dark */
             fm1_led_key(14u + k, (k == KEY_ROUGH && draw_path == DP_ROUGH) || (k == KEY_DARK && draw_path == DP_DARK));
-        else                                     /* the loops' direction and speed keys, lit while on */
-            fm1_led_key(14u + k, p->ntrk && ((k == KEY_REV && p->dmode == LD_REV) || (k == KEY_PEND && p->dmode == LD_PEND) ||
-                                             (k == KEY_RAND && p->dmode == LD_RAND) || (k == KEY_HALF && p->rate == LS_HALF) ||
-                                             (k == KEY_DOUBLE && p->rate == LS_DOUBLE)));
     }
     fm1_led_key(14u + KEY_SHIFT, shift_held());
 }
@@ -1303,20 +1309,18 @@ static int draw_dial(void)
             fmt_int(v, a);
         else
             str_cpy(v, "OFF", 4);
-        CV_AREA(0, 0, 240, 78, C_BLACK) {         /* (the name in two large lines: in one, only a small font fits) */
-            cv_text_c(3, &FONT_M, "DISINTE-", col);
-            cv_text_c(40, &FONT_M, "GRATOR", col);
-        }
-        CV_AREA(0, 78, 240, 98, C_BLACK)
-            cv_text_fit((98 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
-        CV_AREA(0, 176, 240, 32, C_BLACK) {
+        CV_AREA(0, 0, 240, 50, C_BLACK)           /* (one line, his rule: a font of its own, as large as fits whole) */
+            cv_text_c((50 - FONT_T.h) / 2, &FONT_T, "DISINTEGRATOR", col);
+        CV_AREA(0, 50, 240, 112, C_BLACK)
+            cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+        CV_AREA(0, 162, 240, 40, C_BLACK) {
             char g[8] = "GEN 1";
             g[4] = (char)('1' + ui.gen);
-            cv_text_c((32 - FONT_S.h) / 2, &FONT_S, g, col);
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, g, col);
         }
-        CV_AREA(0, 208, 240, 32, C_BLACK) {
-            cv_rect(12, 5, 216, 22, RGB(60, 60, 60));
-            cv_rect(12, 5, a * 216 / 100, 22, col);
+        CV_AREA(0, 202, 240, 38, C_BLACK) {
+            cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
+            cv_rect(12, 8, a * 216 / 100, 22, col);
         }
         ui.dial_shown = 1;
         ui.shown_dial = key;

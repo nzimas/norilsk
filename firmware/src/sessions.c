@@ -31,7 +31,8 @@
 #define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
 #define SES_MAGIC 0x314C4F4Du    /* "MOL1" */
 #define SES_LIVE 0xFFFFFFFFu     /* the head's last word while the record lives */
-#define SES_FORMAT 2u            /* (2 from build 18: eight modulation slots, the DISINTEGRATOR; 1 still read) */
+#define SES_FORMAT 3u            /* (3 from build 19: the snapshots whole, their play too; 2 from build 18: eight
+                                  * modulation slots, the DISINTEGRATOR; 1 and 2 still read) */
 #define SES_MAX 73u              /* records in the list (one a sector at most) */
 
 /* the flash, for the target (main.c) or the host test (host.c); offsets from the flash's start */
@@ -76,13 +77,29 @@ typedef struct {
     int8_t lvl, pan;
     uint8_t mute, rsv;
 } st_fx_t;
+/* how a generator is played (build 19): its latched notes, and how its loops go -- whether they play, which are held
+ * out, their direction, speed, VARY, their own move along the scale (the loops' recordings are the session's) */
+#define ST_LATCH 8u              /* latched notes kept (the four voices sound at most four) */
+typedef struct {
+    uint32_t latch;              /* the keys latched (no more than ST_LATCH) */
+    uint8_t note[ST_LATCH];      /* their notes, in the keys' order */
+    uint8_t play, dmode, rate, vary;
+    uint16_t mute;
+    int8_t lxt;
+    uint8_t rsv;
+} st_play_t;
 typedef struct {
     st_gen_t g[NGEN];
     st_fx_t x[NFX];
     int8_t rvp[4], dlp[4];
     mod_t mod[NSLOT];
     uint8_t scale, root, rsv[2];
+    /* (build 19: the rest of the machine; a state of an older session has kept 0 and leaves it as it is) */
+    st_play_t p[NGEN];
+    int8_t oct, lx;              /* the octave; every loop's move along the scale */
+    uint8_t path, kept;          /* the draw's path; 1: this part was kept */
 } st_t;
+#define ST2_SIZE ((uint32_t)__builtin_offsetof(st_t, p))   /* (a state of format 1 converted, or 2: the part before) */
 /* (a session of format 1, before build 18: four modulation slots a slot) */
 typedef struct {
     mlfo_t lfo[2];
@@ -142,6 +159,77 @@ static void st_capture(st_t *t)
     memcpy(t->mod, slot_mod, sizeof t->mod);
     t->scale = ui.scale;
     t->root = ui.root;
+    for (l = 0; l < NGEN; l++) {
+        st_play_t *q = &t->p[l];
+        const looper_t *lp = &loop[l];
+        uint32_t k, n = 0;
+        for (k = 0; k < NKEY && n < ST_LATCH; k++)
+            if ((ui.latch[l] >> k) & 1u) {
+                q->latch |= 1u << k;
+                q->note[n++] = ui.latch_note[l][k];
+            }
+        q->play = (uint8_t)(lp->play && lp->ntrk);
+        q->mute = lp->mute;
+        q->dmode = lp->dmode;
+        q->rate = lp->rate;
+        q->vary = lp->vary;
+        q->lxt = ui.lxt[l];
+    }
+    t->oct = ui.oct;
+    t->lx = ui.lx;
+    t->path = draw_path;
+    t->kept = 1;
+}
+/* the rest of a state given back: the latched notes (those that change let go, the new ones held), the loops' play,
+ * mutes, direction, speed, VARY and moves, the octave, the path. A state of an older session (kept 0): left as it is */
+static void st_apply_play(const st_t *t)
+{
+    uint32_t l, k, m;
+    if (!t->kept)
+        return;
+    ui.oct = (int8_t)clampi(t->oct, -3, 3);
+    draw_path = (uint8_t)(t->path < DP_N ? t->path : DP_ANY);
+    ui.lx = (int8_t)clampi(t->lx, -24, 24);
+    for (l = 0; l < NGEN; l++)
+        ui.lxt[l] = (int8_t)clampi(t->p[l].lxt, -24, 24);
+    lx_post();
+    for (l = 0; l < NGEN; l++) {
+        const st_play_t *q = &t->p[l];
+        const looper_t *lp = &loop[l];
+        uint32_t n = 0, want = q->latch & ((1u << NKEY) - 1u);
+        for (k = 0; k < NKEY; k++) {
+            uint32_t on = (ui.latch[l] >> k) & 1u, w = (want >> k) & 1u, note = w ? q->note[n++ % ST_LATCH] : 0u;
+            if (w && (white_ix(k) < 0 || note > 127u))
+                w = 0;
+            if (on && (!w || ui.latch_note[l][k] != note)) {   /* (let go: its own release) */
+                ev_post(EV_OFF, l, ui.latch_note[l][k], 0);
+                ui.latch[l] &= ~(1u << k);
+                on = 0;
+            }
+            if (w && !on) {
+                ev_post(EV_ON, l, note, 0);
+                ev_post(EV_LATCH, l, note, 0);
+                ui.latch[l] |= 1u << k;
+                ui.latch_note[l][k] = (uint8_t)note;
+            }
+        }
+        if (lp->ntrk) {
+            if (lp->dmode != q->dmode && q->dmode <= LD_RAND)
+                ev_post(EV_LOOP_MODE, l, 0, q->dmode);
+            if (lp->rate != q->rate && q->rate <= LS_DOUBLE)
+                ev_post(EV_LOOP_MODE, l, 1, q->rate);
+            if (lp->vary != (q->vary != 0))
+                ev_post(EV_LOOP_MODE, l, 2, q->vary != 0);
+            for (k = 0; k < lp->ntrk; k++)
+                if (((lp->mute ^ q->mute) >> k) & 1u)
+                    ev_post(EV_LOOP_TRK, l, k, !((q->mute >> k) & 1u));
+            m = lp->play != 0;
+            if (m != (q->play != 0))
+                ev_post(EV_LOOP_PLAY, l, 0, 0);   /* (a toggle: started from their starts, or stopped) */
+        }
+        ses_isr_sync();                          /* (the events taken: the queue never overflows) */
+    }
+    ui.force = 1;
 }
 /* the state given back: each part checked; returns SES_OK, or SES_BUSY if a slot could not take its patch in time */
 static int st_apply(const st_t *t)
@@ -357,6 +445,7 @@ static void morph_poll(void)
     /* the middle: what has no between */
     if (!morph.mid && u >= Q15 / 2) {
         morph.mid = 1;
+        st_apply_play(&morph.b);                 /* (the latched notes and the loops' play: at the middle) */
         ui.scale = morph.b.scale < NSCALE ? morph.b.scale : 1u;
         ui.root = (uint8_t)(morph.b.root % 12u);
         rack_root = SCALE_BASE + ui.root;
@@ -385,6 +474,9 @@ static void morph_poll(void)
             snap_pend.i = (int8_t)morph.to;      /* (still not taken: given again until it is) */
             snap_pend.t0 = fm1_ms;
         }
+        for (k = 0; k < morph.nw; k++)           /* (the clouds swapped in on the way: the sound now, again) */
+            if (!morph.w[k].gen && morph.w[k].swapped)
+                fx_refill(morph.w[k].idx);
         RING_PUBLISH();
         gen_fine = 0;
         fx_fine = 0;
@@ -422,6 +514,7 @@ static int snap_recall(uint32_t i)
         snap_pend.i = (int8_t)i;
         snap_pend.t0 = fm1_ms;
     }
+    st_apply_play(&snap.s[i]);
     return SES_OK;
 }
 static void snap_clear(uint32_t i)
@@ -755,7 +848,14 @@ static void ses_body(ses_glob_t *gl)
 {
     uint32_t l, k;
     ses_io(gl, sizeof *gl);
-    if (ss.mode == SS_READ && ses_fmt == 1u) {          /* (format 1: its states converted, four modulation slots) */
+    if (ss.mode == SS_READ && ses_fmt == 2u) {          /* (format 2: the states without how they are played) */
+        memset(&ses_live, 0, sizeof ses_live);
+        ses_io(&ses_live, ST2_SIZE);
+        for (l = 0; l < NSNAP; l++) {
+            memset(&snap.s[l], 0, sizeof snap.s[l]);
+            ses_io(&snap.s[l], ST2_SIZE);
+        }
+    } else if (ss.mode == SS_READ && ses_fmt == 1u) {   /* (format 1: its states converted, four modulation slots) */
         st1_t o;
         ses_io(&o, sizeof o);
         st_from1(&ses_live, &o);
@@ -934,7 +1034,7 @@ static int ses_load(uint32_t i)
         return SES_FAIL;
     base = SES_LO + ses.sect[i] * SES_SECT;
     ses_flash_read(base, &h, sizeof h);
-    if (!ses_head_ok(&h) || (h.format != SES_FORMAT && h.format != 1u))
+    if (!ses_head_ok(&h) || h.format < 1u || h.format > SES_FORMAT)
         return SES_FAIL;
     ss_begin(SS_READ, base);                            /* (the CRC first: nothing taken from a record that fails) */
     ses_in(0, h.len);

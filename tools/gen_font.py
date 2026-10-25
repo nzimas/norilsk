@@ -22,7 +22,8 @@ PAD = 2
 CHARS = " !#%+-./0123456789?ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # name, characters, TTF pixel size, Terminus scale
 SIZES = [("XL", "#.0123456789ABCDEFGOS", 136, 9), ("L", CHARS, 60, 4), ("M", CHARS, 46, 3), ("S", CHARS, 35, 2),
-         ("XS", " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", 26, 1)]   # (XS: the chord form under CHO, the ENVELOPE page)
+         ("XS", " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", 26, 1),   # (XS: the chord form under CHO, the ENVELOPE page)
+         ("T", "ADEGINORST", 28, 1)]   # (T: DISINTEGRATOR on one line, as large as fits 240 px -- build 19)
 
 
 def bdf_glyphs():

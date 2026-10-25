@@ -31,6 +31,7 @@ build/host hiss
 build/host recall
 build/host quiet
 build/host format1
+build/host whole
 build/host dis
 build/host paths | tail -1
 build/host revalue

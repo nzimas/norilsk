@@ -1090,18 +1090,30 @@ static int cmd_looper(void)
     fw_run(10);
     if (!(loop[0].mute & 1u) || ui.ovd || !loop[0].play)
         LFAIL("PLAY held and the first key did not take loop 1 out (mute %x)", loop[0].mute);
+    key(KEY_REV, 1);                                     /* playing: the 4th black key does nothing (build 19) */
+    fw_run(5);
+    key(KEY_REV, 0);
+    fw_run(5);
+    if (loop[0].dmode != LD_FWD)
+        LFAIL("the 4th black key turned the loops round outside PLAY held");
+    hold_btn(B_PLAY, 1);                                 /* PLAY held: the loops' modes on the black keys */
+    fw_run(700);
+    ui_input();
     key(KEY_REV, 1);
     fw_run(5);
     key(KEY_REV, 0);
     fw_run(5);
     if (loop[0].dmode != LD_REV)
-        LFAIL("the 4th black key did not turn the loops round");
+        LFAIL("PLAY held and the 4th black key did not turn the loops round");
     key(KEY_HALF, 1);
     fw_run(5);
     key(KEY_HALF, 0);
+    hold_btn(B_PLAY, 0);
     fw_run(400);
     if (loop[0].rate != LS_HALF)
-        LFAIL("the 7th black key did not halve the speed");
+        LFAIL("PLAY held and the 7th black key did not halve the speed");
+    if (!loop[0].play || ui.ovd)
+        LFAIL("letting go of PLAY after the modes stopped the loops");
     key(KEY_SHIFT, 1);                                   /* SHIFT + OCT+: every loop a step up */
     press(B_OCTUP, 50);
     if (ui.lx != 1 || lx_steps != 1)
@@ -1842,7 +1854,7 @@ static double ends_loud(void)
     double r = 0;
     uint32_t i, l;
     int32_t out[2 * CTL];
-    for (i = 0; i < 1378u * 2u; i++) {
+    for (i = 0; i < 1378u * 8u; i++) {   /* (8 s: past a swell, and a frozen cloud's slice) */
         mix_block(out);
         for (l = 0; l < 2u * CTL; l++)
             r += (double)out[l] * out[l];
@@ -1852,7 +1864,7 @@ static double ends_loud(void)
 static int cmd_ends(void)
 {
     int fails = 0;
-    uint32_t sd, l;
+    uint32_t sd, l, k;
     for (sd = 0; sd < 12u; sd++) {
         uint32_t seed = 9100u + sd * 37u;
         st_t B, sa, sb;
@@ -1885,6 +1897,10 @@ static int cmd_ends(void)
         for (l = 0; l < 1378u * 9u / 14u; l++) {
             fw_run(14);
             ui_input();
+            if (l == 1378u * 3u / 14u)                   /* (where the morph ends: its clouds take the sound again --
+                                                          * a frozen one holds what it took, when it took it) */
+                for (k = 0; k < NFX; k++)
+                    fx_refill(k);
         }
         st_capture(&sb);
         rb = ends_loud();
@@ -2312,6 +2328,119 @@ static int cmd_revalue(void)
             printf("FAIL revalue: generator 1 (seed %u): not a new sound of its family with its cables\n", 300u + n), fails++;
     }
     printf("revalue: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* a snapshot is the whole machine (build 19): besides the slots, the latched notes, the loops' play, direction, speed,
+ * VARY and moves, the octave, the path, the DISINTEGRATOR -- stored, everything changed, recalled at once and by a
+ * morph: all of it back, the notes latched since let go */
+static int whole_check(const char *how, const st_t *want, uint32_t play, uint32_t dmode, uint32_t rate, uint32_t lk,
+                       uint32_t note)
+{
+    st_t now;
+    int fails = 0;
+    uint32_t k, latched_other = 0;
+    st_capture(&now);
+    if (!st_same(&now, want))
+        printf("FAIL whole %s: the state is not the snapshot\n", how), fails++;
+    if ((loop[0].play != 0) != (play != 0) || loop[0].dmode != dmode || loop[0].rate != rate)
+        printf("FAIL whole %s: the loops (play %u dmode %u rate %u)\n", how, loop[0].play, loop[0].dmode, loop[0].rate), fails++;
+    if (!((ui.latch[1] >> lk) & 1u) || ui.latch_note[1][lk] != note)
+        printf("FAIL whole %s: generator 2's latched note\n", how), fails++;
+    for (k = 0; k < NVOICE; k++)                         /* (no voice still latched that the snapshot has not) */
+        if (vox[k].sounding && vox[k].latched && !(vox[k].slot == 1 && vox[k].note == note) && vox[k].slot != 0)
+            latched_other++;
+    if (latched_other)
+        printf("FAIL whole %s: %u notes latched that the snapshot has not\n", how, latched_other), fails++;
+    return fails;
+}
+static int cmd_whole(void)
+{
+    int fails = 0;
+    uint32_t pass, l, note;
+    st_t A;
+    for (pass = 0; pass < 2u; pass++) {
+        fw_init();
+        press(B_FX, 50);                                 /* a loop on generator 1, going round, REVERSE at half speed */
+        press(B_REC, 50);
+        key(0, 1);
+        fw_run(300);
+        key(0, 0);
+        fw_run(300);
+        press(B_REC, 50);
+        hold_btn(B_PLAY, 1);
+        fw_run(700);
+        ui_input();
+        key(KEY_REV, 1);
+        ui_input();
+        key(KEY_REV, 0);
+        key(KEY_HALF, 1);
+        ui_input();
+        key(KEY_HALF, 0);
+        hold_btn(B_PLAY, 0);
+        fw_run(20);
+        press(B_SEL, 50);                                /* a note latched on generator 2 */
+        key(4, 1);
+        key(KEY_SHIFT, 1);
+        ui_input();
+        key(KEY_SHIFT, 0);
+        key(4, 0);
+        note = ui.latch_note[1][4];
+        ui.oct = 1;
+        draw_path = DP_ROUGH;
+        gen_dis[2] = 40;
+        fw_run(200);
+        snap_store(0);
+        A = snap.s[0];
+        press(B_FX, 50);                                 /* everything else: loops stopped, as recorded; generator 2 let
+                                                          * go, another note on it; HOME everywhere */
+        hold_btn(B_PLAY, 1);
+        fw_run(700);
+        ui_input();
+        key(KEY_REV, 1);
+        ui_input();
+        key(KEY_REV, 0);
+        key(KEY_HALF, 1);
+        ui_input();
+        key(KEY_HALF, 0);
+        hold_btn(B_PLAY, 0);
+        press(B_PLAY, 50);
+        press(B_SEL, 50);
+        key(KEY_SHIFT, 1);
+        key(4, 1);
+        ui_input();
+        key(4, 0);
+        key(KEY_SHIFT, 0);
+        key(6, 1);
+        key(KEY_SHIFT, 1);
+        ui_input();
+        key(KEY_SHIFT, 0);
+        key(6, 0);
+        for (l = 0; l < NSLOT; l++) {
+            press(SLOT_BTN[l], 50);
+            press(B_HOME, 50);
+            fw_run(60);
+        }
+        ui.oct = -2;
+        draw_path = DP_DARK;
+        gen_dis[2] = 0;
+        fw_run(300);
+        snap_store(1);
+        if (loop[0].play || loop[0].dmode != LD_FWD || ((ui.latch[1] >> 4) & 1u))
+            printf("FAIL whole: the second state was not set up\n"), fails++;
+        ui.morph = pass ? 8u : 0u;                       /* back to the first: at once, then by a 4 s morph */
+        snap_recall(0);
+        for (l = 0; l < 700u; l++) {
+            fw_run(14);
+            ui_input();
+        }
+        fails += whole_check(pass ? "(morph)" : "(at once)", &A, 1, LD_REV, LS_HALF, 4, note);
+        if (ui.oct != 1 || draw_path != DP_ROUGH || gen_dis[2] != 40)
+            printf("FAIL whole: octave %d, path %u, DISINTEGRATOR %d\n", ui.oct, draw_path, gen_dis[2]), fails++;
+    }
+    ui.morph = 0;
+    draw_path = DP_ANY;
+    printf("whole: %d failures\n", fails);
     return fails ? 1 : 0;
 }
 
@@ -3138,6 +3267,8 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "whole"))
+        return cmd_whole();
     if (!strcmp(argv[1], "format1"))
         return cmd_format1();
     if (!strcmp(argv[1], "dis"))

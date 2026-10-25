@@ -2,6 +2,25 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 19 (2026-10-25): a snapshot is the whole machine
+
+- **A snapshot holds the whole machine now**: besides every slot (sounds, effects, values, cables, levels, pans,
+  mutes, sends), the master delay and reverb, the modulation, the scale and the DISINTEGRATOR, also how it is played --
+  each generator's latched notes, whether its loops play, which are held out, their direction, speed, VARY and moves
+  along the scale -- and the octave and the draw's path. Recalled, the notes latched since are let go and the
+  snapshot's are held again, the loops start or stop as stored; by a morph, that happens at its middle. The loops'
+  recordings themselves are the session's (each looper is 4.5 KiB: sixteen copies would not fit the RAM): a snapshot
+  says how they play, not what they hold. The morph time and the slot chosen are not in it (how you move between
+  snapshots, where you look). Sessions are format 3; formats 1 and 2 are read (their snapshots leave how it is played
+  as it is). Test: `host whole`.
+- **A morph's end refreshes its clouds**: a CLOUD swapped in during a morph, frozen, held what the generators made
+  while still crossing over. At the end it takes the sound again, its grains going on over it.
+- **The black keys belong to the view**: the loops' REVERSE, PENDULUM, RANDOM, HALF, DOUBLE (4th .. 8th) work only while
+  PLAY is held, where they glow dimly and the ones on are lit (Tonitor's). Playing, those keys do nothing and stay
+  dark, kept for what comes later.
+- **DISINTEGRATOR on one line**: a font of its own (28 pt, its letters only), as large as the word fits the screen.
+- **SHIFT + the 1st black key** says RAND PARAMS.
+
 ## Build 18 (2026-10-25): Norilsk
 
 - **The firmware is now Norilsk** (Molecular until build 17). The screen at power-on, the USB name ("FM-1 Norilsk",

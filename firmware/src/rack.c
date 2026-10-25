@@ -562,6 +562,7 @@ static void m_glt(const uint8_t *p, m_glt_t *s, int32_t *x)
 typedef struct {
     uint8_t line[CLD_N];
     uint32_t w, filled, gp[CLD_G], gw[CLD_G], gwinc[CLD_G];
+    volatile uint32_t fresh;     /* (build 19) pairs still to be written anew, frozen or not: a morph's end (fx_refill) */
     int32_t next, prev;
     uint8_t gon[CLD_G];
     rnd_t r;
@@ -570,8 +571,10 @@ static void m_cld(const uint8_t *p, m_cld_t *s, int32_t *x)
 {
     uint32_t len = ms_samples2(30u + p[0] * 220u / 100u), rate = 3u + p[1] * 57u / 100u, iv = 22050u / rate;
     uint32_t spread = ms_samples2(50u + p[3] * 650u / 100u), i, k, k2;
-    int frozen = p[2] >= 50 && s->filled >= CLD_N;   /* (frozen only once it holds something: a fresh cloud fills first,
-                                                     * with the sound now, then holds it -- never an empty, silent one) */
+    int frozen = p[2] >= 50 && s->filled >= CLD_N && !s->fresh;   /* (frozen only once it holds something: a fresh cloud
+                                                     * fills first, with the sound now, then holds it -- never an empty,
+                                                     * silent one; told to, it takes the sound now again, its grains
+                                                     * going on over it) */
     int32_t norm, o0;
     if (!s->r.s)
         rnd_seed(&s->r, 0x434C44u ^ (uint32_t)(uintptr_t)s);
@@ -584,6 +587,8 @@ static void m_cld(const uint8_t *p, m_cld_t *s, int32_t *x)
             s->w = (s->w + 1u) & (CLD_N - 1u);
             if (s->filled < CLD_N)
                 s->filled++;
+            if (s->fresh)
+                s->fresh--;
         }
         if (--s->next <= 0 && s->filled > len + 64u) {   /* a grain: a free place, from somewhere behind */
             for (k = 0; k < CLD_G && s->gon[k]; k++)
@@ -1380,6 +1385,18 @@ static int fx_rewire(uint32_t s, uint32_t seed)
         f->xto[k] = t.xto[k];
     RING_PUBLISH();
     return 1;
+}
+/* a snapshot's morph at its end: each CLOUD of slot s takes the sound now anew (frozen, a cloud swapped in during the
+ * morph held what the generators made while they were still crossing over -- the snapshot before in it, for ever) */
+static void fx_refill(uint32_t s)
+{
+    const fx_patch_t *f = &fbuf[s][f_use[s]];
+    uint32_t k;
+    if (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON)
+        return;
+    for (k = 0; k < f->n && k < FX_N; k++)
+        if (f->e[k].kind == RM_CLD && fx_st[s * FX_N + k])
+            ((m_cld_t *)fx_st[s * FX_N + k])->fresh = CLD_N;
 }
 /* SHIFT + the first black key on effect slot s: every effect's values drawn anew (the path's way), its effects, outs
  * and cables as they are -- changed in place, as a rewiring (no fade, nothing cleared: the sound goes on, moved). 0 if
