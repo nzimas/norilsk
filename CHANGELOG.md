@@ -2,6 +2,18 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 28 (2026-10-25): MESH and LANES; Bigorna's session pages
+
+- **A session's MODE: MESH or LANES.** MESH is the signal flow there was: any generator into any effect, effects across
+  slots. In LANES each generator runs through its own effect slot (1 through 4, 2 through 5, 3 through 6), cabled into
+  its head with a small dry share, no cables between lanes, the lanes centre, left, right; HOME on a generator draws
+  its lane's chain with it -- the chain is part of the patch -- and HOME on an effect slot or REWIRE stays within the
+  lane. Turning a session to LANES rewires it and its snapshots into lanes, nothing redrawn. Kept with the session;
+  older sessions, and the FM-1 at power-on, are MESH. Test: `host lanes`.
+- **The sessions are handled as Bigorna's**: SHIFT + SAVE, the list; SAVE, a session's page -- BACK, LOAD (NEW on an
+  empty slot), SAVE, COPY, DELETE, MODE -- PRESETS through the rows, SAVE runs one, SHIFT + SAVE a level back; saving
+  over another session, copying over one and deleting ask first. Test: `host sespage`.
+
 ## Build 27 (2026-10-25): the messages say what was saved
 
 - **A session's or a snapshot's message names it**: SESSION (in the sessions' yellow) or SNAPSHOT (in the snapshots'

@@ -11,6 +11,10 @@ static uint32_t ses_current(void);
 static uint32_t ses_next_number(void);
 static void ses_fresh(uint32_t num);
 static uint32_t ses_room(void);
+static int ses_delete(uint32_t num);           /* (build 28: the session pages) */
+static int ses_copy(uint32_t from, uint32_t to);
+static uint32_t ses_mode_of(uint32_t num);
+static int sig_set(uint32_t m);
 static void snap_store(uint32_t i);
 static int snap_recall(uint32_t i);
 static void snap_clear(uint32_t i);

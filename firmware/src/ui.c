@@ -49,11 +49,14 @@
  *                             KNOB 4 and SHIFT + KNOB 4): to the master delay and reverb, at the end of the chain
  *   SEQ                       the DELAY page, again the REVERB page, again MOD, again back (Tonitor's): KNOB 1 .. 4
  *                             (TIME FEEDBACK DAMP MIX; SIZE DECAY DAMP MIX), each a row, the one turned black on white
- *   SHIFT + SAVE              (build 18: SAVE before) the SESSIONS page (Tonitor's): PRESETS through the 64 slots (the number very large: red
- *                             when it holds a session, grey when empty); SAVE on a saved one loads it, on an empty
- *                             one starts a new session there (a clean slate); a slot button goes back. SAVE held
- *                             0.8 s: saved into the session loaded or chosen, at once; on the page, into the slot
- *                             shown (asked: SAVE NEW, or OVERWRITE? in red on NO until PRESETS turns it to YES)
+ *   SHIFT + SAVE              the SESSIONS list: PRESETS through the 64 slots (the number very large: red when it
+ *                             holds a session, grey when empty). SAVE: that slot's page (Bigorna's, build 28): BACK,
+ *                             LOAD (NEW on an empty slot: a clean slate there), SAVE (over another session: asked),
+ *                             COPY (to a slot PRESETS chooses, the first empty one first; over a session: asked),
+ *                             DELETE (asked), and the session's MODE -- MESH or LANES (SAVE, PRESETS, SAVE; the
+ *                             session playing's only). PRESETS moves through them, SAVE runs one; SHIFT + SAVE a level
+ *                             back (a value being set: left as it was). SAVE held while playing: saved into the
+ *                             session loaded, at once (none: asked, SAVE NEW, the first empty slot)
  *   SAVE                      (build 18: SHIFT + SAVE before) the SNAPSHOTS page (Bigorna's patterns): the session's
  *                             16 states, 1 .. 16 in four rows. A white key let go soon: that snapshot recalled; held
  *                             0.8 s: the state now stored in it; SHIFT held too: emptied. PRESETS moves the frame; SAVE
@@ -193,7 +196,9 @@ static struct {
     uint32_t fx_touch_until;
     int8_t shown_fxp[4], shown_fx_touch;
     /* sessions and snapshots (sessions.c), the MOD page (mod.c), the whole-screen message */
-    uint8_t ses_page, ses_ix, ses_yes, ses_over;   /* ses_page: 0, SP_LIST, SP_ASK */
+    uint8_t ses_page, ses_ix, ses_yes, ses_over;   /* ses_page: 0, SP_LIST, SP_PAGE, SP_ASK, SP_COPY */
+    uint8_t ses_row, ses_edit, ses_val, ses_ask, ses_tgt;   /* (build 28, Bigorna's) a session's page: its row; MODE
+                                                             * being set, to ses_val; what is asked (AK_*); COPY's slot */
     uint16_t ses_new;            /* the slot a save asked about goes to */
     uint8_t save_down, save_long;
     uint32_t save_t0;
@@ -218,7 +223,9 @@ static struct {
     uint8_t lk_from, lk_to, lk_kind, lk_shown;   /* .. which to which; XM_* the kind made, XM_N undone */
     int32_t shown_dial;
 } ui;
-enum { SP_LIST = 1, SP_ASK = 2 };
+enum { SP_LIST = 1, SP_ASK = 2, SP_PAGE = 3, SP_COPY = 4 };
+enum { SR_BACK, SR_LOAD, SR_SAVE, SR_COPY, SR_DELETE, SR_MODE, SR_N };   /* a session's page, its rows */
+enum { AK_SAVE_NEW, AK_OVER, AK_DEL, AK_COPY };                           /* what SP_ASK asks */
 #define C_SES RGB(255, 200, 60)
 #define C_FULL RGB(255, 60, 60)
 #define C_SNAP RGB(120, 220, 255)
@@ -346,9 +353,12 @@ static uint32_t next_seed(void)
 static int new_patch(uint32_t l, int same)
 {
     int ok;
-    if (l < NGEN)
+    if (l < NGEN) {
         ok = gen_draw(l, same && gen_drawn[l] ? (int32_t)gbuf[l][g_use[l]].gen.family : -1, next_seed());
-    else
+        if (ok && sig_mode == SM_LANES)          /* (LANES: its lane's chain drawn with it -- part of the patch; SHIFT:
+                                                  * of the recipe it had) */
+            ok = fx_draw(l, same ? (int32_t)fbuf[l][f_use[l]].recipe : -1, next_seed());
+    } else
         ok = fx_draw(l - NGEN, same ? (int32_t)fbuf[l - NGEN][f_use[l - NGEN]].recipe : -1, next_seed());
     if (ok)
         ui.home_until = fm1_ms + 400u;
@@ -392,16 +402,8 @@ static void save_long(void)
         ui.force = 1;
         return;
     }
-    if (ui.ses_page == SP_ASK)
-        return;
-    if (ui.ses_page == SP_LIST && ui.ses_ix != ses_current()) {   /* in the list: into the slot shown, asked */
-        ui.ses_new = ui.ses_ix;
-        ui.ses_over = (uint8_t)ses_has(ui.ses_ix);
-        ui.ses_page = SP_ASK;
-        ui.ses_yes = (uint8_t)!ui.ses_over;      /* (over a session: NO until turned to YES) */
-        ui.force = 1;
-        return;
-    }
+    if (ui.ses_page)
+        return;                                  /* (the sessions' pages: SAVE runs their rows) */
     if (ses_current()) {                         /* a session loaded or chosen: saved over it, at once */
         ui.ses_page = 0;
         ses_done(ses_save(ses_current()), SD_SES, "SAVED", ses_current());
@@ -415,6 +417,7 @@ static void save_long(void)
     }
     ui.ses_over = 0;
     ui.ses_page = SP_ASK;
+    ui.ses_ask = AK_SAVE_NEW;
     ui.ses_yes = 1;
     ui.force = 1;
 }
@@ -442,26 +445,114 @@ static void save_short(void)
         pages_off();
         return;
     }
-    if (ui.ses_page == SP_ASK) {
+    if (ui.ses_page == SP_ASK) {                 /* asked: YES done, NO back where it was asked */
         uint32_t num = ui.ses_new;
-        ui.ses_page = 0;
         ui.force = 1;
         if (!ui.ses_yes) {
-            say("NOT SAVED", 1500);
+            ui.ses_page = ui.ses_ask == AK_SAVE_NEW ? 0 : SP_PAGE;
+            if (ui.ses_ask == AK_SAVE_NEW || ui.ses_ask == AK_OVER)
+                say("NOT SAVED", 1500);
             return;
         }
-        ses_done(ses_save(num), SD_SES, "SAVED", num);
+        if (ui.ses_ask == AK_DEL) {
+            ui.ses_page = SP_LIST;
+            ses_done(ses_delete(ui.ses_ix), SD_SES, "DELETED", ui.ses_ix);
+        } else if (ui.ses_ask == AK_COPY) {
+            ui.ses_page = SP_LIST;
+            ses_done(ses_copy(ui.ses_ix, ui.ses_tgt), SD_SES, "COPIED", ui.ses_tgt);
+            ui.ses_ix = ui.ses_tgt;
+        } else {
+            ui.ses_page = 0;
+            ses_done(ses_save(num), SD_SES, "SAVED", num);
+        }
         return;
     }
-    if (ui.ses_page == SP_LIST) {                /* the slot shown: loaded (or, empty, a new session), and back */
-        uint32_t num = ui.ses_ix;
-        ui.ses_page = 0;
+    if (ui.ses_page == SP_COPY) {                /* the slot it goes to: empty, at once; else asked */
         ui.force = 1;
-        if (ses_has(num))
-            ses_done(ses_load_slot(num), SD_SES, "LOADED", num);
-        else {
-            ses_fresh(num);                      /* a clean slate; SAVE held writes it there */
-            ses_done(SES_OK, SD_SES, "NEW", num);
+        if (ses_has(ui.ses_tgt)) {
+            ui.ses_page = SP_ASK;
+            ui.ses_ask = AK_COPY;
+            ui.ses_new = ui.ses_tgt;
+            ui.ses_yes = 0;
+            return;
+        }
+        ui.ses_page = SP_LIST;
+        ses_done(ses_copy(ui.ses_ix, ui.ses_tgt), SD_SES, "COPIED", ui.ses_tgt);
+        ui.ses_ix = ui.ses_tgt;
+        return;
+    }
+    if (ui.ses_page == SP_LIST) {                /* the slot shown: its page, on LOAD (Bigorna's) */
+        ui.ses_page = SP_PAGE;
+        ui.ses_row = SR_LOAD;
+        ui.ses_edit = 0;
+        ui.force = 1;
+        return;
+    }
+    if (ui.ses_page == SP_PAGE) {
+        uint32_t num = ui.ses_ix;
+        int has = ses_has(num);
+        ui.force = 1;
+        if (ui.ses_edit) {                       /* MODE set */
+            ui.ses_edit = 0;
+            if (!sig_set(ui.ses_val))
+                say("BUSY", 800);
+            else
+                say(ui.ses_val == SM_LANES ? "LANES" : "MESH", 1200);
+            return;
+        }
+        switch (ui.ses_row) {
+        case SR_BACK:
+            ui.ses_page = SP_LIST;
+            break;
+        case SR_LOAD:                            /* LOAD, or on an empty slot NEW (a clean slate there) */
+            ui.ses_page = 0;
+            if (has)
+                ses_done(ses_load_slot(num), SD_SES, "LOADED", num);
+            else {
+                ses_fresh(num);
+                ses_done(SES_OK, SD_SES, "NEW", num);
+            }
+            break;
+        case SR_SAVE:                            /* into its own slot or an empty one at once; over another, asked */
+            if (has && num != ses_current()) {
+                ui.ses_page = SP_ASK;
+                ui.ses_ask = AK_OVER;
+                ui.ses_new = (uint16_t)num;
+                ui.ses_over = 1;
+                ui.ses_yes = 0;
+            } else {
+                ui.ses_page = 0;
+                ses_done(ses_save(num), SD_SES, "SAVED", num);
+            }
+            break;
+        case SR_COPY:
+            if (!has) {
+                say("EMPTY", 900);
+                break;
+            }
+            ui.ses_page = SP_COPY;
+            ui.ses_tgt = (uint8_t)ses_next_number();
+            if (!ui.ses_tgt)
+                ui.ses_tgt = (uint8_t)(num % SES_SLOTS + 1u);
+            break;
+        case SR_DELETE:
+            if (!has) {
+                say("EMPTY", 900);
+                break;
+            }
+            ui.ses_page = SP_ASK;
+            ui.ses_ask = AK_DEL;
+            ui.ses_new = (uint16_t)num;
+            ui.ses_yes = 0;
+            break;
+        default:                                 /* MODE: the session playing's only */
+            if (num != ses_current() && ses_current()) {
+                say("NOT LOADED", 1200);
+                break;
+            }
+            ui.ses_edit = 1;
+            ui.ses_val = sig_mode;
+            break;
         }
         return;
     }
@@ -572,7 +663,7 @@ static void ui_input(void)
     if (ui.home_down && !ui.home_done && (uint32_t)(fm1_ms - ui.home_t0) >= HOLD_MS) {
         int ok = 1;
         ui.home_done = 1;
-        for (l = 0; l < NSLOT; l++)
+        for (l = 0; l < (sig_mode == SM_LANES ? NGEN : NSLOT); l++)   /* (LANES: the generators bring their lanes) */
             ok &= new_patch(l, 0);
         say(ok ? "ALL NEW" : "BUSY", 1000);
     }
@@ -598,11 +689,19 @@ static void ui_input(void)
         ui.fx_touched = -1;
         ui.mod_touched = -1;
     }
-    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SESSIONS page, or back */
-        if (ui.ses_page)
+    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SESSIONS page; on its pages, a level back
+                                                  * (a value being set: left as it was) */
+        if (ui.ses_page == SP_PAGE && ui.ses_edit)
+            ui.ses_edit = 0;
+        else if (ui.ses_page == SP_PAGE)
+            ui.ses_page = SP_LIST;
+        else if ((ui.ses_page == SP_ASK && ui.ses_ask != AK_SAVE_NEW) || ui.ses_page == SP_COPY)
+            ui.ses_page = SP_PAGE;
+        else if (ui.ses_page)
             pages_off();
         else
             ses_page_on();
+        ui.force = 1;
     } else if (btn_bit(press, B_SAVE)) {
         ui.save_t0 = fm1_ms;
         ui.save_down = 1;
@@ -621,6 +720,16 @@ static void ui_input(void)
     s = fm1_enc_take(PANEL_ENC[EN_PRESET]);      /* PRESETS: through the page's list */
     if (s && ui.ses_page == SP_LIST) {
         ui.ses_ix = (uint8_t)clampi((int32_t)ui.ses_ix + s, 1, SES_SLOTS);
+    } else if (s && ui.ses_page == SP_PAGE && ui.ses_edit) {
+        ui.ses_val = (uint8_t)(s > 0 ? SM_LANES : SM_MESH);
+    } else if (s && ui.ses_page == SP_PAGE) {
+        ui.ses_row = (uint8_t)clampi((int32_t)ui.ses_row + s, 0, SR_N - 1);
+    } else if (s && ui.ses_page == SP_COPY) {
+        int32_t t = (int32_t)ui.ses_tgt + s;
+        if (t == (int32_t)ui.ses_ix)
+            t += s > 0 ? 1 : -1;                 /* (never onto itself) */
+        if (t >= 1 && t <= (int32_t)SES_SLOTS)
+            ui.ses_tgt = (uint8_t)t;
     } else if (s && ui.ses_page == SP_ASK) {
         ui.ses_yes = (uint8_t)(s > 0);
     } else if (s && ui.snap_page) {
@@ -1475,22 +1584,55 @@ static void draw_ses_page(void)
 {
     char n[8];
     int has = ses_has(ui.ses_ix);
-    int32_t key = ui.ses_page | (ui.ses_page == SP_ASK ? ui.ses_yes : ui.ses_ix) << 4;
+    int32_t key = ui.ses_page | ui.ses_ix << 3 | ui.ses_row << 10 | ui.ses_edit << 13 | ui.ses_val << 14 |
+                  ui.ses_yes << 15 | ui.ses_tgt << 16 | ui.ses_ask << 23 | (int32_t)sig_mode << 25 | has << 26;
     if (!ui.force && ui.shown_ses == key)
         return;
     ui.shown_ses = key;
-    {
-        const char *t = ui.ses_page != SP_ASK ? "SESSIONS" : ui.ses_over ? "OVERWRITE?" : "SAVE NEW";
-        cv_begin(240, 52, C_BLACK);
-        cv_text_fit((52 - FONT_M.h) / 2, &FONT_M, t, ui.ses_page == SP_ASK && ui.ses_over ? C_FULL : C_SES);
-        cv_blit(0, 0);
+    if (ui.ses_page == SP_PAGE) {                /* a session's page (Bigorna's): SESSION n, then its rows, four at a
+                                                  * time, the one chosen black on white (being set: on yellow) */
+        static const char *const ROW[SR_N] = {"BACK", "LOAD", "SAVE", "COPY", "DELETE", ""};
+        uint32_t top = ui.ses_row > 3u ? ui.ses_row - 3u : 0u, r;
+        uint32_t mode = ui.ses_ix == ses_current() || !ses_current() ? (ui.ses_edit ? ui.ses_val : sig_mode)
+                                                                    : ses_mode_of(ui.ses_ix);
+        fmt_int(n, ui.ses_ix);
+        CV_AREA(0, 0, 240, 52, C_BLACK) {
+            int32_t w = text_w(&FONT_S, "SESSION") + 12 + text_w(&FONT_L, n), x = (240 - w) / 2;
+            x = cv_text(x, (52 - FONT_S.h) / 2 + 4, &FONT_S, "SESSION", C_SES);
+            cv_text(x + 12, (52 - FONT_L.h) / 2, &FONT_L, n, has ? C_FULL : C_GREY);
+        }
+        for (r = 0; r < 4u; r++) {
+            uint32_t row = top + r;
+            int on = row == ui.ses_row, ok = row == SR_BACK || row == SR_SAVE || row == SR_LOAD ||
+                                                (row == SR_MODE ? mode < SM_N : has);
+            const char *t = row == SR_LOAD && !has ? "NEW" : row == SR_MODE ? (mode == SM_LANES ? "LANES" : mode < SM_N ? "MESH" : "-")
+                                                                            : ROW[row];
+            uint16_t bg = on ? (ui.ses_edit && row == SR_MODE ? C_SES : C_WHITE) : C_BLACK;
+            uint16_t fg = on ? C_BLACK : !ok ? C_GREY : row == SR_MODE ? C_SES : C_WHITE;
+            CV_AREA(0, 52 + 47 * r, 240, 47, bg)
+                cv_text_c((47 - FONT_L.h) / 2, &FONT_L, t, fg);
+        }
+        return;
     }
-    fmt_int(n, ui.ses_page == SP_ASK ? ui.ses_new : ui.ses_ix);
+    {
+        const char *t = ui.ses_page == SP_COPY ? "COPY TO"
+                      : ui.ses_page != SP_ASK ? "SESSIONS"
+                      : ui.ses_ask == AK_DEL ? "DELETE?" : ui.ses_ask == AK_COPY ? "COPY OVER?"
+                      : ui.ses_over ? "OVERWRITE?" : "SAVE NEW";
+        int warn = ui.ses_page == SP_ASK && (ui.ses_over || ui.ses_ask == AK_DEL || ui.ses_ask == AK_COPY);
+        CV_AREA(0, 0, 240, 52, C_BLACK)
+            cv_text_c((52 - FONT_M.h) / 2, text_w(&FONT_M, t) <= 236 ? &FONT_M : &FONT_S, t, warn ? C_FULL : C_SES);
+    }
+    fmt_int(n, ui.ses_page == SP_ASK ? ui.ses_new : ui.ses_page == SP_COPY ? ui.ses_tgt : ui.ses_ix);
     CV_AREA(0, 52, 240, 112, C_BLACK)
-        cv_text_c(8, &FONT_XL, n, ui.ses_page == SP_ASK ? (ui.ses_over ? C_FULL : C_WHITE) : has ? C_FULL : C_GREY);
+        cv_text_c(8, &FONT_XL, n, ui.ses_page == SP_ASK ? (ui.ses_over || ui.ses_ask == AK_DEL ? C_FULL : C_WHITE)
+                                : ui.ses_page == SP_COPY ? (ses_has(ui.ses_tgt) ? C_FULL : C_WHITE)
+                                : has ? C_FULL : C_GREY);
     CV_AREA(0, 164, 240, 76, C_BLACK) {
         if (ui.ses_page == SP_ASK)
             draw_noyes(ui.ses_yes);
+        else if (ui.ses_page == SP_COPY)
+            cv_text_c(20, &FONT_M, ses_has(ui.ses_tgt) ? "IN USE" : "EMPTY", ses_has(ui.ses_tgt) ? C_FULL : C_GREY);
         else if (ui.ses_ix == ses_current())
             cv_text_c(20, &FONT_M, has ? "LOADED" : "CHOSEN", C_OK);
         else if (!has)

@@ -486,6 +486,50 @@ static void morph_poll(void)
     }
 }
 
+/* ------------------------------------------------------------ the signal flow --- */
+/* the session's MODE (build 28, rack.c sig_mode): MESH or LANES. Turned to LANES, the patches playing are rewired into
+ * lanes -- each generator into its own effect slot alone, no cables between slots, the slots centre, left, right --
+ * nothing redrawn; and so are the session's snapshots (each recalled is segregated too). Turned to MESH: nothing
+ * changes, what HOME draws from then on may go anywhere. Returns 0 if a slot was busy (the rest done; again to finish) */
+static const int8_t LANE_PAN[NFX] = {0, -14, 14};
+static void st_lanes(st_t *t)
+{
+    uint32_t l, k;
+    for (l = 0; l < NGEN; l++) {
+        gen_keep_t *g = &t->g[l].g;
+        uint8_t e = (uint8_t)(g->nent && g->ent[0] / FX_N == l ? g->ent[0] : l * FX_N);
+        memset(g->ent, 0, sizeof g->ent);
+        g->ent[0] = e;
+        g->nent = 1;
+        if (g->dry >= Q15)
+            g->dry = LV(0.2);
+    }
+    for (l = 0; l < NFX; l++)
+        for (k = 0; k < FX_N; k++)
+            t->x[l].f.xto[k] = 0;
+}
+static int sig_set(uint32_t m)
+{
+    uint32_t l;
+    int ok = 1;
+    m = m < SM_N ? m : SM_MESH;
+    if (m == SM_LANES) {
+        for (l = 0; l < NGEN; l++)
+            ok &= gen_lane(l);
+        for (l = 0; l < NFX; l++) {
+            ok &= fx_unacross(l);
+            fx_pan[l] = LANE_PAN[l];
+        }
+        for (l = 0; l < NSNAP; l++)
+            if ((snap.used >> l) & 1u)
+                st_lanes(&snap.s[l]);
+        if (morph.on)
+            st_lanes(&morph.b);
+    }
+    sig_mode = (uint8_t)m;
+    return ok;
+}
+
 /* the snapshots (SHIFT + SAVE): in RAM, with the session */
 static void snap_store(uint32_t i)
 {
@@ -846,7 +890,8 @@ typedef struct {
     uint16_t snap_used;
     uint8_t morph;               /* KNOB 1's morph time, half seconds (0 in sessions saved before build 13) */
     uint8_t path;                /* the draw's path (rack.c DP_*: 0, anything, before build 18) */
-    uint8_t rsv[2];
+    uint8_t mode;                /* the signal flow (rack.c SM_*: 0, MESH, before build 28) */
+    uint8_t rsv;
 } ses_glob_t;
 typedef struct {
     uint8_t ntrk, dmode, rate, vary, play, rsv[3];
@@ -965,6 +1010,7 @@ static void ses_glob_now(ses_glob_t *g)
     g->snap_used = snap.used;
     g->morph = ui.morph;
     g->path = draw_path;
+    g->mode = sig_mode;
 }
 
 /* save the machine as session num (a new one, or over the one of that number). Counted, then written a sector at a
@@ -1080,6 +1126,7 @@ static int ses_load(uint32_t i)
     gen_fine = fx_fine = 0;
     ui.morph = (uint8_t)(g.morph <= MORPH_STEPS ? g.morph : 0);
     draw_path = (uint8_t)(g.path < DP_N ? g.path : DP_ANY);
+    sig_mode = (uint8_t)(g.mode < SM_N ? g.mode : SM_MESH);   /* (its state is already as its mode has it) */
     snap.used = g.snap_used;
     snap.cur = (int8_t)(g.snap_cur >= 0 && g.snap_cur < (int8_t)NSNAP ? g.snap_cur : -1);
     ui.gen = (uint8_t)(g.gen < NGEN ? g.gen : 0);
@@ -1101,6 +1148,70 @@ static int ses_load(uint32_t i)
     return SES_OK;
 }
 static int ses_has(uint32_t num) { return ses_find(num) >= 0; }
+/* the session pages (build 28, Bigorna's): DELETE -- the record retired (its sectors Norilsk's to blank, in time); the
+ * session playing, if it was that one, chosen no more */
+static int ses_delete(uint32_t num)
+{
+    int i = ses_find(num);
+    if (!ses.ok)
+        return SES_NOFLASH;
+    if (i < 0)
+        return SES_FAIL;
+    if (ses_locked())
+        return SES_BUSY;
+    ses_kill(ses.sect[i], ses.nsect[i]);
+    ses_list_drop((uint32_t)i);
+    if (ses.current == num)
+        ses.current = 0;
+    return SES_OK;
+}
+/* COPY -- session from, as it is in the flash, into slot to (replacing what is there only once the copy is whole and
+ * read back): its sectors one at a time through the sector buffer, the head given its new number, sequence and CRC */
+static int ses_copy(uint32_t from, uint32_t to)
+{
+    int i = ses_find(from), s;
+    uint32_t ns, k, len, src;
+    ses_head_t h;
+    if (!ses.ok)
+        return SES_NOFLASH;
+    if (i < 0 || to < 1u || to > SES_SLOTS || to == from)
+        return SES_FAIL;
+    if (ses_locked())
+        return SES_BUSY;
+    src = SES_LO + ses.sect[i] * SES_SECT;
+    ses_flash_read(src, &h, sizeof h);
+    if (!ses_head_ok(&h))
+        return SES_FAIL;
+    len = h.len;
+    s = ses_place(len, &ns);
+    if (s < 0)
+        return -s;
+    for (k = 0; k < ns; k++) {
+        uint32_t n = len - k * SES_SECT < SES_SECT ? len - k * SES_SECT : SES_SECT;
+        if (ses_flash_read(src + k * SES_SECT, ses_chunk, n))
+            return SES_FAIL;
+        if (!k) {
+            memcpy(&h, ses_chunk, sizeof h);
+            h.num = (uint16_t)to;
+            h.seq = ++ses.seq;
+            h.live = SES_LIVE;
+            h.head_crc = ses_crc((const uint8_t *)&h, 24u, 0);
+            memcpy(ses_chunk, &h, sizeof h);
+        }
+        if (ses_flash_prog(SES_LO + ((uint32_t)s + k) * SES_SECT, ses_chunk, n))
+            return SES_FAIL;
+    }
+    return ses_commit(to, s, ns, &h);
+}
+/* a saved session's MODE, from its record (the page shows it), or SM_N if none */
+static uint32_t ses_mode_of(uint32_t num)
+{
+    int i = ses_find(num);
+    ses_glob_t g;
+    if (i < 0 || ses_flash_read(SES_LO + ses.sect[i] * SES_SECT + sizeof(ses_head_t), &g, sizeof g))
+        return SM_N;
+    return g.mode < SM_N ? g.mode : SM_MESH;
+}
 static uint32_t ses_current(void) { return ses.current; }
 static int ses_load_slot(uint32_t num)
 {
@@ -1159,6 +1270,7 @@ static void ses_fresh(uint32_t num)
     snap_pend.i = -1;
     morph.on = 0;
     gen_fine = fx_fine = 0;
+    sig_mode = SM_MESH;                                  /* (a clean slate: MESH, as at power-on) */
     ses.current = (uint16_t)num;
     ui.force = 1;
 }

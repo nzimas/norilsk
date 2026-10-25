@@ -1240,6 +1240,12 @@ static __typeof__(&rack_job) volatile rack_job_fp = rack_job;
  * chooses among them */
 enum { DP_ANY, DP_ROUGH, DP_DARK, DP_N };
 static uint8_t draw_path;
+/* The session's signal flow (build 28; the session page's MODE): MESH -- a generator may be cabled into any effect, an
+ * effect across into any later slot (as ever); LANES -- generator l runs through effect slot l alone, its lane: cabled
+ * into its head, no cables between lanes, the lanes centre, left, right; HOME on a generator draws its lane's chain
+ * with it, so the chain is part of the patch. Within a lane the outs to the master are still drawn and rewired */
+enum { SM_MESH, SM_LANES, SM_N };
+static uint8_t sig_mode;
 /* what each effect's values do, for the paths' leaning (RM_PNAME, mod.c) */
 enum { VR_NONE, VR_DRIVE, VR_TONE, VR_SPACE, VR_DAMP, VR_BREAK, VR_BITS };
 static const uint8_t RM_ROLE[NKIND][4] = {
@@ -1356,6 +1362,8 @@ static void fx_wire(uint32_t s, fx_patch_t *f, rnd_t *r)
     for (k = 0; k + 1u < f->n; k++)
         if (rnd_chance(r, 20))
             f->out |= (uint8_t)(1u << k);
+    if (sig_mode == SM_LANES)
+        return;                                  /* (lanes: no cable across to another lane) */
     for (k = 0; k < f->n; k++)
         if (s + 1u < NFX && rnd_chance(r, 33)) {
             uint32_t ts = s + 1u + (uint32_t)rnd_below(r, (int32_t)(NFX - 1u - s));
@@ -1397,6 +1405,20 @@ static void fx_refill(uint32_t s)
     for (k = 0; k < f->n && k < FX_N; k++)
         if (f->e[k].kind == RM_CLD && fx_st[s * FX_N + k])
             ((m_cld_t *)fx_st[s * FX_N + k])->fresh = CLD_N;
+}
+/* a session turned to LANES (build 28): slot s's cables across cut, in place (its effects, values and outs as they are).
+ * 0 if a new patch is still on its way in */
+static int fx_unacross(uint32_t s)
+{
+    fx_patch_t *f;
+    uint32_t k;
+    if (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON)
+        return 0;
+    f = &fbuf[s][f_use[s]];
+    for (k = 0; k < FX_N; k++)
+        f->xto[k] = 0;
+    RING_PUBLISH();
+    return 1;
 }
 /* SHIFT + the first black key on effect slot s: every effect's values drawn anew (the path's way), its effects, outs
  * and cables as they are -- changed in place, as a rewiring (no fade, nothing cleared: the sound goes on, moved). 0 if

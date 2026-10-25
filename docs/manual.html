@@ -52,6 +52,7 @@
 <a href="#the-generators">The generators</a>
 <a href="#the-disintegrator" class="sub">The DISINTEGRATOR</a>
 <a href="#the-effect-slots">The effect slots</a>
+<a href="#mesh-and-lanes">MESH and LANES</a>
 <a href="#the-paths">The paths</a>
 <a href="#modulation">Modulation</a>
 <a href="#snapshots-and-sessions">Snapshots and sessions</a>
@@ -106,7 +107,7 @@
 <tr><td>3rd black key</td><td>the DARK path on or off (lit while on). One path at a time; neither: anything goes</td></tr>
 <tr><td><b>SAVE</b></td><td>the SNAPSHOTS page (again: back)</td></tr>
 <tr><td><b>SAVE</b> held (playing)</td><td>save into the session loaded or chosen</td></tr>
-<tr><td><b>SHIFT + SAVE</b></td><td>the SESSIONS page</td></tr>
+<tr><td><b>SHIFT + SAVE</b></td><td>the SESSIONS list; SAVE opens a session's page: BACK, LOAD, SAVE, COPY, DELETE, MODE (MESH or LANES)</td></tr>
 <tr><td><b>REC</b></td><td>the looper of the generator the keys play: arm a loop (the first note starts it), end it (it plays at once), again to overdub; up to 10 loops</td></tr>
 <tr><td><b>REC</b> held 1 s</td><td>empty that generator's loops</td></tr>
 <tr><td><b>SHIFT + REC</b></td><td>VARY: each note the loops play drawn anew (level, length, now and then changed or joined)</td></tr>
@@ -152,6 +153,13 @@
 <tr><td>BANK</td><td>an inharmonic resonator bank: a bar, a plate, a bell, a membrane (after Mutable Instruments' Rings)</td></tr>
 </table>
 <p>Twenty-two <b>recipes</b> decide what may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST, SPECTRAL, RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE, SPUTTER. Every effect, given nothing, falls silent: none sounds on by itself.</p>
+<h2 id="mesh-and-lanes">MESH and LANES</h2>
+<p>A session's MODE (its page, SHIFT + SAVE) sets how the signal runs:</p>
+<ul>
+<li><b>MESH</b> (as it always was): a generator may be cabled into any effect of any slot, an effect across into any later slot. Rich, and often a smear.</li>
+<li><b>LANES</b>: generator 1 runs through effect slot 4 alone, generator 2 through slot 5, generator 3 through slot 6 — cabled into its lane's head, with a small dry share; no cables between lanes; the lanes centre, left, right. HOME on a generator draws its lane's chain with it, so the chain is part of its patch (SHIFT + HOME: the same family and the same recipe); HOME on an effect slot draws that lane anew, its generator kept; REWIRE inside a lane redraws where its generator enters and which effects also go out to the master. HOME held draws the three generators and their lanes.</li>
+</ul>
+<p>Turned to LANES, a session is rewired, nothing redrawn: each generator into its own lane, the cables between lanes cut, its snapshots likewise. Turned back to MESH, nothing changes until something is drawn. Sessions saved before build 28 are MESH.</p>
 <h2 id="the-paths">The paths</h2>
 <p>Two black keys lean everything HOME draws (and RAND PARAMS):</p>
 <ul>
@@ -164,7 +172,7 @@
 <h2 id="snapshots-and-sessions">Snapshots and sessions</h2>
 <p><b>A snapshot is the whole machine</b>: every slot's sound, effects, values and cables, levels, pans, mutes and sends, the DISINTEGRATORs, the master delay and reverb, the modulation, the scale and root, the octave, the path — and how it is played: the latched notes, whether each generator's loops play, which loops are held out, their direction, speed, VARY and moves along the scale. (The loops' recordings themselves belong to the session.) Sixteen to a session.</p>
 <p><b>SAVE</b> brings up the SNAPSHOTS page: a white key let go recalls its snapshot; held 0.8 s, it stores the machine as it is into it; SHIFT held too, it empties it. KNOB 1 there sets the <b>morph time</b>, 0 to 30 s: a snapshot recalled flows into place over it — levels, pans, sends, values and LFOs glide; sounds cross over on voices of their own and effect chains are faded out and in, in turn; what has no between switches at the middle. The square and key of the snapshot it flows into blink until it is there.</p>
-<p><b>SHIFT + SAVE</b> brings up the SESSIONS page: PRESETS through 64 slots, the number very large (red when it holds a session, grey when empty); SAVE loads it, or starts a clean slate in an empty one; SAVE held saves into it (asked first). Playing, SAVE held saves at once into the session loaded. A session keeps the machine, its sixteen snapshots, the latched notes and every loop, in the FM-1's flash.</p>
+<p><b>SHIFT + SAVE</b> brings up the SESSIONS list: PRESETS through 64 slots, the number very large (red when it holds a session, grey when empty). SAVE opens that slot's page, as Bigorna's: <b>BACK</b>; <b>LOAD</b> (on an empty slot <b>NEW</b>, a clean slate there); <b>SAVE</b> (over another session, asked first); <b>COPY</b> (to a slot PRESETS chooses, the first empty one offered; over a session, asked); <b>DELETE</b> (asked); and the session's <b>MODE</b>, MESH or LANES (SAVE, PRESETS, SAVE: the session playing's only). PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back a level. Playing, SAVE held saves at once into the session loaded. A session keeps the machine, its sixteen snapshots, the latched notes and every loop, in the FM-1's flash.</p>
 <p>Norilsk writes only to blank flash or to its own retired sessions, never over another firmware's data. Other firmware does not return the favour: back your sessions up before installing another.</p>
 <h2 id="the-looper">The looper</h2>
 <p>Tonitor's looper, on each generator: up to ten free-running loops, each on its own clock — no tempo, no grid. REC arms a loop (the first note starts it), REC again ends it and it plays at once; again, while they play, an overdub. A note held across the end of a loop is tied over. PLAY held shows the loops on the white keys to take out or bring back, and lights the 4th to 8th black keys: REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED. SHIFT + OCT moves every loop along the scale. SHIFT + REC: VARY.</p>

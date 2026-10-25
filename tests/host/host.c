@@ -2693,6 +2693,161 @@ static int cmd_mtails(void)
     return fails ? 1 : 0;
 }
 
+/* LANES (build 28): turned on over a MESH patch -- each generator into its own lane alone, no cables between lanes, the
+ * lanes panned centre, left, right, the snapshots too, nothing redrawn; then every draw keeps to the lanes: HOME on a
+ * generator draws its lane's chain with it (and HOME held all three), HOME and REWIRE on either kind of slot never
+ * cross; kept with the session */
+static int lanes_ok(const char *what)
+{
+    uint32_t l, k;
+    for (l = 0; l < NGEN; l++) {
+        const gen_patch_t *p = &gbuf[l][g_pub[l]];
+        if (p->nent != 1 || p->ent[0] / FX_N != l) {
+            printf("FAIL lanes: %s: generator %u cabled outside its lane\n", what, l + 1u);
+            return 1;
+        }
+    }
+    for (l = 0; l < NFX; l++)
+        for (k = 0; k < FX_N; k++)
+            if (fbuf[l][f_pub[l]].xto[k]) {
+                printf("FAIL lanes: %s: slot %u cabled across\n", what, l + 4u);
+                return 1;
+            }
+    return 0;
+}
+static int cmd_lanes(void)
+{
+    int fails = 0;
+    uint32_t l, n, ser[NFX], sum0, cross = 0;
+    memset(hflash, 0xFF, sizeof hflash);
+    fw_init();
+    for (n = 0; n < 40u && !cross; n++) {                /* a MESH patch with cables across */
+        for (l = 0; l < NSLOT; l++) {
+            press(SLOT_BTN[l], 50);
+            press(B_HOME, 50);
+            fw_run(30);
+        }
+        for (l = 0; l < NFX; l++)
+            cross |= fbuf[l][f_pub[l]].xto[0] | fbuf[l][f_pub[l]].xto[1] | fbuf[l][f_pub[l]].xto[2];
+    }
+    snap_store(0);
+    sum0 = fnv(2166136261u, &gbuf[0][g_pub[0]].gen, sizeof gbuf[0][0].gen);
+    if (!sig_set(SM_LANES))
+        printf("FAIL lanes: turning to LANES busy\n"), fails++;
+    fw_run(30);
+    fails += lanes_ok("turned to LANES");
+    if (fnv(2166136261u, &gbuf[0][g_pub[0]].gen, sizeof gbuf[0][0].gen) != sum0)
+        printf("FAIL lanes: turning to LANES redrew a sound\n"), fails++;
+    if (fx_pan[0] != 0 || fx_pan[1] != -14 || fx_pan[2] != 14)
+        printf("FAIL lanes: the lanes not panned centre, left, right\n"), fails++;
+    for (l = 0; l < NFX; l++)
+        if (snap.s[0].x[l].f.xto[0] | snap.s[0].x[l].f.xto[1] | snap.s[0].x[l].f.xto[2])
+            printf("FAIL lanes: a snapshot still cabled across\n"), fails++;
+    for (n = 0; n < 20u; n++) {
+        for (l = 0; l < NFX; l++)
+            ser[l] = fbuf[l][f_pub[l]].serial;
+        press(SLOT_BTN[n % NGEN], 50);                   /* HOME on a generator: its lane drawn with it */
+        press(B_HOME, 50);
+        fw_run(40);
+        if (fbuf[n % NGEN][f_pub[n % NGEN]].serial == ser[n % NGEN])
+            printf("FAIL lanes: HOME on generator %u did not draw its lane\n", n % NGEN + 1u), fails++;
+        for (l = 0; l < NFX; l++)
+            if (l != n % NGEN && fbuf[l][f_pub[l]].serial != ser[l])
+                printf("FAIL lanes: HOME on generator %u drew lane %u\n", n % NGEN + 1u, l + 1u), fails++;
+        key(KEY_REWIRE, 1);                              /* REWIRE it, and an effect slot drawn and rewired */
+        ui_input();
+        key(KEY_REWIRE, 0);
+        press(SLOT_BTN[NGEN + (n + 1u) % NFX], 50);
+        press(B_HOME, 50);
+        fw_run(40);
+        key(KEY_REWIRE, 1);
+        ui_input();
+        key(KEY_REWIRE, 0);
+        fw_run(10);
+        fails += lanes_ok("drawing");
+    }
+    fails += lanes_ok("after the draws");
+    ses_save(5);                                          /* kept with the session */
+    fw_init();
+    if (sig_mode != SM_MESH || ses_load_slot(5) != SES_OK || sig_mode != SM_LANES)
+        printf("FAIL lanes: the session did not keep LANES\n"), fails++;
+    gens_init(1u);
+    printf("lanes: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* the session pages (build 28, Bigorna's), through the panel: SHIFT + SAVE, a slot, SAVE: its page; SAVE saves (over
+ * another, asked), COPY to the first empty slot, DELETE asked (NO keeps it, YES deletes), LOAD, MODE set from the page */
+static void page_open(uint32_t num)
+{
+    key(KEY_SHIFT, 1);
+    while (ui.ses_page)                                  /* (out of any session page first, a level at a time) */
+        press(B_SAVE, 50);
+    press(B_SAVE, 50);
+    key(KEY_SHIFT, 0);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = (int32_t)num - (int32_t)ui.ses_ix;
+    ui_input();
+    press(B_SAVE, 50);                                   /* (its page, on LOAD) */
+}
+static void page_row(uint32_t row)
+{
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = (int32_t)row - (int32_t)ui.ses_row;
+    ui_input();
+}
+static int cmd_sespage(void)
+{
+    int fails = 0;
+    memset(hflash, 0xFF, sizeof hflash);
+    fw_init();
+    press(B_FX, 50);
+    press(B_HOME, 50);
+    page_open(3);                                        /* SAVE on an empty slot's page: saved there at once */
+    page_row(SR_SAVE);
+    press(B_SAVE, 50);
+    if (!ses_has(3) || ses_current() != 3 || ui.ses_page)
+        printf("FAIL sespage: SAVE on slot 3's page\n"), fails++;
+    page_open(3);                                        /* COPY: to the first empty slot (1) */
+    page_row(SR_COPY);
+    press(B_SAVE, 50);
+    if (ui.ses_page != SP_COPY || ui.ses_tgt != 1)
+        printf("FAIL sespage: COPY did not offer the first empty slot (%u)\n", ui.ses_tgt), fails++;
+    press(B_SAVE, 50);
+    if (!ses_has(1))
+        printf("FAIL sespage: COPY to 1\n"), fails++;
+    page_open(1);                                        /* DELETE: NO keeps it, YES deletes it */
+    page_row(SR_DELETE);
+    press(B_SAVE, 50);
+    press(B_SAVE, 50);                                   /* (NO, as asked) */
+    if (!ses_has(1))
+        printf("FAIL sespage: DELETE answered NO deleted\n"), fails++;
+    page_row(SR_DELETE);
+    press(B_SAVE, 50);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;                /* YES */
+    ui_input();
+    press(B_SAVE, 50);
+    if (ses_has(1))
+        printf("FAIL sespage: DELETE YES did not delete\n"), fails++;
+    page_open(3);                                        /* MODE: LANES, from the page */
+    page_row(SR_MODE);
+    press(B_SAVE, 50);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;
+    ui_input();
+    press(B_SAVE, 50);
+    if (sig_mode != SM_LANES)
+        printf("FAIL sespage: MODE not set to LANES\n"), fails++;
+    page_row(SR_SAVE);                                   /* saved, and loaded back */
+    press(B_SAVE, 50);
+    fw_init();
+    page_open(3);
+    page_row(SR_LOAD);
+    press(B_SAVE, 50);
+    if (ses_current() != 3 || sig_mode != SM_LANES)
+        printf("FAIL sespage: LOAD from the page (session %u, mode %u)\n", ses_current(), sig_mode), fails++;
+    gens_init(1u);
+    printf("sespage: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 /* a snapshot recalled at once while a slot is still taking the last change (SES_BUSY then): every part given in the
  * frames that follow, none left at the snapshot before (build 15) */
 static int cmd_recall(void)
@@ -3524,7 +3679,20 @@ static int cmd_screens(int argc, char **argv)
     press(B_SAVE, 50);                                   /* SHIFT + SAVE: the SESSIONS page */
     key(KEY_SHIFT, 0);
     SHOT("sessions");
-    fm1_in.pressed |= 1u << PANEL_BTN[B_SAVE];           /* SAVE held: asked (none loaded) */
+    press(B_SAVE, 50);                                   /* SAVE: the session's page (Bigorna's), on LOAD */
+    SHOT("session-page");
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 4;                /* down to MODE, SAVE: being set, turned to LANES */
+    ui_input();
+    press(B_SAVE, 50);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;
+    ui_input();
+    SHOT("session-mode");
+    key(KEY_SHIFT, 1);                                   /* SHIFT + SAVE: left as it was; again: the list; again: out */
+    press(B_SAVE, 50);
+    press(B_SAVE, 50);
+    press(B_SAVE, 50);
+    key(KEY_SHIFT, 0);
+    fm1_in.pressed |= 1u << PANEL_BTN[B_SAVE];           /* SAVE held, playing: asked (none loaded) */
     fm1_in.buttons |= 1u << PANEL_BTN[B_SAVE];
     ui_input();
     fw_run(1200);
@@ -3689,6 +3857,10 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "lanes"))
+        return cmd_lanes();
+    if (!strcmp(argv[1], "sespage"))
+        return cmd_sespage();
     if (!strcmp(argv[1], "mtails"))
         return cmd_mtails();
     if (!strcmp(argv[1], "link"))

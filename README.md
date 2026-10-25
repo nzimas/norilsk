@@ -18,7 +18,7 @@ at will: as fit for noise experiments as for slow, dark ambient.
 
 **Website, browser installer and session backup: <https://nzimas.github.io/norilsk/>**
 
-State: **build 27**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
+State: **build 28**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
 
 # Manual
 
@@ -91,7 +91,7 @@ SHIFT is the rightmost black key.
 | 3rd black key | the DARK path on or off (lit while on). One path at a time; neither: anything goes |
 | **SAVE** | the SNAPSHOTS page (again: back) |
 | **SAVE** held (playing) | save into the session loaded or chosen |
-| **SHIFT + SAVE** | the SESSIONS page |
+| **SHIFT + SAVE** | the SESSIONS list; SAVE opens a session's page: BACK, LOAD, SAVE, COPY, DELETE, MODE (MESH or LANES) |
 | **REC** | the looper of the generator the keys play: arm a loop (the first note starts it), end it (it plays at once), again to overdub; up to 10 loops |
 | **REC** held 1 s | empty that generator's loops |
 | **SHIFT + REC** | VARY: each note the loops play drawn anew (level, length, now and then changed or joined) |
@@ -171,6 +171,22 @@ Twenty-two **recipes** decide what may stand at each place: SPACE, ECHO, METAL, 
 RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE,
 SPUTTER. Every effect, given nothing, falls silent: none sounds on by itself.
 
+## MESH and LANES
+
+A session's MODE (its page, SHIFT + SAVE) sets how the signal runs:
+
+- **MESH** (as it always was): a generator may be cabled into any effect of any slot, an effect across into any later
+  slot. Rich, and often a smear.
+- **LANES**: generator 1 runs through effect slot 4 alone, generator 2 through slot 5, generator 3 through slot 6 --
+  cabled into its lane's head, with a small dry share; no cables between lanes; the lanes centre, left, right. HOME on
+  a generator draws its lane's chain with it, so the chain is part of its patch (SHIFT + HOME: the same family and the
+  same recipe); HOME on an effect slot draws that lane anew, its generator kept; REWIRE inside a lane redraws where its
+  generator enters and which effects also go out to the master. HOME held draws the three generators and their lanes.
+
+Turned to LANES, a session is rewired, nothing redrawn: each generator into its own lane, the cables between lanes
+cut, its snapshots likewise. Turned back to MESH, nothing changes until something is drawn. Sessions saved before
+build 28 are MESH.
+
 ## The paths
 
 Two black keys lean everything HOME draws (and RAND PARAMS):
@@ -206,9 +222,12 @@ into place over it — levels, pans, sends, values and LFOs glide; sounds cross 
 chains are faded out and in, in turn; what has no between switches at the middle. The square and key of the snapshot
 it flows into blink until it is there.
 
-**SHIFT + SAVE** brings up the SESSIONS page: PRESETS through 64 slots, the number very large (red when it holds a
-session, grey when empty); SAVE loads it, or starts a clean slate in an empty one; SAVE held saves into it (asked
-first). Playing, SAVE held saves at once into the session loaded. A session keeps the machine, its sixteen snapshots,
+**SHIFT + SAVE** brings up the SESSIONS list: PRESETS through 64 slots, the number very large (red when it holds a
+session, grey when empty). SAVE opens that slot's page, as Bigorna's: **BACK**; **LOAD** (on an empty slot **NEW**,
+a clean slate there); **SAVE** (over another session, asked first); **COPY** (to a slot PRESETS chooses, the first
+empty one offered; over a session, asked); **DELETE** (asked); and the session's **MODE**, MESH or LANES (SAVE,
+PRESETS, SAVE: the session playing's only). PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back a
+level. Playing, SAVE held saves at once into the session loaded. A session keeps the machine, its sixteen snapshots,
 the latched notes and every loop, in the FM-1's flash.
 
 Norilsk writes only to blank flash or to its own retired sessions, never over another firmware's data. Other firmware
