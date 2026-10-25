@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# MOLECULAR: build build/molecular.fwsc (./setup.sh first).   ./build.sh [--release X.Y]
+# NORILSK: build build/norilsk.fwsc (./setup.sh first).   ./build.sh [--release X.Y]
 set -e
 cd "$(dirname "$0")"
 PY=.venv/bin/python

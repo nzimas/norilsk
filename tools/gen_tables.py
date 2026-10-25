@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# MOLECULAR: fixed-point lookup tables (the target has no FPU and no float runtime).
+# NORILSK: fixed-point lookup tables (the target has no FPU and no float runtime).
 # After Tonitor's tools/gen_tables.py (itself after Felucca's: SINE, the pitch table, the FM6 / msfa
 # start-up tables) and Bigorna's (the band-limited single cycles, WT_*).
 """tools/gen_tables.py OUT.h"""

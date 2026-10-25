@@ -32,7 +32,7 @@
 enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
 /* the generators' generation: a sound is drawn again from (seed, path, gen) bit for bit, so a sound saved as its
  * seed keeps its generation, and every generation stays as it was (tests/golden). New sounds are drawn on GEN_NOW.
- * MOLECULAR: 0 the engine stage and 0.01 .. 0.02; 1 from 0.03: no pitch zaps or bleeps (IMPACT's fall a thud, BRUIT's
+ * NORILSK: 0 the engine stage and 0.01 .. 0.02; 1 from 0.03: no pitch zaps or bleeps (IMPACT's fall a thud, BRUIT's
  * sample-and-hold on the level more than the pitch, PULSE's pitch still, DRONE's vibrato faint), the tonal bodies
  * (FORMANT, REED) given an inharmonic modulator one time in two; a freeze never before the body's attack is over;
  * 2 from build 5: textures and drones only -- every sound swells in, holds and keeps moving (mol.c mo_gen2); IMPACT
@@ -50,6 +50,7 @@ AINL int32_t mulq16(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >>
 AINL int32_t mulq12(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 12); }
 AINL int32_t absi(int32_t x) { return x < 0 ? -x : x; }
 AINL int32_t maxi(int32_t a, int32_t b) { return a > b ? a : b; }
+AINL int32_t mini(int32_t a, int32_t b) { return a < b ? a : b; }
 
 /* 2^(x / 65536), Q16 in and out; x from -16 to +15 octaves */
 AINL uint32_t exp2_q16(int32_t x)

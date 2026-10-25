@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the panel and the screen.
+ * NORILSK: the panel and the screen.
  *
  *   FX SEL ENV                the generator slots 1 to 3. Pressed: the slot chosen (the keys play it). Held 0.8 s:
  *                             muted, or heard again
@@ -26,6 +26,12 @@
  *   the 1st black key         the chosen slot REWIRED: a generator's cables into the effect slots and its modulation by
  *                             another generator drawn anew; an effect slot's outs and cables across to the slots
  *                             after it. Nothing else changes, and nothing is cut off: its sound and values stay
+ *   SHIFT + the 1st black key the chosen slot's values thrown anew: an effect slot's every effect (in place, no
+ *                             break: its effects and cables stay); a generator's sound, of the same family (its cables
+ *                             stay). The path's way
+ *   the 2nd black key         the ABRASIVE path on or off (lit while on): what HOME draws, gnarly, textural, abrasive
+ *   the 3rd black key         the DARK path on or off: dark ambient, drones, quieter. One path at a time; neither:
+ *                             anything goes. Kept with the session
  *   the 4th .. 8th black keys its loops REVERSE, PENDULUM, RANDOM; HALF, DOUBLE speed (pressed again: as recorded)
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
@@ -33,19 +39,22 @@
  *                             KNOB 4 and SHIFT + KNOB 4): to the master delay and reverb, at the end of the chain
  *   SEQ                       the DELAY page, again the REVERB page, again MOD, again back (Tonitor's): KNOB 1 .. 4
  *                             (TIME FEEDBACK DAMP MIX; SIZE DECAY DAMP MIX), each a row, the one turned black on white
- *   SAVE                      the SESSIONS page (Tonitor's): PRESETS through the 64 slots (the number very large: red
+ *   SHIFT + SAVE              (build 18: SAVE before) the SESSIONS page (Tonitor's): PRESETS through the 64 slots (the number very large: red
  *                             when it holds a session, grey when empty); SAVE on a saved one loads it, on an empty
  *                             one starts a new session there (a clean slate); a slot button goes back. SAVE held
  *                             0.8 s: saved into the session loaded or chosen, at once; on the page, into the slot
  *                             shown (asked: SAVE NEW, or OVERWRITE? in red on NO until PRESETS turns it to YES)
- *   SHIFT + SAVE              the SNAPSHOTS page (Bigorna's patterns): the session's 16 states, 1 .. 16 in four rows.
- *                             A white key let go soon: that snapshot recalled; held 0.8 s: the state now stored in it;
- *                             SHIFT held too: emptied. PRESETS moves the frame; SAVE recalls the one framed, SAVE held
- *                             stores into it. SHIFT + SAVE again, or a slot button: back. Kept in the flash with the
- *                             session (SAVE held)
- *   KNOB 1                    (playing, and on the SNAPSHOTS page) the morph time: a snapshot recalled flows into place
- *                             over 0 .. 30 s (sessions.c); its square blinks, and its key, until it is there
- *   SEQ (third press)         the MOD page of the slot chosen (Tonitor's): PRESETS through LFO 1, LFO 2, MOD A .. D,
+ *   SAVE                      (build 18: SHIFT + SAVE before) the SNAPSHOTS page (Bigorna's patterns): the session's
+ *                             16 states, 1 .. 16 in four rows. A white key let go soon: that snapshot recalled; held
+ *                             0.8 s: the state now stored in it; SHIFT held too: emptied. PRESETS moves the frame; SAVE
+ *                             held stores into the one framed. SAVE again, or a slot button: back. Kept in the flash
+ *                             with the session (SAVE held, playing)
+ *   KNOB 1                    playing: the DISINTEGRATOR of the generator the keys play, 0 .. 100 (gens.c: its sound
+ *                             gated, stuttered, crushed and thrown about the image, more unstable the higher); on the
+ *                             SNAPSHOTS page: the morph time -- a snapshot recalled flows into place over 0 .. 30 s
+ *                             (sessions.c); its square blinks, and its key, until it is there. Each on a dial, large
+ *   SEQ (third press)         the MOD page of the slot chosen (Tonitor's): PRESETS through LFO 1, LFO 2, MOD A .. H
+ *                             (eight from build 18),
  *                             KNOB 1 .. 4 their values. SHIFT + SEQ: the slot's modulation thrown anew
  *   USB MIDI notes            as the keys, on the generator chosen last
  *   MASTER (knob)             the level
@@ -70,6 +79,8 @@ static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO
 #define KEY_NONE 0xFFu
 #define HOLD_MS 800u             /* a long press */
 #define KEY_REWIRE 1u            /* the 1st black key: the chosen slot rewired (its cables anew, its sound as it is) */
+#define KEY_ROUGH 3u             /* the 2nd black key: the ABRASIVE path on or off (build 18; rack.c draw_path) */
+#define KEY_DARK 5u              /* the 3rd black key: the DARK path on or off (one path at a time; neither: anything) */
 #define KEY_REV 8u               /* the 4th black key: the loops backwards (again: forwards) */
 #define KEY_PEND 10u             /* the 5th: PENDULUM, forwards and backwards in turn */
 #define KEY_RAND 13u             /* the 6th: RANDOM, forwards from a note drawn at random each time the next is due */
@@ -180,7 +191,7 @@ static struct {
     int8_t snap_key;             /* the white key down on it (-1 none), since snap_t0; held: done */
     uint8_t snap_done, snap_sh;
     uint32_t snap_t0;
-    uint8_t mod_ix;              /* the MOD page's entry: LFO 1, LFO 2, MOD A .. D */
+    uint8_t mod_ix;              /* the MOD page's entry: LFO 1, LFO 2, MOD A .. H */
     int8_t mod_touched;
     uint32_t mod_touch_until, mod_drawn_at;
     char fl1[14], fl2[8];        /* the whole screen's message, until fl_until */
@@ -189,8 +200,8 @@ static struct {
     uint8_t fl_shown;
     int32_t shown_ses, shown_snap;
     uint8_t morph;               /* KNOB 1: a snapshot's morph time, half seconds (0: at once) */
-    uint32_t dial_until;         /* the MORPH TIME dial over the screen, until (KNOB 1 turned) */
-    uint8_t dial_shown;
+    uint32_t dial_until;         /* KNOB 1's dial over the screen, until (KNOB 1 turned) */
+    uint8_t dial_shown, dial_kind;   /* dial_kind: 0 MORPH, 1 DISINTEGRATOR */
     int32_t shown_dial;
 } ui;
 enum { SP_LIST = 1, SP_ASK = 2 };
@@ -387,16 +398,28 @@ static void save_long(void)
     ui.ses_yes = 1;
     ui.force = 1;
 }
-/* SAVE pressed (let go before it was held): the SESSIONS page, or what it asks; on the SNAPSHOTS page, the snapshot
- * framed recalled */
+/* the SNAPSHOTS page up (SAVE), framed on the snapshot chosen; the SESSIONS page up (SHIFT + SAVE), on the session
+ * chosen (build 18: the other way round before) */
+static void snap_page_on(void)
+{
+    pages_off();
+    ui.snap_page = 1;
+    ui.snap_key = -1;
+    if (snap_current() >= 0)
+        ui.snap_ix = (uint8_t)snap_current();
+}
+static void ses_page_on(void)
+{
+    pages_off();
+    ui.ses_page = SP_LIST;
+    ui.ses_ix = (uint8_t)(ses_current() ? ses_current() : 1u);
+}
+/* SAVE pressed (let go before it was held): the SNAPSHOTS page, or back from it; on the SESSIONS page, what it asks
+ * or the slot shown */
 static void save_short(void)
 {
     if (ui.snap_page) {
-        if (snap_has(ui.snap_ix))
-            ses_done(snap_recall(ui.snap_ix), "RECALLED", ui.snap_ix + 1u);
-        else
-            say("EMPTY", 900);
-        ui.force = 1;
+        pages_off();
         return;
     }
     if (ui.ses_page == SP_ASK) {
@@ -422,9 +445,7 @@ static void save_short(void)
         }
         return;
     }
-    pages_off();                                 /* the SESSIONS page, on the session chosen if any */
-    ui.ses_page = SP_LIST;
-    ui.ses_ix = (uint8_t)(ses_current() ? ses_current() : 1u);
+    snap_page_on();
 }
 /* KNOB j on the MOD page: entry ix of slot sl (Tonitor's mod_knob) */
 static void mod_knob(uint32_t sl, uint32_t ix, uint32_t j, int32_t s)
@@ -539,13 +560,11 @@ static void ui_input(void)
         ui.fx_touched = -1;
         ui.mod_touched = -1;
     }
-    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SNAPSHOTS page, or back */
-        uint8_t was = ui.snap_page;
-        pages_off();
-        ui.snap_page = (uint8_t)!was;
-        ui.snap_key = -1;
-        if (ui.snap_page && snap_current() >= 0)
-            ui.snap_ix = (uint8_t)snap_current();
+    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SESSIONS page, or back */
+        if (ui.ses_page)
+            pages_off();
+        else
+            ses_page_on();
     } else if (btn_bit(press, B_SAVE)) {
         ui.save_t0 = fm1_ms;
         ui.save_down = 1;
@@ -722,10 +741,16 @@ static void ui_input(void)
                 ui.fx_touch_until = fm1_ms + 1500u;
             }
         }
-    } else {                                     /* KNOB 1: the morph time; KNOB 3, KNOB 4: the generator's sends */
+    } else {                                     /* KNOB 1: the morph time (SNAPSHOTS), else the DISINTEGRATOR of
+                                                  * the generator the keys play; KNOB 3, KNOB 4: its sends */
         s = fm1_enc_take(PANEL_ENC[EN_K1]);
-        if (s) {                                 /* (shown on its dial, over whatever page is up) */
+        if (s && ui.snap_page) {                 /* (shown on its dial, over the page) */
             ui.morph = (uint8_t)clampi((int32_t)ui.morph + s, 0, MORPH_STEPS_UI);
+            ui.dial_kind = 0;
+            ui.dial_until = fm1_ms + 1500u;
+        } else if (s && !ui.ses_page) {
+            gen_dis[ui.gen] = (int8_t)clampi(gen_dis[ui.gen] + 2 * s, 0, 100);
+            ui.dial_kind = 1;
             ui.dial_until = fm1_ms + 1500u;
         }
         s = fm1_enc_take(PANEL_ENC[EN_K3]);
@@ -788,9 +813,19 @@ static void ui_input(void)
         midi_take();
         return;
     }
-    if ((ch & keys) >> KEY_REWIRE & 1u) {        /* the first black key: the chosen slot rewired */
+    if (((ch & keys) >> KEY_REWIRE & 1u) && shift_held()) {   /* SHIFT and the first black key: the chosen slot's
+                                                               * values (an effect slot) or sound (a generator) anew */
+        int ok = ui.sel < NGEN ? gen_resound(ui.sel, next_seed()) : fx_revalue(ui.sel - NGEN, next_seed());
+        say_n(ok ? (ui.sel < NGEN ? "NEW SOUND " : "NEW VALUES ") : "BUSY ", (int32_t)ui.sel + 1, "", 1000);
+        ui.force = 1;
+    } else if ((ch & keys) >> KEY_REWIRE & 1u) { /* the first black key: the chosen slot rewired */
         int ok = ui.sel < NGEN ? gen_rewire(ui.sel, next_seed()) : fx_rewire(ui.sel - NGEN, next_seed());
         say_n(ok ? "REWIRED " : "BUSY ", (int32_t)ui.sel + 1, "", 1000);
+    }
+    if (((ch & keys) >> KEY_ROUGH & 1u) || ((ch & keys) >> KEY_DARK & 1u)) {   /* the paths: on, off, or the other */
+        uint8_t want = ((ch & keys) >> KEY_ROUGH & 1u) ? DP_ROUGH : DP_DARK;
+        draw_path = draw_path == want ? DP_ANY : want;
+        say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : "ANY PATH", 1200);
     }
     {   /* the loops' direction (REVERSE, PENDULUM, RANDOM) and speed (HALF, DOUBLE); pressed again, as recorded */
         const looper_t *p = &loop[ui.gen];
@@ -899,6 +934,8 @@ static void ui_leds(void)
             fm1_led_key(14u + k, w >= 0 && (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
         else if (w >= 0)
             fm1_led_key(14u + k, ((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u));
+        else if (k == KEY_ROUGH || k == KEY_DARK)  /* the path chosen, lit */
+            fm1_led_key(14u + k, (k == KEY_ROUGH && draw_path == DP_ROUGH) || (k == KEY_DARK && draw_path == DP_DARK));
         else                                     /* the loops' direction and speed keys, lit while on */
             fm1_led_key(14u + k, p->ntrk && ((k == KEY_REV && p->dmode == LD_REV) || (k == KEY_PEND && p->dmode == LD_PEND) ||
                                              (k == KEY_RAND && p->dmode == LD_RAND) || (k == KEY_HALF && p->rate == LS_HALF) ||
@@ -1247,7 +1284,7 @@ static void draw_fx_page(void)
  * or OFF), a bar of its reach (0 .. 30 s). Then the page that was up comes back */
 static int draw_dial(void)
 {
-    int32_t key = ui.morph;
+    int32_t key = ui.dial_kind ? 1000 + (int32_t)ui.gen * 200 + gen_dis[ui.gen] : ui.morph;
     char v[12];
     if ((int32_t)(ui.dial_until - fm1_ms) <= 0) {
         if (ui.dial_shown) {
@@ -1259,6 +1296,32 @@ static int draw_dial(void)
     }
     if (ui.dial_shown && ui.shown_dial == key)
         return 1;
+    if (ui.dial_kind) {                          /* DISINTEGRATOR: the generator's own, in its colour, 0 .. 100 */
+        int32_t a = gen_dis[ui.gen];
+        uint16_t col = GEN_COL[ui.gen];
+        if (a)
+            fmt_int(v, a);
+        else
+            str_cpy(v, "OFF", 4);
+        CV_AREA(0, 0, 240, 78, C_BLACK) {         /* (the name in two large lines: in one, only a small font fits) */
+            cv_text_c(3, &FONT_M, "DISINTE-", col);
+            cv_text_c(40, &FONT_M, "GRATOR", col);
+        }
+        CV_AREA(0, 78, 240, 98, C_BLACK)
+            cv_text_fit((98 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+        CV_AREA(0, 176, 240, 32, C_BLACK) {
+            char g[8] = "GEN 1";
+            g[4] = (char)('1' + ui.gen);
+            cv_text_c((32 - FONT_S.h) / 2, &FONT_S, g, col);
+        }
+        CV_AREA(0, 208, 240, 32, C_BLACK) {
+            cv_rect(12, 5, 216, 22, RGB(60, 60, 60));
+            cv_rect(12, 5, a * 216 / 100, 22, col);
+        }
+        ui.dial_shown = 1;
+        ui.shown_dial = key;
+        return 1;
+    }
     if (ui.morph)
         fmt_fix(v, ui.morph * 5, 1);
     else
@@ -1390,7 +1453,7 @@ static void draw_snap_page(void)
         }
 }
 /* the MOD page (Tonitor's): the title (the slot and the entry); a row a value on two lines, the name small with its
- * bar, the value under it; the row just turned black on white; MOD A .. D: NOW, what it does at this moment */
+ * bar, the value under it; the row just turned black on white; MOD A .. H: NOW, what it does at this moment */
 static void mod_dst_name(uint32_t sl, uint32_t d, char *b, uint32_t n)
 {
     if (sl < NGEN) {

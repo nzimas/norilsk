@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""List and save MOLECULAR's sessions from an FM-1 over USB-MIDI (reading only: nothing is written to the FM-1).
+"""List and save NORILSK's sessions from an FM-1 over USB-MIDI (reading only: nothing is written to the FM-1).
 
   fm1_sessions.py                 the sessions on the FM-1: number, bytes
   fm1_sessions.py save N [DIR]    session N to DIR/session_N.bin (default: build/)
 
 The protocol is the firmware's backup.c (Tonitor's backup protocol, reading only): the installer's framing,
 F0 pack7(00 59 cmd len24 body ~sum) F7; 0x50 the list, 0x51 a piece of a record. Only an FM-1 that answers the
-handshake as MOLECULAR (FM-1_7xx) is asked. The saved file is the record as the flash holds it: build/host replay
+handshake as NORILSK (FM-1_7xx) is asked. The saved file is the record as the flash holds it: build/host replay
 plays it. Needs mido (as fm1_install.py).
 """
 import os
@@ -71,7 +71,7 @@ def main():
     args = sys.argv[1:]
     dev = Updater(MidoBackend()).find(want=lambda i: i.model == "FM-1" and 700 <= i.version <= 799 and not i.loader)
     if not dev:
-        sys.exit("no FM-1 running MOLECULAR found (FM-1_7xx)")
+        sys.exit("no FM-1 running NORILSK found (FM-1_7xx)")
     try:
         print(f"{dev.id.text} on {dev.name}")
         recs = listing(dev.link)
@@ -90,7 +90,7 @@ def main():
             sys.exit(f"no session {num} on the FM-1")
         data = read(dev.link, num, length)
         if data[:4] != b"MOL1":
-            sys.exit(f"session {num}: not a MOLECULAR record")
+            sys.exit(f"session {num}: not a NORILSK record")
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"session_{num}.bin")
         with open(path, "wb") as f:

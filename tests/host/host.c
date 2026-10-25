@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR host harness: the engine compiled for the computer.
+ * NORILSK host harness: the engine compiled for the computer.
  *
  *   host render DIR [SEEDS] [PATH]   every family, SEEDS sounds each (default 3), on a path (0 open, 1 ambient,
  *                                    2 experimental; default 0): a note held 4 s and released, a WAV each, and a
@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "molecular_tables.h"
+#include "norilsk_tables.h"
 
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -1943,9 +1943,7 @@ static int cmd_hiss(void)
         ui.morph = 0;
         snap_recall(1);
         fw_run(500);
-        key(KEY_SHIFT, 1);                               /* the SNAPSHOTS page, KNOB 1 to 4 s, the third key */
-        press(B_SAVE, 50);
-        key(KEY_SHIFT, 0);
+        press(B_SAVE, 50);                               /* the SNAPSHOTS page, KNOB 1 to 4 s, the third key */
         ui.morph = s0 ? 20 : 8;
         key(4, 1);                                       /* (the third white key) */
         fw_run(10);
@@ -2102,6 +2100,218 @@ static int cmd_quiet(void)
             }
         }
     printf("quiet: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+static int replay_load(const char *path);
+/* a session saved by build 17 (format 1: four modulation slots a slot; tests/sessions/format1.bin, its values in
+ * format1.txt) read by this one: the state as it was, the first four slots as they were, the four new ones empty */
+static int cmd_format1(void)
+{
+    FILE *f = fopen("tests/sessions/format1.txt", "r");
+    char line[128];
+    uint32_t q, j, lvl, rec, dseed;
+    int fails = 0, num;
+    if (!f)
+        return printf("FAIL format1: tests/sessions/format1.txt missing\n"), 1;
+    if ((num = replay_load("tests/sessions/format1.bin")) < 0) {
+        fclose(f);
+        return printf("FAIL format1: the session does not load\n"), 1;
+    }
+    for (q = 0; q < NSLOT && fgets(line, sizeof line, f); q++)
+        for (j = 0; j < 20u; j++) {               /* (format 1's mod: 2 LFOs, 4 slots: 20 bytes) */
+            unsigned b;
+            sscanf(line + 2 * j, "%2x", &b);
+            if (j < 8u ? ((const uint8_t *)snap.s[0].mod[q].lfo)[j] != (uint8_t)b      /* (the LFOs, then the slots) */
+                       : ((const uint8_t *)&snap.s[0].mod[q].s[(j - 8u) / 3u])[(j - 8u) % 3u] != (uint8_t)b)
+                fails++;
+        }
+    for (q = 0; q < NSLOT; q++)
+        for (j = NMSLOT_OLD; j < NMSLOT; j++)
+            if (snap.s[0].mod[q].s[j].src || snap.s[0].mod[q].s[j].amt)
+                fails++;
+    if (fgets(line, sizeof line, f) && sscanf(line, "%u %u %u", &lvl, &rec, &dseed) == 3)
+        fails += snap.s[0].g[0].lvl != (int8_t)lvl || snap.s[0].x[1].f.recipe != rec || snap.s[0].g[2].g.dseed != dseed;
+    else
+        fails++;
+    fclose(f);
+    if (!snap_has(0) || !snap_has(1) || snap.s[0].g[0].dis)
+        fails++;
+    printf("format1: session %d (build 17) read, %d failures\n", num, fails);
+    return fails ? 1 : 0;
+}
+
+/* the DISINTEGRATOR on a held sound (all of it dry, so its throws are heard as they are): at 0 nothing touched (the
+ * output bit for bit as with none); turned up, the sound moved more the higher (gated, stuttered, crushed: further
+ * from the untouched sound), never past full scale, no steps at its edges (the largest sample-to-sample jump within
+ * twice the sound's own); the image thrown about at 100 (the left-right balance swinging); turned back to 0, the
+ * untouched sound again within 50 ms */
+#define DIS_T 2756u
+static uint32_t dis_run(int32_t amount, int32_t *out, uint32_t blocks)
+{
+    uint32_t b, h = 2166136261u;
+    int32_t o[2 * CTL];
+    gbuf[0][g_use[0]].nent = 0;
+    gbuf[0][g_use[0]].dry = Q15;
+    for (b = 0; b < blocks; b++) {
+        if (amount >= 0)
+            gen_dis[0] = (int8_t)amount;
+        mix_block(o);
+        if (out)
+            memcpy(out + b * 2u * CTL, o, sizeof o);
+        h = fnv(h, o, sizeof o);
+    }
+    return h;
+}
+static double dis_swing(const int32_t *x)              /* the spread of the left-right balance, 23 ms at a time */
+{
+    double m = 0, v = 0, bal[DIS_T / 32u];
+    uint32_t b, i, n = 0;
+    for (b = 0; b + 32u <= DIS_T; b += 32u) {
+        double l = 0, r = 0;
+        for (i = b * 2u * CTL; i < (b + 32u) * 2u * CTL; i += 2u) {
+            l += (double)x[i] * x[i];
+            r += (double)x[i + 1u] * x[i + 1u];
+        }
+        bal[n] = (l - r) / (l + r + 1);
+        m += bal[n++];
+    }
+    m /= n;
+    for (i = 0; i < n; i++)
+        v += (bal[i] - m) * (bal[i] - m);
+    return __builtin_sqrt(v / n);
+}
+static int cmd_dis(void)
+{
+    static int32_t ref[DIS_T * 2 * CTL], cur[DIS_T * 2 * CTL];
+    static const int32_t A[4] = {20, 45, 70, 100};
+    int fails = 0;
+    uint32_t i, k;
+    double prev = 0;
+    ends_fresh(4711u);                                   /* a note latched on generator 1 */
+    {
+        uint32_t h0 = dis_run(-1, ref, DIS_T), h1;
+        ends_fresh(4711u);
+        h1 = dis_run(0, 0, DIS_T);
+        if (h0 != h1)
+            printf("FAIL dis: at 0 the sound is touched\n"), fails++;
+    }
+    for (k = 0; k < 4u; k++) {
+        double d = 0, sw;
+        int32_t pk = 0, jump = 0, rjump = 0;
+        ends_fresh(4711u);
+        dis_run(A[k], cur, DIS_T);
+        for (i = 2; i < DIS_T * 2u * CTL; i++) {
+            double x = (double)cur[i] - ref[i];
+            d += x * x;
+            pk = maxi(pk, absi(cur[i]));
+            jump = maxi(jump, absi(cur[i] - cur[i - 2u]));
+            rjump = maxi(rjump, absi(ref[i] - ref[i - 2u]));
+        }
+        d = 10.0 * __builtin_log10(d / (DIS_T * 2.0 * CTL) + 1);
+        sw = dis_swing(cur) - dis_swing(ref);
+        printf("dis %3d: moved %.1f dB, peak %d, largest step %d (the sound's own %d), the balance swinging %+.2f more\n",
+               A[k], d, pk, jump, rjump, sw);
+        if (d < prev - 1.0)
+            printf("FAIL dis: %d moves the sound less than less does\n", A[k]), fails++;
+        if (pk > 32767)
+            printf("FAIL dis: %d past full scale\n", A[k]), fails++;
+        if (jump > 2 * rjump + 2000)
+            printf("FAIL dis: %d steps (clicks)\n", A[k]), fails++;
+        if (A[k] == 100 && sw < 0.1)
+            printf("FAIL dis: 100 throws nothing about the image\n"), fails++;
+        prev = d;
+    }
+    dis_run(100, 0, 1378);                               /* back to 0: untouched within 50 ms */
+    dis_run(0, 0, 70);
+    if (dis[0].g != Q15 || dis[0].m || dis[0].pan)
+        printf("FAIL dis: back at 0, still touched (gain %d, wet %d, pan %d)\n", dis[0].g, dis[0].m, dis[0].pan), fails++;
+    printf("dis: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* the paths: HOME on a generator and on an effect slot drawn 300 times each way. ABRASIVE: the harsh families and the
+ * abrasive recipes most of the time; DARK: no harsh family, none of the abrasive recipes, the harsh effects only where
+ * nothing else could stand; ANY: as before */
+static int cmd_paths(void)
+{
+    static const uint8_t ROUGH_FAM[MF_N] = {1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0};
+    int fails = 0;
+    uint32_t p, n;
+    for (p = 0; p < DP_N; p++) {
+        uint32_t rough = 0, harsh = 0, rrec = 0, drec = 0, hfx = 0;
+        fw_init();
+        draw_path = (uint8_t)p;
+        for (n = 0; n < 300u; n++) {
+            const fx_patch_t *f;
+            uint32_t k, fam;
+            gen_draw(0, -1, 1000u + n * 7u);
+            fw_run(2);
+            fam = gbuf[0][g_pub[0]].gen.family;
+            rough += ROUGH_FAM[fam];
+            harsh += MF_HARSH[fam] > 0;
+            fx_draw(0, -1, 5000u + n * 13u);
+            fw_run(25);
+            f = &fbuf[0][f_pub[0]];
+            rrec += FR_W_ROUGH[f->recipe] >= 4;
+            drec += FR_W_DARK[f->recipe] == 0;
+            for (k = 0; k < f->n; k++)
+                hfx += (RM_HARSH >> f->e[k].kind) & 1u;
+        }
+        printf("paths %s: abrasive families %u, harsh %u, abrasive recipes %u, not-dark recipes %u, harsh effects %u (of 300)\n",
+               p == DP_ANY ? "ANY" : p == DP_ROUGH ? "ABRASIVE" : "DARK", rough, harsh, rrec, drec, hfx);
+        if (p == DP_ROUGH && (rough < 180u || rrec < 200u))
+            printf("FAIL paths: ABRASIVE not abrasive enough\n"), fails++;
+        if (p == DP_DARK && (harsh || drec))
+            printf("FAIL paths: DARK drew something harsh\n"), fails++;
+    }
+    draw_path = DP_ANY;
+    printf("paths: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* SHIFT + the first black key: an effect slot's values anew, its effects and cables the same, in place (no fade: the
+ * patch not republished); a generator's sound anew, of the same family, its cables the same */
+static int cmd_revalue(void)
+{
+    int fails = 0;
+    uint32_t n;
+    for (n = 0; n < 20u; n++) {
+        fx_patch_t a, b;
+        gen_patch_t ga, gb;
+        uint32_t k, same = 1;
+        ends_fresh(300u + n);
+        a = fbuf[1][f_use[1]];
+        press(SLOT_BTN[NGEN + 1], 50);
+        key(KEY_SHIFT, 1);
+        key(KEY_REWIRE, 1);
+        ui_input();
+        key(KEY_REWIRE, 0);
+        key(KEY_SHIFT, 0);
+        fw_run(4);
+        b = fbuf[1][f_use[1]];
+        for (k = 0; k < a.n; k++)
+            same &= !memcmp(a.e[k].p, b.e[k].p, 4);
+        if (same || a.n != b.n || a.out != b.out || memcmp(a.xto, b.xto, sizeof a.xto) || f_pub[1] != f_use[1])
+            printf("FAIL revalue: slot 5 (seed %u): values %s, effects or cables changed, or republished\n", 300u + n,
+                   same ? "the same" : "new"), fails++;
+        for (k = 0; k < a.n; k++)
+            if (a.e[k].kind != b.e[k].kind)
+                printf("FAIL revalue: slot 5 effect %u changed\n", k), fails++;
+        ga = gbuf[0][g_use[0]];
+        press(SLOT_BTN[0], 50);
+        key(KEY_SHIFT, 1);
+        key(KEY_REWIRE, 1);
+        ui_input();
+        key(KEY_REWIRE, 0);
+        key(KEY_SHIFT, 0);
+        fw_run(30);
+        gb = gbuf[0][g_use[0]];
+        if (gb.gen.family != ga.gen.family || gb.gen.seed == ga.gen.seed || gb.nent != ga.nent ||
+            memcmp(gb.ent, ga.ent, ga.nent) || gb.xsrc != ga.xsrc)
+            printf("FAIL revalue: generator 1 (seed %u): not a new sound of its family with its cables\n", 300u + n), fails++;
+    }
+    printf("revalue: %d failures\n", fails);
     return fails ? 1 : 0;
 }
 
@@ -2765,7 +2975,9 @@ static int cmd_screens(int argc, char **argv)
     ui_input();
     SHOT("mod-fx");
     press(B_FX, 50);
-    press(B_SAVE, 50);                                   /* the SESSIONS page */
+    key(KEY_SHIFT, 1);
+    press(B_SAVE, 50);                                   /* SHIFT + SAVE: the SESSIONS page */
+    key(KEY_SHIFT, 0);
     SHOT("sessions");
     fm1_in.pressed |= 1u << PANEL_BTN[B_SAVE];           /* SAVE held: asked (none loaded) */
     fm1_in.buttons |= 1u << PANEL_BTN[B_SAVE];
@@ -2785,9 +2997,7 @@ static int cmd_screens(int argc, char **argv)
     snap_store(0);
     snap_store(2);
     snap_store(5);
-    key(KEY_SHIFT, 1);
-    press(B_SAVE, 50);                                   /* SHIFT + SAVE: the SNAPSHOTS page */
-    key(KEY_SHIFT, 0);
+    press(B_SAVE, 50);                                   /* SAVE: the SNAPSHOTS page */
     fm1_in.enc[PANEL_ENC[EN_PRESET]] = 9;
     ui_input();
     SHOT("snapshots");
@@ -2798,6 +3008,16 @@ static int cmd_screens(int argc, char **argv)
     ui_draw();
     snprintf(name, sizeof name, "%s/screen-morph-dial.ppm", dir);
     screen_save(name);
+    press(B_SAVE, 50);                                   /* back to playing: KNOB 1 the DISINTEGRATOR, on its dial */
+    ui.dial_until = 0;
+    fm1_in.enc[PANEL_ENC[EN_K1]] = 23;
+    ui_input();
+    ui.load_at = fm1_ms - 1000u;
+    ui.msg_until = 0;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-dis-dial.ppm", dir);
+    screen_save(name);
+    gen_dis[ui.gen] = 0;
     ui.dial_until = fm1_ms;
     ui_draw();
     morph_start(&snap.s[2], 2, 4000);                    /* a morph into snapshot 3: its square blinking */
@@ -2918,6 +3138,14 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "format1"))
+        return cmd_format1();
+    if (!strcmp(argv[1], "dis"))
+        return cmd_dis();
+    if (!strcmp(argv[1], "paths"))
+        return cmd_paths();
+    if (!strcmp(argv[1], "revalue"))
+        return cmd_revalue();
     if (!strcmp(argv[1], "quiet"))
         return cmd_quiet();
     if (!strcmp(argv[1], "recall"))

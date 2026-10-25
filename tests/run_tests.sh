@@ -1,15 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# MOLECULAR host tests (no toolchain, no FM-1 needed): the generated tables, the engine checked for a runtime the
+# NORILSK host tests (no toolchain, no FM-1 needed): the generated tables, the engine checked for a runtime the
 # chip lacks, then the sounds rendered on the computer. Renders land in build/sounds (WAV).
 set -e
 cd "$(dirname "$0")/.."
 PY=python3
 [ -x .venv/bin/python ] && PY=.venv/bin/python
 mkdir -p build/gen build/sounds
-$PY tools/gen_tables.py build/gen/molecular_tables.h >/dev/null
+$PY tools/gen_tables.py build/gen/norilsk_tables.h >/dev/null
 tests/check_target_ir.sh
-$PY tools/gen_font.py build/gen/molecular_font.h >/dev/null
+$PY tools/gen_font.py build/gen/norilsk_font.h >/dev/null
 mkdir -p build/screens
 clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-unused-function -Werror \
     -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
@@ -30,6 +30,10 @@ build/host ends
 build/host hiss
 build/host recall
 build/host quiet
+build/host format1
+build/host dis
+build/host paths | tail -1
+build/host revalue
 build/host paint | tail -1
 build/host cores
 build/host modules build/sounds > build/sounds/modules.txt

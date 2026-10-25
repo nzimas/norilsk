@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# MOLECULAR: the host's screens (PPM) as PNG, with no library.   tools/ppm2png.py FILE.ppm ...
+# NORILSK: the host's screens (PPM) as PNG, with no library.   tools/ppm2png.py FILE.ppm ...
 import struct
 import sys
 import zlib

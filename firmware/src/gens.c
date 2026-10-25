@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the three generator slots -- a MOLECULE generator each (mol.c) -- the voices they share, their wiring
+ * NORILSK: the three generator slots -- a MOLECULE generator each (mol.c) -- the voices they share, their wiring
  * into the effect slots (rack.c) and to each other, the two cores, and the mix.
  *
  * A generator slot's patch is drawn whole by HOME (gen_draw, the main loop): the generator's sound; the effects it
@@ -560,6 +560,110 @@ static uint32_t ent_inst(uint32_t e)
     return s * FX_N + (k < n ? k : n - 1u);
 }
 
+/* ------------------------------------------------------ the DISINTEGRATOR --- */
+/* KNOB 1, playing (build 18): each generator's own, 0 .. 100 -- an unstable gate on what it makes, after its limiter and
+ * before its level, so its cables carry it into the effects too. Its sound goes as a chain of pulses of uneven
+ * lengths; a pulse lets it through, or gates it down towards nothing, or stutters a slice of what it just made, or
+ * crushes it (its bits, its rate), and may throw its dry part elsewhere in the stereo image, criss-crossing. The more
+ * DISINTEGRATOR, the shorter and the less even the pulses, the more of them do something, the deeper the gates and the
+ * wider the throws. Ideas from Destroy FX's Skidder (random rate and width, a slope at each edge, a floor, a pan a
+ * pulse) and from buffer repeaters (Buffer Override, Rerun); none of their code. Every edge is a short glide (~1.5 ms):
+ * no clicks. 0: nothing touched, as before */
+#define DIS_N 2048u              /* the slices' line: 93 ms at FS / 2, 8-bit mu-law (RAM: 6 KiB for three) */
+enum { DK_OPEN, DK_GATE, DK_STUT, DK_CRUSH };
+typedef struct {
+    uint8_t ring[DIS_N];
+    uint32_t w;                  /* the next pair written */
+    int32_t left;                /* samples left in this pulse */
+    uint8_t kind, half;          /* DK_*; the pair's first sample seen */
+    int32_t g, gt, m;            /* the gate's gain and its target; the wet part's share (Q15) */
+    uint32_t s0, sl, sp;         /* a stutter: its slice's first pair, its length in pairs, where it plays (samples) */
+    int32_t hold, sh;            /* a crush: the sample held, the bits dropped */
+    uint32_t hc, hp;             /* .. held for hp samples */
+    int32_t pan, pant, prev;     /* the throw (Q15 of the image) and its target; the pair's first sample */
+    rnd_t r;
+} dis_t;
+static dis_t dis[NGEN];
+static volatile int8_t gen_dis[NGEN];          /* each generator's DISINTEGRATOR, 0 .. 100 (ui.c) */
+static void dis_pulse(dis_t *d, int32_t a)     /* the next pulse, at amount a (1 .. 100) */
+{
+    int32_t ms, lo = 25 + (100 - a) * 4, hi = 120 + (100 - a) * 14, ev = a * 85 / 100;
+    int wet = d->kind == DK_STUT || d->kind == DK_CRUSH;
+    ms = rnd_chance(&d->r, a / 4) ? rnd_in(&d->r, 8, 30) : rnd_in(&d->r, lo, hi);   /* (now and then a splinter) */
+    d->left = ms * 44 + ms / 10;
+    d->kind = DK_OPEN;
+    d->gt = Q15;
+    if (rnd_chance(&d->r, ev)) {
+        int32_t c = rnd_below(&d->r, 100);
+        if (wet || c < 50 || a < 10) {           /* (after a wet pulse: a gate or nothing, so wet never meets wet) */
+            d->kind = (uint8_t)(wet && c >= 50 ? DK_OPEN : DK_GATE);
+            if (d->kind == DK_GATE)               /* the floor: -6 dB at the least, nothing from 60 up */
+                d->gt = mulq15(Q15 * maxi(0, 60 - a) / 120, rnd_in(&d->r, Q15 / 2, Q15));
+        } else if (c < 80) {
+            d->kind = DK_STUT;
+            d->sl = (uint32_t)(rnd_in(&d->r, 10, 90) * 22);   /* 10 .. 90 ms, pairs */
+            d->s0 = (d->w + DIS_N - d->sl - 2u) % DIS_N;      /* (the slice just made) */
+            d->sp = 0;
+        } else {
+            d->kind = DK_CRUSH;
+            d->hp = 1u + (uint32_t)rnd_below(&d->r, 1 + a / 9);
+            d->sh = 4 + a / 14;
+            d->hc = 0;
+        }
+    }
+    if (rnd_chance(&d->r, a)) {                  /* a throw: across from where it is, as far as a lets it */
+        int32_t t = mulq15(rnd_in(&d->r, Q15 / 4, Q15), a * (Q15 / 100));
+        d->pant = d->pant > 0 ? -t : t;
+    } else if (rnd_chance(&d->r, 30))
+        d->pant = 0;
+}
+static void dis_block(uint32_t l, int32_t *x)
+{
+    dis_t *d = &dis[l];
+    int32_t a = clampi(gen_dis[l], 0, 100);
+    uint32_t i;
+    if (!a && d->g == Q15 && !d->m && !d->pan)
+        return;                                  /* (none: nothing touched) */
+    if (!a) {                                    /* (turned down to 0: back to the sound as it is, gliding) */
+        d->kind = DK_OPEN;
+        d->gt = Q15;
+        d->pant = 0;
+        d->left = 1 << 30;
+    }
+    for (i = 0; i < CTL; i++) {
+        int32_t in = x[i], y = in, m1;
+        if (d->half) {                           /* (the line, a pair at a time) */
+            d->ring[d->w] = mu_enc8((d->prev + in) >> 1);
+            d->w = d->w + 1u >= DIS_N ? 0u : d->w + 1u;
+        }
+        d->prev = in;
+        d->half ^= 1u;
+        if (a && --d->left <= 0)
+            dis_pulse(d, a);
+        if (d->kind == DK_STUT) {
+            uint32_t pos = d->sp >> 1, e = pos < d->sl - pos ? pos : d->sl - pos;
+            y = mu_dec8(d->ring[(d->s0 + pos) % DIS_N]);
+            if (e < 33u)                         /* (each repeat's edges: 1.5 ms) */
+                y = y * (int32_t)e / 33;
+            if (++d->sp >= d->sl * 2u)
+                d->sp = 0;
+        } else if (d->kind == DK_CRUSH) {
+            if (!d->hc)
+                d->hold = in < 0 ? -((-in >> d->sh) << d->sh) : (in >> d->sh) << d->sh;
+            d->hc = d->hc + 1u >= d->hp ? 0u : d->hc + 1u;
+            y = d->hold;
+        }
+        m1 = d->kind == DK_STUT || d->kind == DK_CRUSH ? Q15 : 0;   /* (into the wet part and out: 2 ms) */
+        d->m += d->m < m1 ? mini(372, m1 - d->m) : -mini(372, d->m - m1);
+        d->g += d->g < d->gt ? mini(500, d->gt - d->g) : -mini(500, d->g - d->gt);   /* (the gate's slope: 1.5 ms) */
+        y = in + (int32_t)(((int64_t)(y - in) * d->m) >> 15);
+        x[i] = (int32_t)(((int64_t)y * d->g) >> 15);
+    }
+    d->pan += (d->pant - d->pan) / 6;            /* (a throw: ~5 ms) */
+    if (!a && d->pan > -64 && d->pan < 64)
+        d->pan = 0;
+}
+
 /* one block: the events, the patches, the effects (on what the generators sent the block before), the voices, the
  * generators, their sends for the next block, the master (Q15 stereo, interleaved) */
 static void mix_block(int32_t *out)
@@ -635,6 +739,8 @@ static void mix_block(int32_t *out)
         if (p->xsrc < NGEN && p->xsrc != l)
             xmod_block(l, p);
     }
+    for (l = 0; l < NGEN; l++)                          /* each one's DISINTEGRATOR */
+        dis_block(l, gbus[l]);
     for (l = 0; l < NGEN; l++) {                        /* each: dry to the master, its sends to the effects */
         const gen_patch_t *p = &gbuf[l][g_use[l]];
         int32_t g, pl, pr, dg, dpl, dpr;
@@ -647,7 +753,8 @@ static void mix_block(int32_t *out)
         } else
         g = gen_lvl[l] && !gen_mute[l] ? (int32_t)(exp2_q16((clampi(gen_lvl[l] + gen_mod_lvl[l], 0, LEVEL_MAX) - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a
                                                          * step; muted: 0, gliding */
-        pan_gains(clampi(gen_pan[l] + gen_mod_pan[l], -PAN_MAX, PAN_MAX) * (Q15 / PAN_MAX), &pl, &pr);
+        pan_gains(clampi(clampi(gen_pan[l] + gen_mod_pan[l], -PAN_MAX, PAN_MAX) * (Q15 / PAN_MAX) + dis[l].pan, -Q15, Q15),
+                  &pl, &pr);                        /* (the DISINTEGRATOR's throw added) */
         dg = (g - gl_gg[l]) / (int32_t)CTL;
         dpl = (pl - gl_pl[l]) / (int32_t)CTL;
         dpr = (pr - gl_pr[l]) / (int32_t)CTL;
@@ -723,6 +830,14 @@ static const uint8_t SC_FAM[SC_N][MF_N] = {   /* (generation 3's families after 
     {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0},
     {0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0}};
 static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 2, 0, 1, 1, 0, 0};
+/* the paths (rack.c draw_path): the scenes' weights, and each family's lean -- x 3 favoured, 0 left out, 1 as ever
+ * (METAL DRONE BRUIT IMPACT PULSE GLASS FORMANT REED CLOUD SHATTER PULSAR FREEZE FURNACE HUM STATIC HOWL SCRAPE DATA
+ * ASH TUNNEL) */
+static const uint8_t SC_W_ROUGH[SC_N] = {0, 1, 3, 3}, SC_W_DARK[SC_N] = {5, 1, 0, 0};
+static const uint8_t MF_LEAN[DP_N][MF_N] = {
+    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+    {3, 1, 3, 1, 0, 1, 1, 1, 1, 3, 0, 1, 3, 1, 3, 1, 3, 3, 1, 1},    /* ABRASIVE: torn, scraped, burnt, broken */
+    {1, 3, 0, 0, 0, 1, 1, 1, 3, 0, 0, 3, 0, 3, 0, 3, 0, 0, 3, 3}};   /* DARK: drones, hums, tunnels, ash */
 static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4, 3, 5, 4, 4, 4};
 
 /* generator l's cables, drawn into p (HOME's rules, after Vascular's abstract path): the effects it is wired into --
@@ -734,7 +849,9 @@ static void gen_wire(uint32_t l, gen_patch_t *p, rnd_t *r, int fresh)
 {
     static const uint8_t NE[3] = {55, 35, 10};
     static const uint8_t PL[3] = {70, 20, 10};
-    uint32_t used = 0, k, n = rnd_chance(r, 5) ? 0u : 1u + rnd_weighted(r, NE, 3), had = p->nent;
+    static const uint8_t NE_ROUGH[3] = {25, 45, 30};
+    uint32_t used = 0, k, n = rnd_chance(r, 5) ? 0u : 1u + rnd_weighted(r, draw_path == DP_ROUGH ? NE_ROUGH : NE, 3),
+             had = p->nent;
     uint8_t odepth = p->xdepth, osrc = p->xsrc;
     p->nent = 0;
     for (k = 0; k < n; k++) {
@@ -752,7 +869,8 @@ static void gen_wire(uint32_t l, gen_patch_t *p, rnd_t *r, int fresh)
     else if (!had)
         p->dry = rnd_in(r, LV(0.15), LV(0.6));   /* (cables where there were none: a share for them) */
     p->xsrc = XM_NONE;
-    if (rnd_chance(r, SC_CROSS[p->scene])) {     /* a modulation by another generator, now and then */
+    if (rnd_chance(r, SC_CROSS[p->scene] * (draw_path == DP_ROUGH ? 2u : 1u))) {   /* a modulation by another
+                                                  * generator, now and then (abrasive: twice as often) */
         static const uint8_t XW[XM_N] = {22, 26, 26};
         uint32_t o = (l + 1u + (uint32_t)rnd_below(r, NGEN - 1)) % NGEN;
         p->xsrc = (uint8_t)o;
@@ -785,23 +903,67 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
     }
     memset(p, 0, sizeof *p);
     rnd_seed(r, seed ^ 0x534C4F54u);
-    p->scene = family >= 0 && gen_drawn[l] ? scene0 : (uint8_t)rnd_below(r, SC_N);
+    p->scene = family >= 0 && gen_drawn[l] ? scene0
+             : draw_path == DP_ANY ? (uint8_t)rnd_below(r, SC_N)
+                                   : (uint8_t)rnd_weighted(r, draw_path == DP_ROUGH ? SC_W_ROUGH : SC_W_DARK, SC_N);
     p->seed = seed;
     p->serial = ++gen_serial;
     budget = rnd_chance(r, 40) ? 0 : rnd_chance(r, 67) ? 1 : 2;
+    if (draw_path != DP_ANY)
+        budget = draw_path == DP_ROUGH ? 2 : 0;          /* (abrasive: the harshest allowed; dark: none harsh) */
     path = SC_PATH[p->scene];
     if (family >= 0 && family < MF_N)
         f = family;
     else {
         for (k = 0; k < MF_N; k++)
             w[k] = (uint8_t)((int32_t)MF_HARSH[k] <= budget ? mo_fam_w(path, GEN_NOW)[k] * (SC_FAM[p->scene][k] ? 3u : 1u) * MF_INH[k] / 2u : 0u);
+        for (k = 0; draw_path != DP_ANY && k < MF_N; k++)
+            w[k] = (uint8_t)clampi((int32_t)w[k] * MF_LEAN[draw_path][k], 0, 255);
         f = (int32_t)rnd_weighted(r, w, MF_N);
         if (!w[f])
-            f = MF_GLASS;
+            f = draw_path == DP_ROUGH ? MF_BRUIT : draw_path == DP_DARK ? MF_DRONE : MF_GLASS;
     }
     mo_design(&p->gen, f, rnd_next(r), path, GEN_NOW);
     mo_measure(&p->gen);
+    if (draw_path == DP_DARK)
+        p->gen.gain = p->gen.gain * 23170 / 32768;      /* (dark: 3 dB quieter) */
     gen_wire(l, p, r, 1);
+    RING_PUBLISH();
+    g_pub[l] = (uint8_t)b;
+    gen_drawn[l] = 1;
+    return 1;
+}
+
+/* SHIFT + the first black key on generator l: a new sound of the family it has (the path's way), its cables, send, dry
+ * share and modulation by another generator as they are. Published as a draw is (its notes start again on the new
+ * sound). 0 if busy */
+static int gen_resound(uint32_t l, uint32_t seed)
+{
+    uint32_t b = g_use[l] ^ 1u, k, t0 = fm1_ms;
+    gen_patch_t *p = &gbuf[l][b];
+    const gen_patch_t *now = &gbuf[l][g_use[l]];
+    rnd_t rr;
+    for (;;) {
+        int busy = g_pub[l] != g_use[l];
+        for (k = 0; k < NVOICE; k++)
+            if (vox[k].sounding && vox[k].slot == l && vox[k].dsg == b)
+                busy = 1;
+        if (!busy)
+            break;
+        if ((uint32_t)(fm1_ms - t0) > 40u)
+            return 0;
+        fm1_wdt_feed();
+    }
+    rnd_seed(&rr, seed ^ 0x52534E44u);
+    *p = *now;
+    mo_design(&p->gen, now->gen.family < MF_N ? now->gen.family : MF_DRONE, rnd_next(&rr), now->gen.path, GEN_NOW);
+    mo_measure(&p->gen);
+    if (draw_path == DP_DARK)
+        p->gen.gain = p->gen.gain * 23170 / 32768;
+    p->seed = seed;
+    p->rewired = 0;
+    p->xfade = 0;
+    p->serial = ++gen_serial;
     RING_PUBLISH();
     g_pub[l] = (uint8_t)b;
     gen_drawn[l] = 1;
@@ -937,6 +1099,12 @@ static void gens_init(uint32_t seed)
     memset(xm_f, 0, sizeof xm_f);
     memset(gbus, 0, sizeof gbus);
     memset(graw, 0, sizeof graw);
+    memset(dis, 0, sizeof dis);
+    for (l = 0; l < NGEN; l++) {
+        dis[l].g = dis[l].gt = Q15;
+        rnd_seed(&dis[l].r, 0x44495300u + l);
+        gen_dis[l] = 0;
+    }
     memset((void *)gen_meter, 0, sizeof gen_meter);
     memset(vr_buf, 0, sizeof vr_buf);
     memset(vr_core, 0, sizeof vr_core);

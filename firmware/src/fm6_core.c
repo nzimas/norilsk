@@ -32,7 +32,7 @@
  * Changed for Tonitor (2026, Nuno Zimas): the two modulation buses are on the caller's stack instead of a static
  * array, so a note can be rendered both in the audio ISR and, offline, in the main loop (the patch
  * generator measures the loudness of every patch it makes) without the two sharing a buffer.
- * Changed for MOLECULAR (2026, Nuno Zimas): each operator reads a wave of its own (fm6_wave_t: the sine, or a
+ * Changed for NORILSK (2026, Nuno Zimas): each operator reads a wave of its own (fm6_wave_t: the sine, or a
  * band-limited single cycle from wt.c, morphed with the next, and bent by phase distortion), chosen once a
  * block from its frequency; the kernels take it as a parameter. */
 
@@ -80,7 +80,7 @@ AINL int32_t fm6_sin(int32_t ph)
     return s[0] + (((s[1] - s[0]) * (int32_t)(ph & 0x3FFF)) >> 14);
 }
 
-/* ------------------------------------------------ the operators' waves (MOLECULAR) --- */
+/* ------------------------------------------------ the operators' waves (NORILSK) --- */
 /* What an operator reads, chosen once a block: the sine (SINE, as msfa), or one of the band-limited single
  * cycles (wt.c) at the level its frequency asks for, and, on top, two things the DX7 has not:
  *   - a morph: a second wave, crossfaded (x), so an operator can sit between two single cycles;
@@ -614,7 +614,7 @@ static __typeof__(&fm6_note_logfreq) volatile fm6_note_logfreq_fp = fm6_note_log
 /* one block (msfa note compute): the LFO's value and delay (Q24), the note's log2 frequency, the patch's
  * algorithm and feedback (already through the macros), dt[k]: a pitch offset per operator (Q24, fixed ones too),
  * lvl[k]: a level offset per operator (Q24 log2), lfoq8: the LFO's depths scaled (Q8), ws[k]: each operator's
- * wave (MOLECULAR). Writes out (Q24); 0 = silent (out untouched) */
+ * wave (NORILSK). Writes out (Q24); 0 = silent (out untouched) */
 static FAST int fm6_note_compute(fm6_note_t *n, const uint8_t *p, int32_t *out, int32_t lfo_val, int32_t lfo_delay,
                              int32_t logfreq, uint32_t alg, int32_t fb, const int32_t *dt, const int32_t *lvl, uint32_t lfoq8,
                              const fm6_wsel_t *ws)

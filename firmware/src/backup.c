@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the sessions read over USB MIDI -- Tonitor's backup protocol (backup.c, the same author), reading only.
+ * NORILSK: the sessions read over USB MIDI -- Tonitor's backup protocol (backup.c, the same author), reading only.
  * The installer's framing (ota.c: F0 pack7(00 59 cmd len24 body ~sum) F7):
  *   0x50  list                       -> 0x50  count, then a record each: number (u16), length (u32)
  *   0x51  read  number off(u32) n(u16, <= 256)   -> 0x51  number off n, then n bytes of the record

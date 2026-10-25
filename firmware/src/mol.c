@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: MOLECULE, the engine -- six-operator FM with waves in its operators and a grain cloud on its
+ * NORILSK: MOLECULE, the engine -- six-operator FM with waves in its operators and a grain cloud on its
  * output, one voice a note.
  *
  * The synthesis is msfa (Dexed's core, Apache-2.0) as Felucca ported it to integer C and Tonitor shaped it

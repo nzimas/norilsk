@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: boot, the interrupts, the main loop (Tonitor's main.c, without its sessions, settings and TRS MIDI). The boot order, the TIMER5 and audio ISRs, the crash screen and the update hooks follow SLOOP's
+ * NORILSK: boot, the interrupts, the main loop (Tonitor's main.c, without its sessions, settings and TRS MIDI). The boot order, the TIMER5 and audio ISRs, the crash screen and the update hooks follow SLOOP's
  * / Felucca's main.c and audio.c (Leo Kuroshita, GPL-3.0). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
@@ -177,7 +177,7 @@ static void ses_isr_sync(void)
         fm1_wdt_feed();
 }
 
-#define OTA_IDENTITY (recovery_active ? "FM-1_000" : MOLECULAR_ID)
+#define OTA_IDENTITY (recovery_active ? "FM-1_000" : NORILSK_ID)
 #include "ota.c"
 static int bk_wire(const uint8_t *p, uint32_t n) { return ota_wire_send(p, n); }   /* (backup.c) */
 static void recovery_poll(void);
@@ -243,8 +243,8 @@ static void ota_commit(const uint8_t *parm)
 static void splash(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
-    draw_text_box(0, 88, 240, &FONT_M, "MOLECULAR", C_WHITE, 1);
-    draw_text_box(0, 136, 240, &FONT_S, MOLECULAR_BUILD, C_GREY, 1);
+    draw_text_box(0, 88, 240, &FONT_M, "NORILSK", C_WHITE, 1);
+    draw_text_box(0, 136, 240, &FONT_S, NORILSK_BUILD, C_GREY, 1);
 }
 
 static void enter_uboot(const char *why)
@@ -339,7 +339,7 @@ static void fm1_main(void)
         ui_input();
         ui_leds();
         ui_draw();
-        ses_idle(!gens_sounding() && !loops_playing());   /* (Molecular's retired sectors blanked, in silence) */
+        ses_idle(!gens_sounding() && !loops_playing());   /* (Norilsk's retired sectors blanked, in silence) */
         while ((uint32_t)(fm1_ms - m) < 15u)        /* ~60 frames a second at most */
             ui_input();
     }

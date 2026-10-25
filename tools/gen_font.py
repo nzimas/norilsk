@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# MOLECULAR: the screen's fonts (Tonitor's), rendered to a C header. Made for low vision: three large sizes only.
+# NORILSK: the screen's fonts (Tonitor's), rendered to a C header. Made for low vision: three large sizes only.
 #   XL  the layer number      digits (and the notes A..G, #: the root; . O S: the morph time), ~100 px
 #   L   the engine            capitals, digits, + - . ! ?, ~46 px
 #   M   the sound, messages   the same set, ~34 px

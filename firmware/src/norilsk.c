@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR -- a firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play.
+ * NORILSK -- a firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play.
  * One compilation unit (the HAL is header-only); the order matters.
  *
  * Built on Tonitor (Nuno Zimas), itself on Felucca (Leo Kuroshita, Hügelton Instruments) and SLOOP (isod89),
@@ -7,13 +7,13 @@
  * (Google, Pascal Gauthier, Apache-2.0) in Felucca's integer port, with waves in its operators and a grain cloud
  * after them (MOLECULE, mol.c). */
 #include <stdint.h>
-#ifndef MOLECULAR_ID
-#define MOLECULAR_ID "FM-1_700"    /* the package identity (tools/build.py sets it) */
+#ifndef NORILSK_ID
+#define NORILSK_ID "FM-1_700"    /* the package identity (tools/build.py sets it) */
 #endif
-#ifndef MOLECULAR_BUILD
-#define MOLECULAR_BUILD "BUILD 14"
+#ifndef NORILSK_BUILD
+#define NORILSK_BUILD "BUILD 14"
 #endif
-#define FELUCCA_ID MOLECULAR_ID
+#define FELUCCA_ID NORILSK_ID
 #define FELUCCA_OTA 1            /* the update entry (the installer), and the rescue mode */
 #define FELUCCA_OTA_DRYRUN 0
 #define FELUCCA_CDC 0
@@ -36,7 +36,7 @@
 #include "fm1_audio.h"
 #include "fm1_adc.h"
 #include "fm1_lcd_hw.h"
-#include "molecular_tables.h"
+#include "norilsk_tables.h"
 
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")   /* a slot's store before the index's */

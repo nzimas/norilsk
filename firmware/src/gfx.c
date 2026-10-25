@@ -9,7 +9,7 @@ typedef struct {
     const uint32_t *off;
     const uint8_t *data;         /* 4-bit alpha, each glyph as runs (tools/gen_font.py) */
 } font_t;
-#include "molecular_font.h"
+#include "norilsk_font.h"
 
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 #define C_BLACK 0x0000u
@@ -194,7 +194,7 @@ static void draw_text_box(uint32_t x, uint32_t y, uint32_t w, const font_t *f, c
     lcd_sync();
 }
 
-/* MOLECULAR: the network's drawing -- a filled disc, a ring, a thick line (all through cv_rect: they clip to the
+/* NORILSK: the network's drawing -- a filled disc, a ring, a thick line (all through cv_rect: they clip to the
  * band being drawn, CV_AREA) */
 static void cv_disc(int32_t cx, int32_t cy, int32_t r, uint16_t c)
 {

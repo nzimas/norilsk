@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: what the panel (ui.c) sees of the sessions and snapshots (sessions.c, included after it) */
+ * NORILSK: what the panel (ui.c) sees of the sessions and snapshots (sessions.c, included after it) */
 
 #define SES_SLOTS 64u            /* the slots: sessions 1 .. 64 (Tonitor's) */
 #define NSNAP 16u                /* a session's snapshots */

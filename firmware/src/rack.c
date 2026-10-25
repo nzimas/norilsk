@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the effects -- three effect slots, each a chain of two or three effects, shared by the three generator
+ * NORILSK: the effects -- three effect slots, each a chain of two or three effects, shared by the three generator
  * slots as a pedalboard is by the synthesizers plugged into it.
  *
  * An effect slot's patch (HOME on it) is drawn from a RECIPE, a kind of chain (SPACE, ECHO, METAL, ...): which
@@ -1227,7 +1227,52 @@ static void rack_job(void)
 static __typeof__(&rack_job) volatile rack_job_fp = rack_job;
 
 /* ------------------------------------------------------- the draw (main loop) --- */
-/* an effect's values: each at its home one time in five, else moved by 15 .. 55 either way (Vascular's) */
+/* The draw's path (build 18; the 2nd and 3rd black keys, each a toggle, one at a time): what HOME draws leans its way.
+ * DP_ANY: anything goes, as before (every draw the same as before). DP_ROUGH (ABRASIVE): gnarly, textural, abrasive --
+ * the harsh scenes and families, more cables, the torn and crushed recipes, the values driven. DP_DARK (DARK): dark
+ * ambient, drones -- the quiet, wide scenes and families, nothing harsh, a little quieter, the spaces and the ringing
+ * recipes, the values darker and less driven. The sounds themselves are drawn by the engine as ever (mol.c): the path
+ * chooses among them */
+enum { DP_ANY, DP_ROUGH, DP_DARK, DP_N };
+static uint8_t draw_path;
+/* what each effect's values do, for the paths' leaning (RM_PNAME, mod.c) */
+enum { VR_NONE, VR_DRIVE, VR_TONE, VR_SPACE, VR_DAMP, VR_BREAK, VR_BITS };
+static const uint8_t RM_ROLE[NKIND][4] = {
+    {0, 0, VR_DRIVE, VR_DRIVE}, {VR_DRIVE, 0, VR_DRIVE, VR_TONE}, {0, VR_BITS, VR_TONE, VR_DRIVE}, {0, VR_DRIVE, 0, VR_TONE},
+    {0, 0, 0, VR_TONE}, {0, VR_SPACE, 0, VR_TONE}, {0, 0, 0, VR_DRIVE}, {0, 0, VR_DAMP, 0}, {0, VR_BREAK, 0, 0},
+    {0, VR_TONE, 0, 0}, {0, 0, VR_SPACE, VR_TONE}, {VR_SPACE, VR_SPACE, VR_DAMP, 0}, {0, VR_BREAK, VR_BREAK, 0},
+    {VR_SPACE, 0, 0, 0}, {0, 0, VR_TONE, VR_DRIVE}, {0, VR_DRIVE, VR_DRIVE, VR_TONE}, {VR_DRIVE, VR_BREAK, 0, VR_TONE},
+    {0, 0, VR_DRIVE, VR_TONE}, {0, 0, 0, VR_TONE}};
+#define RM_HARSH ((1u << RM_FLD) | (1u << RM_MU) | (1u << RM_STV) | (1u << RM_SCR) | (1u << RM_GLT) | (1u << RM_CHB) | (1u << RM_RNG))
+/* the recipes' weights on each path (ANY: FR_W) */
+static const uint8_t FR_W_ROUGH[FR_N] = {0, 1, 3, 1, 6, 1, 2, 1, 6, 4, 6, 6, 6, 5, 2, 6, 1, 6, 6, 1, 3, 6};
+static const uint8_t FR_W_DARK[FR_N] = {6, 5, 1, 4, 1, 6, 4, 5, 0, 0, 2, 0, 0, 0, 6, 0, 6, 0, 0, 4, 4, 0};
+/* an effect's value v (0 .. 100 within lo .. hi) leant the path's way */
+static int32_t fx_lean(uint32_t role, int32_t v, int32_t lo, int32_t hi)
+{
+    if (draw_path == DP_DARK)
+        switch (role) {
+        case VR_DRIVE: return lo + (v - lo) * 2 / 5;
+        case VR_TONE: return lo + (v - lo) * 3 / 5;
+        case VR_SPACE: return v + (hi - v) / 3;
+        case VR_DAMP: return v + (hi - v) / 2;
+        case VR_BREAK: return lo + (v - lo) / 3;
+        case VR_BITS: return v + (hi - v) / 2;
+        default: return v;
+        }
+    if (draw_path == DP_ROUGH)
+        switch (role) {
+        case VR_DRIVE: return v + (hi - v) / 2;
+        case VR_TONE: return v + (hi - v) / 4;
+        case VR_SPACE: return lo + (v - lo) * 3 / 4;
+        case VR_BREAK: return v + (hi - v) / 3;
+        case VR_BITS: return lo + (v - lo) / 2;
+        default: return v;
+        }
+    return v;
+}
+/* an effect's values: each at its home one time in five, else moved by 15 .. 55 either way (Vascular's); leant the
+ * path's way */
 static void fx_values(fx_eff_t *e, rnd_t *r)
 {
     uint32_t k;
@@ -1237,7 +1282,9 @@ static void fx_values(fx_eff_t *e, rnd_t *r)
             int32_t d = rnd_in(r, 15, 55);
             v += rnd_chance(r, 50) ? d : -d;
         }
-        e->p[k] = (uint8_t)clampi(v, RM_LO[e->kind][k], RM_HI[e->kind][k]);
+        v = clampi(v, RM_LO[e->kind][k], RM_HI[e->kind][k]);
+        e->p[k] = (uint8_t)clampi(fx_lean(RM_ROLE[e->kind][k], v, RM_LO[e->kind][k], RM_HI[e->kind][k]),
+                                  RM_LO[e->kind][k], RM_HI[e->kind][k]);
     }
 }
 /* HOME on effect slot s: a recipe (recipe >= 0: that one -- SHIFT + HOME), its effects place by place among the
@@ -1260,12 +1307,18 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
     rnd_seed(r, seed ^ 0x46584658u);
     f->seed = seed;
     f->serial = ++fx_serial;
-    f->recipe = (uint8_t)(recipe >= 0 && recipe < FR_N ? recipe : (int32_t)rnd_weighted(r, FR_W, FR_N));
+    f->recipe = (uint8_t)(recipe >= 0 && recipe < FR_N ? recipe
+                          : (int32_t)rnd_weighted(r, draw_path == DP_ROUGH ? FR_W_ROUGH : draw_path == DP_DARK ? FR_W_DARK : FR_W,
+                                                  FR_N));
     for (k = 0; k < FX_N; k++) {
         uint32_t can = FR_PLACE[f->recipe][k], m, nc = 0;   /* (a bit an effect, FX_OPT the top one) */
         uint8_t c[NKIND];
         if (!(can & ~FX_OPT) || ((can & FX_OPT) && !rnd_chance(r, 55)))
             break;
+        if (draw_path == DP_DARK && (can & ~FX_OPT & ~RM_HARSH))
+            can &= ~RM_HARSH;                        /* (dark: the harsh ones left out where there is another) */
+        else if (draw_path == DP_ROUGH && (can & RM_HARSH) && rnd_chance(r, 67))
+            can = (can & FX_OPT) | (can & RM_HARSH);  /* (abrasive: the harsh ones mostly) */
         for (m = 0; m < NKIND; m++)
             if (((can >> m) & 1u) && rm_size(m) <= room)
                 c[nc++] = (uint8_t)m;
@@ -1325,6 +1378,27 @@ static int fx_rewire(uint32_t s, uint32_t seed)
     f->out = t.out;
     for (k = 0; k < FX_N; k++)
         f->xto[k] = t.xto[k];
+    RING_PUBLISH();
+    return 1;
+}
+/* SHIFT + the first black key on effect slot s: every effect's values drawn anew (the path's way), its effects, outs
+ * and cables as they are -- changed in place, as a rewiring (no fade, nothing cleared: the sound goes on, moved). 0 if
+ * a new patch is still on its way in */
+static int fx_revalue(uint32_t s, uint32_t seed)
+{
+    fx_patch_t *f;
+    fx_eff_t e;
+    rnd_t r;
+    uint32_t k;
+    if (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON)
+        return 0;
+    f = &fbuf[s][f_use[s]];
+    rnd_seed(&r, seed ^ 0x46585641u);
+    for (k = 0; k < f->n && k < FX_N; k++) {
+        e = f->e[k];
+        fx_values(&e, &r);
+        memcpy(f->e[k].p, e.p, sizeof e.p);
+    }
     RING_PUBLISH();
     return 1;
 }

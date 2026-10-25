@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: sessions and their snapshots -- Tonitor's sessions (sessions.c, the same author), and Bigorna's patterns
+ * NORILSK: sessions and their snapshots -- Tonitor's sessions (sessions.c, the same author), and Bigorna's patterns
  * as snapshots (projects.c).
  *
  * A SESSION is the whole machine at a moment: every generator (its sound, its cables, its modulation by another,
@@ -20,10 +20,10 @@
  * stays 0xFFFFFFFF while the record lives), then the body. Saving over a session writes the new copy into free
  * sectors first and only then retires the old one, by programming its last word to zero (no erase): a power cut in
  * between leaves the old or both, never neither.
- * MOLECULAR, unlike Tonitor: the area is shared with the other firmwares this FM-1 runs, so a sector is written only
- * if it is blank or holds a record of Molecular's own that has been retired; anything else in the area (Tonitor's
+ * NORILSK, unlike Tonitor: the area is shared with the other firmwares this FM-1 runs, so a sector is written only
+ * if it is blank or holds a record of Norilsk's own that has been retired; anything else in the area (Tonitor's
  * sessions, Bigorna's, SLOOP's projects) is never erased. Erasing a sector silences the audio for a moment: the
- * main loop blanks Molecular's retired sectors one at a time while nothing sounds (ses_idle). */
+ * main loop blanks Norilsk's retired sectors one at a time while nothing sounds (ses_idle). */
 
 #define SES_LO 0x00097000u
 #define SES_HI 0x000E0000u
@@ -31,7 +31,7 @@
 #define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
 #define SES_MAGIC 0x314C4F4Du    /* "MOL1" */
 #define SES_LIVE 0xFFFFFFFFu     /* the head's last word while the record lives */
-#define SES_FORMAT 1u
+#define SES_FORMAT 2u            /* (2 from build 18: eight modulation slots, the DISINTEGRATOR; 1 still read) */
 #define SES_MAX 73u              /* records in the list (one a sector at most) */
 
 /* the flash, for the target (main.c) or the host test (host.c); offsets from the flash's start */
@@ -53,7 +53,7 @@ typedef struct {
 typedef char ses_head_is_32[sizeof(ses_head_t) == 32u ? 1 : -1];
 
 /* what a sector holds, as the scan found it */
-enum { SC_UNKNOWN, SC_BLANK, SC_USED, SC_MINE, SC_OTHER };   /* (MINE: Molecular's, retired: may be erased) */
+enum { SC_UNKNOWN, SC_BLANK, SC_USED, SC_MINE, SC_OTHER };   /* (MINE: Norilsk's, retired: may be erased) */
 static struct {
     uint8_t n;                   /* sessions found */
     uint16_t num[SES_MAX];       /* sorted by number */
@@ -69,7 +69,7 @@ static struct {
 typedef struct {
     gen_keep_t g;
     int8_t lvl, pan;
-    uint8_t mute, rsend, dsend, rsv[3];
+    uint8_t mute, rsend, dsend, dis, rsv[2];   /* dis: KNOB 1's DISINTEGRATOR, 0 .. 100 (build 18; 0 before) */
 } st_gen_t;
 typedef struct {
     fx_patch_t f;
@@ -83,6 +83,35 @@ typedef struct {
     mod_t mod[NSLOT];
     uint8_t scale, root, rsv[2];
 } st_t;
+/* (a session of format 1, before build 18: four modulation slots a slot) */
+typedef struct {
+    mlfo_t lfo[2];
+    mslot_t s[NMSLOT_OLD];
+} mod1_t;
+typedef struct {
+    st_gen_t g[NGEN];
+    st_fx_t x[NFX];
+    int8_t rvp[4], dlp[4];
+    mod1_t mod[NSLOT];
+    uint8_t scale, root, rsv[2];
+} st1_t;
+typedef char st1_is_360[sizeof(st1_t) == 360u ? 1 : -1];
+static void st_from1(st_t *t, const st1_t *o)
+{
+    uint32_t l, k;
+    memset(t, 0, sizeof *t);
+    memcpy(t->g, o->g, sizeof t->g);
+    memcpy(t->x, o->x, sizeof t->x);
+    memcpy(t->rvp, o->rvp, sizeof t->rvp);
+    memcpy(t->dlp, o->dlp, sizeof t->dlp);
+    for (l = 0; l < NSLOT; l++) {
+        memcpy(t->mod[l].lfo, o->mod[l].lfo, sizeof t->mod[l].lfo);
+        for (k = 0; k < NMSLOT_OLD; k++)
+            t->mod[l].s[k] = o->mod[l].s[k];
+    }
+    t->scale = o->scale;
+    t->root = o->root;
+}
 static struct {
     st_t s[NSNAP];
     uint16_t used;               /* a bit a snapshot that holds a state */
@@ -100,6 +129,7 @@ static void st_capture(st_t *t)
         t->g[l].mute = gen_mute[l];
         t->g[l].rsend = (uint8_t)ui.rsend[l];
         t->g[l].dsend = (uint8_t)ui.dsend[l];
+        t->g[l].dis = (uint8_t)gen_dis[l];
     }
     for (l = 0; l < NFX; l++) {
         t->x[l].f = fbuf[l][f_pub[l]];
@@ -126,6 +156,7 @@ static int st_apply(const st_t *t)
         ui.rsend[l] = (int8_t)clampi(t->g[l].rsend, 0, 100);
         ui.dsend[l] = (int8_t)clampi(t->g[l].dsend, 0, 100);
         sends_apply(l);
+        gen_dis[l] = (int8_t)clampi(t->g[l].dis, 0, 100);
     }
     for (l = 0; l < NFX; l++) {
         ok &= fx_set(l, &t->x[l].f);
@@ -274,6 +305,7 @@ static void morph_poll(void)
         ui.rsend[l] = (int8_t)mlerp(morph.a.g[l].rsend, morph.b.g[l].rsend, u);
         ui.dsend[l] = (int8_t)mlerp(morph.a.g[l].dsend, morph.b.g[l].dsend, u);
         sends_apply(l);
+        gen_dis[l] = (int8_t)mlerp(morph.a.g[l].dis, morph.b.g[l].dis, u);
     }
     for (l = 0; l < NFX; l++) {
         int32_t qa = morph.a.x[l].mute ? 0 : morph.a.x[l].lvl * 256, qb = morph.b.x[l].mute ? 0 : morph.b.x[l].lvl * 256,
@@ -536,7 +568,7 @@ static void ses_list_drop(uint32_t i)
     }
     ses.n--;
 }
-/* retire a record in place: its last word programmed to zero (bits only go 1 -> 0: no erase); its sectors Molecular's
+/* retire a record in place: its last word programmed to zero (bits only go 1 -> 0: no erase); its sectors Norilsk's
  * to blank */
 static void ses_kill(uint32_t sect, uint32_t nsect)
 {
@@ -573,14 +605,14 @@ static void ses_scan(int flash_ok)
             ses.st[s++] = SC_OTHER;
             continue;
         }
-        if (!ses_head_ok(&h)) {                         /* Molecular's, its head cut short: blanked in time */
+        if (!ses_head_ok(&h)) {                         /* Norilsk's, its head cut short: blanked in time */
             ses.st[s++] = SC_MINE;
             continue;
         }
         ns = (h.len + SES_SECT - 1u) / SES_SECT;
         if (s + ns > SES_NSECT)
             ns = SES_NSECT - s;
-        if (h.live != SES_LIVE) {                       /* retired: its sectors Molecular's to blank -- but a sector of
+        if (h.live != SES_LIVE) {                       /* retired: its sectors Norilsk's to blank -- but a sector of
                                                          * it may have been blanked and begin another record since:
                                                          * each one after the first looked at on its own */
             ses.st[s++] = SC_MINE;
@@ -629,7 +661,7 @@ static int ses_blank(uint32_t s)
     }
     return 1;
 }
-/* a sector Molecular may write: blank, or its own retired (erased first) */
+/* a sector Norilsk may write: blank, or its own retired (erased first) */
 static int ses_free(uint32_t s)
 {
     if (ses.st[s] == SC_UNKNOWN)
@@ -655,7 +687,7 @@ static int ses_alloc(uint32_t n)
     }
     return best < SES_NSECT ? (int)best : -1;
 }
-/* room for a record of len bytes: blank now (Molecular's own erased if need be); the first, or -SES_FULL / -SES_FAIL */
+/* room for a record of len bytes: blank now (Norilsk's own erased if need be); the first, or -SES_FULL / -SES_FAIL */
 static int ses_place(uint32_t len, uint32_t *nsect)
 {
     uint32_t ns = (len + SES_SECT - 1u) / SES_SECT, k;
@@ -673,7 +705,7 @@ static int ses_place(uint32_t len, uint32_t *nsect)
         if (ses.st[q] != SC_BLANK)                     /* (never anything but a blank sector written) */
             return -SES_FAIL;
     }
-    for (k = 0; k < ns; k++)                           /* (a write that fails leaves them Molecular's, to blank) */
+    for (k = 0; k < ns; k++)                           /* (a write that fails leaves them Norilsk's, to blank) */
         ses.st[(uint32_t)s + k] = SC_MINE;
     return s;
 }
@@ -705,7 +737,8 @@ typedef struct {
     int8_t snap_cur;
     uint16_t snap_used;
     uint8_t morph;               /* KNOB 1's morph time, half seconds (0 in sessions saved before build 13) */
-    uint8_t rsv[3];
+    uint8_t path;                /* the draw's path (rack.c DP_*: 0, anything, before build 18) */
+    uint8_t rsv[2];
 } ses_glob_t;
 typedef struct {
     uint8_t ntrk, dmode, rate, vary, play, rsv[3];
@@ -717,12 +750,23 @@ static uint8_t ses_lplay[NGEN];                        /* (a session read: wheth
 
 /* the body, out (SS_COUNT, SS_WRITE: from the machine) or in (SS_READ: into ses_live, the snapshots, the globals of
  * gl, the latches and loops left in the flash for ses_take_loops) */
+static uint32_t ses_fmt = SES_FORMAT;                  /* (the format of the record being read) */
 static void ses_body(ses_glob_t *gl)
 {
     uint32_t l, k;
     ses_io(gl, sizeof *gl);
-    ses_io(&ses_live, sizeof ses_live);
-    ses_io(snap.s, sizeof snap.s);
+    if (ss.mode == SS_READ && ses_fmt == 1u) {          /* (format 1: its states converted, four modulation slots) */
+        st1_t o;
+        ses_io(&o, sizeof o);
+        st_from1(&ses_live, &o);
+        for (l = 0; l < NSNAP; l++) {
+            ses_io(&o, sizeof o);
+            st_from1(&snap.s[l], &o);
+        }
+    } else {
+        ses_io(&ses_live, sizeof ses_live);
+        ses_io(snap.s, sizeof snap.s);
+    }
     for (l = 0; l < NGEN; l++) {                       /* the latched notes */
         ses_io(&ui.latch[l], sizeof ui.latch[l]);
         ses_io(ui.latch_note[l], NKEY);
@@ -805,6 +849,7 @@ static void ses_glob_now(ses_glob_t *g)
     g->snap_cur = snap.cur;
     g->snap_used = snap.used;
     g->morph = ui.morph;
+    g->path = draw_path;
 }
 
 /* save the machine as session num (a new one, or over the one of that number). Counted, then written a sector at a
@@ -843,7 +888,7 @@ static int ses_save(uint32_t num)
             if (nev[l] != (loop[l].nev | (uint32_t)loop[l].ntrk << 16))
                 ss.err = 2;                             /* (the loops changed under it: again) */
         if (ss.err || ss.pos != len || ss.crc != crc)
-            continue;                                   /* (its sectors are Molecular's to blank: ses_place) */
+            continue;                                   /* (its sectors are Norilsk's to blank: ses_place) */
         if (ses_commit(num, s, ns, &h) != SES_OK)
             return SES_FAIL;
         ses.current = (uint16_t)num;
@@ -889,7 +934,7 @@ static int ses_load(uint32_t i)
         return SES_FAIL;
     base = SES_LO + ses.sect[i] * SES_SECT;
     ses_flash_read(base, &h, sizeof h);
-    if (!ses_head_ok(&h) || h.format != SES_FORMAT)
+    if (!ses_head_ok(&h) || (h.format != SES_FORMAT && h.format != 1u))
         return SES_FAIL;
     ss_begin(SS_READ, base);                            /* (the CRC first: nothing taken from a record that fails) */
     ses_in(0, h.len);
@@ -898,13 +943,16 @@ static int ses_load(uint32_t i)
     ses_quiet_all();                                    /* (the loopers empty and still: theirs to be written) */
     ss_begin(SS_READ, base);
     ses_in(0, sizeof h);
+    ses_fmt = h.format;
     ses_body(&g);
+    ses_fmt = SES_FORMAT;
     if (ss.err)
         return SES_FAIL;
     morph.on = 0;
     snap_pend.i = -1;
     gen_fine = fx_fine = 0;
     ui.morph = (uint8_t)(g.morph <= MORPH_STEPS ? g.morph : 0);
+    draw_path = (uint8_t)(g.path < DP_N ? g.path : DP_ANY);
     snap.used = g.snap_used;
     snap.cur = (int8_t)(g.snap_cur >= 0 && g.snap_cur < (int8_t)NSNAP ? g.snap_cur : -1);
     ui.gen = (uint8_t)(g.gen < NGEN ? g.gen : 0);
@@ -955,6 +1003,7 @@ static void ses_fresh(uint32_t num)
         ui.rsend[l] = RSEND_DEF;
         ui.dsend[l] = 0;
         sends_apply(l);
+        gen_dis[l] = 0;
     }
     for (l = 0; l < NFX; l++) {
         fx_lvl[l] = 20 - 2;
@@ -991,7 +1040,7 @@ static void ses_init(int flash_ok)
     snap.cur = -1;
 }
 
-/* the main loop, now and then: one of Molecular's retired sectors blanked, while nothing sounds (the erase silences
+/* the main loop, now and then: one of Norilsk's retired sectors blanked, while nothing sounds (the erase silences
  * the audio for some tens of ms). Nothing else in the area is ever erased */
 static uint32_t ses_idle_at;
 static void ses_idle(int quiet)
@@ -1007,7 +1056,7 @@ static void ses_idle(int quiet)
             return;
         }
 }
-/* sectors Molecular can still write (blank, or its own retired): the SESSIONS page's room */
+/* sectors Norilsk can still write (blank, or its own retired): the SESSIONS page's room */
 static uint32_t ses_room(void)
 {
     uint32_t s, n = 0;

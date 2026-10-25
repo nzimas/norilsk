@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# MOLECULAR build (Tonitor's tools/build.py), after SLOOP's / Felucca's tools/build.py (Leo Kuroshita, GPL-3.0): the same toolchain, the
+# NORILSK build (Tonitor's tools/build.py), after SLOOP's / Felucca's tools/build.py (Leo Kuroshita, GPL-3.0): the same toolchain, the
 # same update loader, the same checks and the same package format.
-"""Build MOLECULAR: the app, the update loader and an installable .fwsc package.
+"""Build NORILSK: the app, the update loader and an installable .fwsc package.
 
   tools/build.py
 
-Outputs in build/: molecular.bin (app), loader/ota.bin (update loader), molecular.fwsc (package).
+Outputs in build/: norilsk.bin (app), loader/ota.bin (update loader), norilsk.fwsc (package).
 The JieLi toolchain is Linux x86-64 only: JIELI_TOOLCHAIN points at it; on macOS each tool runs in a
 linux/amd64 container (Docker). AC79_SDK points at the JieLi AC79 SDK (three of its files go in the package).
 """
@@ -38,7 +38,7 @@ CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-fu
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
 PRODUCT = "FM-1_700"                # package identity
-BUILD = 17                           # the build number: the next build is one more
+BUILD = 18                           # the build number: the next build is one more
 
 
 def toolchain():
@@ -79,7 +79,7 @@ def tc_all(*cmds):
 
 def generate():
     GEN.mkdir(parents=True, exist_ok=True)
-    for tool, out in (("gen_tables.py", "molecular_tables.h"), ("gen_font.py", "molecular_font.h")):
+    for tool, out in (("gen_tables.py", "norilsk_tables.h"), ("gen_font.py", "norilsk_font.h")):
         subprocess.run([sys.executable, str(SRC / "tools" / tool), str(GEN / out)], check=True)
 
 
@@ -140,16 +140,16 @@ def build_loader():
 
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen",
-             f'-DMOLECULAR_ID="{PRODUCT}"', f'-DMOLECULAR_BUILD="BUILD {BUILD}"']
-    if os.environ.get("MOLECULAR_TELEMETRY") == "1":      # a diagnostic build: timing over USB, the chip's own benchmark
+             f'-DNORILSK_ID="{PRODUCT}"', f'-DNORILSK_BUILD="BUILD {BUILD}"']
+    if os.environ.get("NORILSK_TELEMETRY") == "1":      # a diagnostic build: timing over USB, the chip's own benchmark
         flags.append("-DTELEMETRY=1")
     tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
            ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
            ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-           ("cc", *flags, "-c", FW / "src" / "molecular.c", "-o", OUT / "molecular.o"))
-    elf = OUT / "molecular.elf"
+           ("cc", *flags, "-c", FW / "src" / "norilsk.c", "-o", OUT / "norilsk.o"))
+    elf = OUT / "norilsk.elf"
     tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
-       OUT / "molecular.o", "-o", elf)
+       OUT / "norilsk.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin", "fasttext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
@@ -159,7 +159,7 @@ def build_app():
                                ("common/bin/objdump", "-t", elf),
                                ("common/bin/objdump", "-d", elf),
                                ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
-    (OUT / "molecular.dis").write_text(dis)
+    (OUT / "norilsk.dis").write_text(dis)
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
@@ -175,7 +175,7 @@ def build_app():
             img += b"\xff" * (load - APP_XIP - len(img))
             img += blob
     img += b"\xff" * (-len(img) % 4)
-    (OUT / "molecular.bin").write_bytes(img)
+    (OUT / "norilsk.bin").write_bytes(img)
     return bytes(img), syms, dis, rt
 
 
@@ -256,7 +256,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
-    name = "molecular.fwsc"
+    name = "norilsk.fwsc"
     fm1pkg_make.SDK = a.sdk or os.environ.get("AC79_SDK", str(Path.home() / "fw-AC79_AIoT_SDK"))
     fm1pkg_make.sdk_file("uboot.boot")          # fail early without the SDK
     OUT.mkdir(parents=True, exist_ok=True)
@@ -276,7 +276,7 @@ def main():
         raise SystemExit("build: checks failed")
     pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
     (OUT / name).write_bytes(pkg)
-    print(f"app      {OUT / 'molecular.bin'}  {len(img)} B")
+    print(f"app      {OUT / 'norilsk.bin'}  {len(img)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}, build {BUILD}")
     return 0
 

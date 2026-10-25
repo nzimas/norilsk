@@ -1,6 +1,6 @@
-# Molecular licensing
+# Norilsk licensing
 
-The Molecular **firmware** is free software, licensed under the GNU General Public License, version 3 only
+The Norilsk **firmware** is free software, licensed under the GNU General Public License, version 3 only
 (`GPL-3.0-only`, full text in `LICENSE`). If you distribute it, or firmware built from it, give your
 recipients its complete corresponding source under the same licence.
 

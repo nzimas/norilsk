@@ -1,6 +1,6 @@
 # MOLECULE: the engine
 
-The engine of Molecular, as built at the engine stage (version 0.01). Everything below is in
+The engine of Norilsk, as built at the engine stage (version 0.01). Everything below is in
 `firmware/src/mol.c`, `fm6_core.c` and `wt.c`.
 
 ## What it is

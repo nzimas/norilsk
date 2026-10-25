@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR (from Tonitor): the plate, as an effect's instance (rv_t: its lines inside it, so a plate may stand in
+ * NORILSK (from Tonitor): the plate, as an effect's instance (rv_t: its lines inside it, so a plate may stand in
  * more than one effect slot, each in its slot's memory).
  *
  * A plate after Jon Dattorro, "Effect Design, Part 1: Reverberator and Other Filters" (J. Audio Eng. Soc.
@@ -14,7 +14,7 @@
  *
  * Mono in, stereo out. Fixed point: Q15 samples, the delay lines in 16 bits (34 KiB an instance), the coefficients Q15.
  *
- *   SIZE   the room: every delay 0.5 .. 1.0 times Dattorro's (MOLECULAR: 1.25 no more, for the memory)
+ *   SIZE   the room: every delay 0.5 .. 1.0 times Dattorro's (NORILSK: 1.25 no more, for the memory)
  *   DECAY  how long it rings: 0.4 s .. 25 s to fall 60 dB (about 4 s in the middle), at any SIZE
  *   DAMP   how fast the highs die in the tank
  *   MIX    the reverb's return to the mix: x 0 .. 4, x 1 in the middle */

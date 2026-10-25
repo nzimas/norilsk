@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the loopers -- Tonitor's (layers.c, the same author), one a generator, ported as it is.
+ * NORILSK: the loopers -- Tonitor's (layers.c, the same author), one a generator, ported as it is.
  *
  * Every generator has a looper of up to LOOP_TRK loops, all free and each on its own clock: no tempo, no grid,
  * no two loops in step, not even a generator's own -- each goes round in its own length, so they drift apart.

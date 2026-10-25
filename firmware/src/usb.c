@@ -204,9 +204,9 @@ static const uint8_t CFG_DESC[] = {
     8, 0x0B, 0, 2 + FELUCCA_UAC, 1, 1, 0, 0,            /* IAD: audio + MIDI (IF 0-1, 0-2) */
 #else
 #ifndef FELUCCA_USB_PID
-#define FELUCCA_USB_PID 0x0007   /* (MOLECULAR: its own -- Felucca's 0x0001, the loader's 0x0002, Tonitor's 0x0003,
-                                  * Bigorna's 0x0005 -- so a computer reads "FM-1 Molecular" afresh; the update loader is
-                                  * 0x0002) */
+#define FELUCCA_USB_PID 0x0008   /* (NORILSK: its own -- Felucca's 0x0001, the loader's 0x0002, Tonitor's 0x0003,
+                                  * Bigorna's 0x0005, Molecular's 0x0007 (this firmware before build 18) -- so a computer
+                                  * reads "FM-1 Norilsk" afresh; the update loader is 0x0002) */
 #endif
 static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
                                      FELUCCA_USB_PID >> 8, 0x00 + 0x10 * (FELUCCA_UAC + FELUCCA_UAC_48K) + UAC_BCD_AS, 0x03,
@@ -293,12 +293,12 @@ static int usb_cdc_now(void) { return usb_cdc_on; }   /* (the menu: what this st
 static int usb_cdc_now(void) { return 0; }
 #endif
 static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
-static const uint8_t STR1[] = {20, 3, 'M', 0, 'o', 0, 'l', 0, 'e', 0, 'c', 0, 'u', 0, 'l', 0, 'a', 0, 'r', 0};
+static const uint8_t STR1[] = {16, 3, 'N', 0, 'o', 0, 'r', 0, 'i', 0, 'l', 0, 's', 0, 'k', 0};
 #ifdef FELUCCA_LOADER
 static const uint8_t STR2[] = {30, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'U', 0, 'p', 0,
                                'd', 0, 'a', 0, 't', 0, 'e', 0};
 #else
-static const uint8_t STR2[] = {30, 3, 'F', 0, 'M', 0, '-', 0, '1', 0, ' ', 0, 'M', 0, 'o', 0, 'l', 0, 'e', 0, 'c', 0, 'u', 0, 'l', 0, 'a', 0, 'r', 0};
+static const uint8_t STR2[] = {26, 3, 'F', 0, 'M', 0, '-', 0, '1', 0, ' ', 0, 'N', 0, 'o', 0, 'r', 0, 'i', 0, 'l', 0, 's', 0, 'k', 0};
 #endif
 
 static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)

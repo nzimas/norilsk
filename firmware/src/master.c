@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the master delay and the master reverb -- Tonitor's (delay.c, reverb.c, the same author), at the end of
+ * NORILSK: the master delay and the master reverb -- Tonitor's (delay.c, reverb.c, the same author), at the end of
  * the chain, after the three effect slots.
  *
  * What they hear is what the mix holds: each generator's dry share (after its level) at its sends, and each effect
@@ -9,7 +9,7 @@
  * reverb; then the plate, mono in, stereo out. Their returns join the mix before the master.
  *
  * The delay's line: 2 s at FS / 2 (22.05 kHz), 8-bit mu-law, 44 100 bytes in the pool. TIME 20 ms .. 2 s on a log
- * scale; FEEDBACK up to 0.95, each echo through a one-pole low-pass (DAMP); MIX its return. MOLECULAR: a change of
+ * scale; FEEDBACK up to 0.95, each echo through a one-pole low-pass (DAMP); MIX its return. NORILSK: a change of
  * TIME cross-fades the old head out and the new in over 23 ms (Tonitor's glides: a bend of pitch, which this
  * firmware never makes).
  * The reverb: the plate of reverb.c as an instance of its own (34 KiB, in RAM), SIZE 0.5 .. 1.0 (Tonitor's 1.25 is

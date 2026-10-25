@@ -2,6 +2,34 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 18 (2026-10-25): Norilsk
+
+- **The firmware is now Norilsk** (Molecular until build 17). The screen at power-on, the USB name ("FM-1 Norilsk",
+  a product number of its own, 0x0008, so a computer shows the new name), the package (`build/norilsk.fwsc`), the
+  sources. Its sessions stay: the same flash area, the same records.
+- **SAVE and SHIFT + SAVE swapped**: SAVE brings up the SNAPSHOTS page (SAVE again: back); SHIFT + SAVE the SESSIONS
+  page. SAVE held while playing still saves the session; on the SNAPSHOTS page it stores into the snapshot framed. A
+  white key held 0.8 s on the SNAPSHOTS page stores into its snapshot (as before).
+- **KNOB 1: the DISINTEGRATOR** of the generator the keys play, 0 .. 100, on a large dial in its colour (KNOB 1 is
+  the morph time only on the SNAPSHOTS page now). An unstable gate on the generator's sound, before its cables, so the
+  effects hear it too: the sound goes as a chain of pulses of uneven length; a pulse lets it through, gates it down
+  (to nothing from 60 up), stutters a slice of what it just made (10 .. 90 ms, repeated), or crushes it (bits and
+  rate), and may throw its dry part across the stereo image. The higher, the shorter and less even the pulses, the
+  more of them act, the deeper and wider. Every edge glides (~1.5 ms). Ideas from Destroy FX's Skidder and from
+  buffer repeaters, none of their code. Kept with snapshots and sessions, glided by a morph. Test: `host dis`.
+- **Two draw paths** (toggles, lit while on, one at a time, kept with the session): the 2nd black key ABRASIVE --
+  the harsh scenes and families (BRUIT, SHATTER, FURNACE, STATIC, SCRAPE, DATA, METAL), more cables and
+  cross-modulation, the torn and crushed recipes, the effects' values driven; the 3rd black key DARK -- the FIELD
+  scene, drones, hums, tunnels, ash, freezes, nothing harsh, 3 dB quieter, the spaces and ringing recipes (SPACE,
+  GHOST, ABYSS, FREEZER, RESONANT ..), the values darker and less driven. Neither: anything goes, every draw as before.
+  The engine draws each sound as ever (the golden hashes unchanged). Test: `host paths`.
+- **SHIFT + the 1st black key**: the chosen effect slot's every value drawn anew (the path's way), in place -- no
+  break, its effects and cables stay; on a generator, a new sound of its family, its cables kept. Test: `host
+  revalue`.
+- **Eight modulation slots** a slot (four before): MOD A .. H on the MOD page; SHIFT + SEQ throws two to six. Sessions
+  are now format 2; a session saved before (format 1) is read, its four slots as A .. D. Test: `host format1` (a
+  session saved by build 17, `tests/sessions/format1.bin`).
+
 ## Build 17 (2026-10-25): the hiss that a morph carried over
 
 - **Found with session 2**: snapshots 2 and 3 hold the same effects in slots 4 and 5, other cables. Recalled at once,

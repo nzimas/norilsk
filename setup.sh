@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# MOLECULAR: everything the build and the installer need, once (macOS or Linux).
+# NORILSK: everything the build and the installer need, once (macOS or Linux).
 #   - a Python environment in .venv with Pillow (the build), mido and python-rtmidi (the installer)
 #   - JieLi's Linux toolchain (clang for pi32v2) in ~/.jieli/toolchain (tools/get_toolchain.sh)
 #   - three files of the JieLi AC79 SDK (Apache-2.0) in ~/fw-AC79_AIoT_SDK: a sparse, shallow clone, or

@@ -34,7 +34,7 @@ FINISH_CHECK, FINISH_WRITE = 0xE0000000, 0xF0000000
 MAXDATA = 512
 BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 LOADER_MARK = b"FELUCCA-LOADER-1"
-PORT_RE = re.compile(r"fm-1|molecular|tonitor|acousma|felucca|sloop|clipper|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
+PORT_RE = re.compile(r"fm-1|norilsk|molecular|tonitor|acousma|felucca|sloop|clipper|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
 # (the FM-1 under SLOOP / Felucca, under CLIPPER, the update loaders, the stock firmware: as web/fm1ota.js FM1_PORT)
 
 # seconds; the tests shorten them

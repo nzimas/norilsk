@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the modulation -- Tonitor's (mod.c, the same author): two LFOs and four slots for each of the six
+ * NORILSK: the modulation -- Tonitor's (mod.c, the same author): two LFOs and four slots for each of the six
  * slots, the three generators and the three effect slots. A slot takes a source (an LFO; the last note's velocity
  * or pitch; a random value drawn at each note) to a destination by an amount, -100 .. +100 of the destination's
  * whole swing. It moves values the audio reads every block: nothing is rebuilt. Worked out in the audio ISR once a
@@ -44,11 +44,12 @@ static const char *const RM_PNAME[NKIND][4] = {
 
 typedef struct { uint8_t shape, rate, mode, fade; } mlfo_t;
 typedef struct { uint8_t src, dst; int8_t amt; } mslot_t;
-#define NMSLOT 4u
+#define NMSLOT 8u                /* (build 18: 4 before -- sessions.c reads the older sessions' four) */
+#define NMSLOT_OLD 4u
 typedef struct {
     mlfo_t lfo[2];
     mslot_t s[NMSLOT];
-} mod_t;                                         /* (a slot's: 20 bytes; sessions and snapshots keep it) */
+} mod_t;                                         /* (a slot's: 32 bytes; sessions and snapshots keep it) */
 static mod_t slot_mod[NSLOT];                    /* (ui.c sets it, the ISR reads it) */
 
 static struct {
@@ -244,7 +245,7 @@ static void mod_init(void)
 }
 
 /* SHIFT + SEQ: slot sl's modulation thrown anew (Tonitor's mod_random) -- both LFOs, slow (this firmware's textures:
- * 0.01 .. ~1 Hz mostly), and two to four slots from the LFOs mostly, to destinations not yet taken */
+ * 0.01 .. ~1 Hz mostly), and two to six slots from the LFOs mostly, to destinations not yet taken */
 static void mod_random(uint32_t sl, uint32_t seed)
 {
     static const uint8_t GW[GMD_N] = {10, 8, 6, 10, 4, 8, 7, 6, 3, 3};
@@ -263,7 +264,7 @@ static void mod_random(uint32_t sl, uint32_t seed)
         f->mode = (uint8_t)(rnd_chance(&r, 70) ? MM_FREE : rnd_chance(&r, 60) ? MM_NOTE : MM_ONCE);
         f->fade = (uint8_t)(rnd_chance(&r, 50) ? 0 : rnd_in(&r, 10, 60));
     }
-    n = 2u + (uint32_t)rnd_below(&r, 3);
+    n = 2u + (uint32_t)rnd_below(&r, 5);        /* (two to six of the eight) */
     for (k = 0; k < n; k++) {
         mslot_t *s = &m.s[k];
         uint32_t tries, d = 0, r1 = sl < NGEN ? GMD_RATE1 : FMD_RATE1;

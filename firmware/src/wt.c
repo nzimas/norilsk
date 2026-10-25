@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MOLECULAR: the single cycles the operators may read instead of the sine, band-limited by octave
+ * NORILSK: the single cycles the operators may read instead of the sine, band-limited by octave
  * (tools/gen_tables.py, WT_*; after Bigorna's osc.c). Each wave at WT_LV levels, level k keeping 128 >> k
  * harmonics in WT_LEN(k) points (+ 1, the first again: no wrap in the interpolation). They are copied from the
  * flash into RAM at start-up (the flash is slow to read sample by sample) and read with linear interpolation;
