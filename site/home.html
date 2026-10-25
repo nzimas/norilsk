@@ -1,0 +1,144 @@
+<div class="hero">
+  <img class="logo" src="assets/logo-dark.svg?v={LOGO_V}" alt="Norilsk" width="490" height="80">
+  <h1>M-VAVE FM-1 firmware for inhospitable soundscapes</h1>
+  <p>Norilsk is not made for musical niceties. There are no pretty chords here, no polite arpeggios, no presets that
+    flatter. It is made for ambient hellscapes and barren, grim atmospheres: drones that never resolve, textures that
+    corrode as they hold, noise that does not apologise. Sound for places nobody should have to live in.</p>
+  <p class="grim">It is named after Norilsk, the nickel-smelting city above the Arctic Circle: built by prisoners of
+    the Gulag, closed to outsiders, sunk in polar night for weeks each winter, its air thick with sulphur dioxide, its
+    rivers turned red by the works upstream. Every sound here is drawn at random, wired at random into effects drawn
+    at random, and torn apart at will: as fit for noise experiments as for slow, dark ambient.</p>
+  <div class="cta">
+    <a class="btn primary" href="install.html">Install via browser</a>
+    <a class="btn" href="manual.html">Read the manual</a>
+    <a class="btn" href="screens.html">See the screens</a>
+  </div>
+</div>
+
+<section class="demo" id="demo" aria-label="Demos">
+  <div class="demo-head">
+    <p class="demo-title">Field recordings</p>
+    <p class="demo-state">Three drawings of the machine, rendered from its code</p>
+  </div>
+  <canvas class="demo-scope" aria-hidden="true"></canvas>
+  <ol class="demo-list">
+    <li data-src="assets/demo/smelter.mp3">
+      <button class="demo-play" type="button" aria-label="Play Smelter" aria-pressed="false">
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+        <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11"/></svg>
+      </button>
+      <span class="demo-name">Smelter<small>ABRASIVE path · the first generator disintegrating</small></span>
+      <span class="demo-bpm">0:48</span>
+    </li>
+    <li data-src="assets/demo/polar-night.mp3">
+      <button class="demo-play" type="button" aria-label="Play Polar night" aria-pressed="false">
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+        <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11"/></svg>
+      </button>
+      <span class="demo-name">Polar night<small>DARK path · two generators deep in the reverb</small></span>
+      <span class="demo-bpm">0:48</span>
+    </li>
+    <li data-src="assets/demo/tailings.mp3">
+      <button class="demo-play" type="button" aria-label="Play Tailings" aria-pressed="false">
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+        <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11"/></svg>
+      </button>
+      <span class="demo-name">Tailings<small>anything goes · one snapshot morphing into another over 12 s</small></span>
+      <span class="demo-bpm">0:48</span>
+    </li>
+  </ol>
+</section>
+
+<h2 id="machine">How the machine is put together</h2>
+<p>Three <b>generators</b> make sound; three <b>effect slots</b> wreck it; a master <b>delay</b> and <b>plate
+  reverb</b> close the chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared
+  between the three. Each generator is wired by cables into one, two or three effects anywhere in the effect slots, and
+  keeps a dry share of its own. Each effect slot is a chain of two or three effects; any of them may also be wired
+  across into a later slot, or out to the master on its own. The first processor core renders the voices, the second
+  runs the effects, a block behind.</p>
+<div class="flow" role="img" aria-label="Three generators, cabled into three effect slots of two or three effects each, cables across to later slots, then the master delay and plate reverb to the output">
+<svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg" font-family="Atkinson Hyperlegible, sans-serif" font-size="17">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d2b84a"/></marker></defs>
+  <g fill="#1a1712" stroke="#ddd5bf" stroke-width="2">
+    <rect x="10" y="20" width="200" height="76"/><rect x="10" y="126" width="200" height="76"/><rect x="10" y="232" width="200" height="76"/>
+    <rect x="300" y="20" width="300" height="76"/><rect x="300" y="126" width="300" height="76"/><rect x="300" y="232" width="300" height="76"/>
+    <rect x="690" y="70" width="160" height="70"/><rect x="690" y="180" width="160" height="70"/>
+  </g>
+  <g fill="#ef6a43"><rect x="10" y="20" width="8" height="76"/></g><g fill="#5a96ff"><rect x="10" y="126" width="8" height="76"/></g><g fill="#a8ff3c"><rect x="10" y="232" width="8" height="76"/></g>
+  <g fill="#ede7d4" font-weight="700">
+    <text x="30" y="50">GENERATOR 1</text><text x="30" y="156">GENERATOR 2</text><text x="30" y="262">GENERATOR 3</text>
+    <text x="316" y="50">EFFECT SLOT 4</text><text x="316" y="156">EFFECT SLOT 5</text><text x="316" y="262">EFFECT SLOT 6</text>
+    <text x="704" y="100">DELAY</text><text x="704" y="210">PLATE</text>
+  </g>
+  <g fill="#b9b09a" font-size="14">
+    <text x="30" y="76">engine · hand · grit</text><text x="30" y="182">DISINTEGRATOR</text><text x="30" y="288">looper</text>
+    <text x="316" y="76">a recipe: 2 or 3 effects</text><text x="316" y="182">values drawn, cables across</text><text x="316" y="288">nineteen effects to draw from</text>
+    <text x="704" y="124">master, mono</text><text x="704" y="234">master, stereo</text>
+  </g>
+  <g stroke="#d2b84a" stroke-width="2.4" fill="none" marker-end="url(#ar)" opacity="0.95">
+    <path d="M210,58 C250,58 260,58 298,58"/><path d="M210,70 C255,90 255,150 298,164"/>
+    <path d="M210,164 C255,164 255,260 298,268"/><path d="M210,270 C250,270 260,170 298,176"/>
+    <path d="M600,58 C640,58 650,96 688,100"/><path d="M600,164 C640,164 650,120 688,112"/><path d="M600,270 C640,270 650,120 688,124"/>
+    <path d="M770,140 L770,178"/>
+  </g>
+  <g stroke="#c4512c" stroke-width="2" fill="none" stroke-dasharray="6 5" marker-end="url(#ar)">
+    <path d="M560,96 C560,110 540,112 540,124"/><path d="M500,202 C500,216 480,218 480,230"/>
+  </g>
+  <text x="566" y="116" fill="#c4512c" font-size="13">across</text>
+</svg>
+</div>
+<p>Every generator is a <b>MOLECULE</b>: six-operator FM whose operators read band-limited waves as well as sines,
+  bent by phase distortion, written into a buffer of half a second and read back as grains, as a cloud or a stream of
+  pulsars. An <b>invisible hand</b> keeps moving each voice's macros, so a held note never holds still; <b>Russolo's
+  grit</b> drops its bits, crosses it with itself and makes it stutter. Every sound swells in and keeps moving, and
+  nothing sounds on once no note is held, latched or looped: released voices fade out within three seconds, and the
+  effects and the master close two seconds after the last.</p>
+
+<h2 id="randomness">Randomness, level by level</h2>
+<p>Almost nothing in Norilsk is set by hand at the start: it is drawn. What you do is choose, keep, throw again, and
+  play. The draws are made at every scale, from the inside of a single note to the whole machine:</p>
+<ol class="layers">
+  <li><b>The sound.</b> MOLECULE draws a sound from a family, a seed, a path and an engine generation, bit for bit
+    the same every time it is asked: a sound is kept as its seed, and a session brings it back exactly. Twenty
+    families: METAL, DRONE, BRUIT, GLASS, CLOUD, SHATTER, FREEZE, FURNACE, HUM, STATIC, HOWL, SCRAPE, DATA, ASH,
+    TUNNEL and more.</li>
+  <li><b>The note in motion.</b> Inside every voice the invisible hand drifts the brightness, detune, grain and motion;
+    the grit stage cuts bits and stutters from points of its own; the grains are taken from places that wander. The
+    same key held twice never sounds the same twice.</li>
+  <li><b>The generator</b> (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it
+    is cabled into and where, its dry share, and now and then a modulation by another generator.</li>
+  <li><b>The effect slot</b> (HOME on an effect slot): one of 22 recipes, each place filled from the recipe's choices
+    that fit the slot's memory, every value drawn around its home, the outs, the cables across to the slots after
+    it.</li>
+  <li><b>The paths.</b> ABRASIVE (gnarly, textural, torn) and DARK (drones, depression, a little quieter) lean every
+    draw above: the scenes, the families, the recipes, the effects' values. Neither on: anything goes.</li>
+  <li><b>Partial throws.</b> REWIRE draws only the cables; RAND PARAMS only an effect slot's values, or a generator's
+    sound within its family; SHIFT + HOME keeps the family or the recipe; HOME held throws all six slots at once.</li>
+  <li><b>Modulation.</b> SHIFT + SEQ throws a slot's two LFOs (shape, rate, mode, fade) and two to six of its eight
+    routes; the STEPS and DRIFT shapes and the RANDOM source keep drawing as it plays.</li>
+  <li><b>Playing.</b> The DISINTEGRATOR gates, stutters, crushes and throws each generator about the stereo image in
+    pulses of random length; the looper's VARY redraws every note it plays, and RANDOM jumps through the loops.</li>
+  <li><b>What chance does not touch.</b> A snapshot is the whole machine, every value and every cable, the latched
+    notes and the loops' playing: sixteen to a session, sixty-four sessions, recalled exactly or morphed into over up to
+    thirty seconds.</li>
+</ol>
+
+<h2 id="features">Features</h2>
+<dl class="features">
+  <dt>Three generators</dt><dd>Each a MOLECULE voice with its level, pan, sends, mute, looper and DISINTEGRATOR.</dd>
+  <dt>Nineteen effects</dt><dd>FILTER, FOLD, MULAW, SHIFT, MODAL, STRING, VOWEL, DELAY, TAPE, REVERSE, SPRING, REVERB,
+    GLITCH, CLOUD, SCREAM, RING, STARVE, CHEB, BANK — drawn into three slots by 22 recipes, with cables between slots.</dd>
+  <dt>DISINTEGRATOR</dt><dd>KNOB 1: an unstable gate on each generator — stutters, crushes, sudden throws across the
+    image — more erratic the higher.</dd>
+  <dt>Draw paths</dt><dd>ABRASIVE and DARK, on two black keys, lean everything HOME draws.</dd>
+  <dt>Snapshots</dt><dd>Sixteen whole-machine states to a session, morphed into over 0 to 30 seconds.</dd>
+  <dt>Sessions</dt><dd>Sixty-four, saved in the FM-1's flash, and backed up to a computer from this site.</dd>
+  <dt>Modulation</dt><dd>Two LFOs and eight routes on every slot, onto macros, levels, pans, sends and any effect's
+    values.</dd>
+  <dt>Loopers</dt><dd>Tonitor's looper on each generator: ten loops, overdubs, reverse, pendulum, random, half and
+    double speed.</dd>
+  <dt>Master</dt><dd>Tonitor's delay and plate reverb, a send per generator.</dd>
+  <dt>A readable screen</dt><dd>Few words, very large, high contrast: made for low vision.</dd>
+</dl>
+<p class="note">Norilsk runs on the M-VAVE FM-1 (JieLi AC791N). It is unofficial: see the
+  <a href="install.html">install page</a> before installing.</p>

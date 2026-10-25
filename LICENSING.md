@@ -11,3 +11,12 @@ Parts under other licences, kept with their notices:
   Instruments), as Tonitor shaped it, with the operators' waves added here.
 - `firmware/src/dsp.h`, `firmware/src/libc.c`, `tools/gen_tables.py`: from Tonitor and Bigorna (Nuno Zimas),
   themselves after Felucca and SLOOP, GPL-3.0.
+- `firmware/hal/`, the loader and the update protocol (`tools/fm1_install.py`, `docs/js/fm1ota.js`): Felucca's and
+  SLOOP's (Leo Kuroshita, Hügelton Instruments), through Tonitor, GPL-3.0.
+- `assets/fonts/AtkinsonHyperlegible-Bold.ttf`: the Braille Institute's Atkinson Hyperlegible, SIL Open Font
+  License 1.1 (`assets/fonts/AtkinsonHyperlegible-OFL.txt`); `ter-u16b.bdf`: Terminus (`Terminus-LICENSE.txt`).
+
+The **website** (`docs/`, `site/`, its stylesheet and `js/menu.js`, `js/demo.js`) and the **logo**
+(`tools/make_logo.py`, `docs/assets/*.svg`) are under the MIT licence; the website's installer and backup scripts
+(`docs/js/fm1ota.js`, `install.js`, `fm1backup.js`, `backup.js`) are GPL-3.0 with the firmware. The demos
+(`docs/assets/demo/`) are rendered from the firmware's own code.

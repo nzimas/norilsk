@@ -2459,6 +2459,112 @@ static int cmd_whole(void)
     return fails ? 1 : 0;
 }
 
+/* the website's demos: three soundscapes from the machine as it is, rendered through the real mixer into DIR (WAV,
+ * 44.1 kHz stereo), each from a fixed seed -- SMELTER (ABRASIVE, a generator disintegrating), POLAR NIGHT (DARK),
+ * TAILINGS (anything, two snapshots morphing into each other). tools/make_demos.sh makes them MP3s for the site */
+static int16_t demo_buf[FS * 60 * 2];
+static void demo_latch(uint32_t gen, uint32_t k)
+{
+    press(SLOT_BTN[gen], 50);
+    key(k, 1);
+    key(KEY_SHIFT, 1);
+    ui_input();
+    key(KEY_SHIFT, 0);
+    key(k, 0);
+}
+static uint32_t demo_run(uint32_t secs, uint32_t at, int32_t *pk)
+{
+    uint32_t b, i, n = secs * 1378u;
+    int32_t out[2 * CTL];
+    for (b = 0; b < n; b++) {
+        mix_block(out);
+        for (i = 0; i < 2u * CTL && at < sizeof demo_buf / sizeof demo_buf[0]; i++, at++) {
+            demo_buf[at] = (int16_t)clampi(out[i], -32767, 32767);
+            *pk = maxi(*pk, absi(out[i]));
+        }
+        if (!(b % 14u))
+            ui_input();
+    }
+    return at;
+}
+static int cmd_demo(int argc, char **argv)
+{
+    const char *dir = argc > 2 ? argv[2] : "build";
+    static const char *const NAME[3] = {"smelter", "polar-night", "tailings"};
+    uint32_t d, l, seed = argc > 3 ? (uint32_t)atoi(argv[3]) : 0;
+    char path[512];
+    for (d = 0; d < 3u; d++) {
+        uint32_t at = 0;
+        int32_t pk = 0;
+        double rms = 0;
+        fm1_in.notes = fm1_in.buttons = 0;
+        ui_init();
+        ui.seed = 1000u * (d + 1u) + seed;
+        gens_init(ui.seed);
+        ses_init(1);
+        master_q12 = 4096;
+        draw_path = d == 0 ? DP_ROUGH : d == 1 ? DP_DARK : DP_ANY;
+        for (l = 0; l < NSLOT; l++) {                    /* every slot drawn on the path */
+            press(SLOT_BTN[l], 50);
+            press(B_HOME, 50);
+            fw_run(30);
+        }
+        if (d == 1) {                                    /* polar night: two generators, deep in the reverb */
+            ui.rvp[0] = 95;
+            ui.rvp[1] = 90;
+            ui.rvp[3] = 70;
+            rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+            for (l = 0; l < NGEN; l++) {
+                ui.rsend[l] = 80;
+                sends_apply(l);
+            }
+            demo_latch(0, 0);
+            demo_latch(1, 7);
+        } else {
+            demo_latch(0, 0);
+            demo_latch(1, 4);
+            demo_latch(2, 9);
+        }
+        if (d == 0) {
+            at = demo_run(14, at, &pk);
+            gen_dis[0] = 60;                             /* smelter: the first generator falls apart */
+            at = demo_run(24, at, &pk);
+            gen_dis[0] = 25;
+            at = demo_run(10, at, &pk);
+        } else if (d == 2) {                             /* tailings: two states, morphing (12 s) */
+            snap_store(0);
+            for (l = 0; l < NSLOT; l++) {
+                press(SLOT_BTN[l], 50);
+                press(B_HOME, 50);
+                fw_run(30);
+            }
+            snap_store(1);
+            ui.morph = 0;
+            snap_recall(0);
+            at = demo_run(14, at, &pk);
+            ui.morph = 24;
+            snap_recall(1);
+            at = demo_run(22, at, &pk);
+            snap_recall(0);
+            at = demo_run(12, at, &pk);
+        } else
+            at = demo_run(48, at, &pk);
+        for (l = 0; l < at; l++)
+            rms += (double)demo_buf[l] * demo_buf[l];
+        snprintf(path, sizeof path, "%s/demo-%s.wav", dir, NAME[d]);
+        wav_write2(path, demo_buf, at / 2u);
+        printf("demo %s: %.1f s, peak %d, rms %.0f, path %u, families %s %s %s\n", NAME[d], at / 2.0 / FS, pk,
+               __builtin_sqrt(rms / at), draw_path, MF_NAME[gbuf[0][g_use[0]].gen.family], MF_NAME[gbuf[1][g_use[1]].gen.family],
+               MF_NAME[gbuf[2][g_use[2]].gen.family]);
+        for (l = 0; l < NFX; l++)
+            print_fx(l);
+        gen_dis[0] = 0;
+        ui.morph = 0;
+    }
+    draw_path = DP_ANY;
+    return 0;
+}
+
 /* a snapshot recalled at once while a slot is still taking the last change (SES_BUSY then): every part given in the
  * frames that follow, none left at the snapshot before (build 15) */
 static int cmd_recall(void)
@@ -3327,6 +3433,8 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "demo"))
+        return cmd_demo(argc, argv);
     if (!strcmp(argv[1], "whole"))
         return cmd_whole();
     if (!strcmp(argv[1], "format1"))
