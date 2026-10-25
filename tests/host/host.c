@@ -1558,6 +1558,12 @@ static int cmd_paint(void)
     ui.snap_page = 1;
     fails += paint_one("snapshots");
     pages_off();
+    ui.morph = 9;
+    ui.dial_until = fm1_ms + 1500u;
+    ui.dial_shown = 0;
+    fails += paint_one("morph dial");
+    ui.dial_until = fm1_ms;
+    ui_draw();
     flash("SAVED", "12", C_OK);
     fails += paint_one("flash");
     flash("NO ROOM", "", C_FULL);
@@ -1803,6 +1809,157 @@ static int cmd_morph(void)
         printf("FAIL morph: the reverb's SIZE moved before the middle\n"), fails++;
     printf("morph: %u frames, quietest rms %u, crossing over %u frames, largest level step %u/256, %d failures\n", wins,
            minw, both, maxstep, fails);
+    return fails ? 1 : 0;
+}
+
+/* a morph ends as a recall would: for many pairs of snapshots (every slot drawn anew between them, a slot muted, a
+ * generator quieter), a note latched -- the machine after a morph from A into B against B applied at once to a fresh
+ * machine with the same note latched: the same state, and the same loudness (nothing of A left behind) */
+static void ends_fresh(uint32_t seed)
+{
+    fm1_in.notes = fm1_in.buttons = 0;
+    ui_init();
+    ui.seed = seed;
+    gens_init(ui.seed);
+    ses_init(1);
+    master_q12 = 4096;
+    press(B_FX, 50);
+    key(0, 1);
+    key(KEY_SHIFT, 1);
+    ui_input();
+    key(KEY_SHIFT, 0);
+    key(0, 0);
+    fw_run(1500);
+}
+static double ends_loud(void)
+{
+    double r = 0;
+    uint32_t i, l;
+    int32_t out[2 * CTL];
+    for (i = 0; i < 1378u * 2u; i++) {
+        mix_block(out);
+        for (l = 0; l < 2u * CTL; l++)
+            r += (double)out[l] * out[l];
+    }
+    return 10.0 * __builtin_log10(r + 1);
+}
+static int cmd_ends(void)
+{
+    int fails = 0;
+    uint32_t sd, l;
+    for (sd = 0; sd < 12u; sd++) {
+        uint32_t seed = 9100u + sd * 37u;
+        st_t B, sa, sb;
+        double ra, rb;
+        ends_fresh(seed);
+        snap_store(0);                                   /* A, then everything anew (a slot muted, a generator quieter) */
+        for (l = 0; l < NSLOT; l++) {
+            press(SLOT_BTN[l], 50);
+            press(B_HOME, 50);
+            fw_run(60);
+        }
+        fx_mute[seed % NFX] = 1;
+        gen_lvl[seed % NGEN] = 8;
+        snap_store(1);
+        B = snap.s[1];
+        ui.morph = 0;
+        snap_recall(0);
+        fw_run(1500);
+        ui_input();
+        ui.morph = 6;                                    /* (3 s) */
+        snap_recall(1);
+        for (l = 0; l < 1378u * 9u / 14u; l++) {         /* 9 s: the morph and its tails done */
+            fw_run(14);
+            ui_input();
+        }
+        st_capture(&sa);
+        ra = ends_loud();
+        ends_fresh(seed);                                /* B at once, to a fresh machine */
+        st_apply(&B);
+        for (l = 0; l < 1378u * 9u / 14u; l++) {
+            fw_run(14);
+            ui_input();
+        }
+        st_capture(&sb);
+        rb = ends_loud();
+        if (!st_same(&sa, &B) || ra - rb > 3.0 || rb - ra > 3.0) {
+            printf("FAIL ends: seed %u: after the morph %.1f dB, at once %.1f dB%s\n", seed, ra, rb,
+                   st_same(&sa, &B) ? "" : ", the state is not the snapshot");
+            fails++;
+        } else if (getenv("ENDS_V"))
+            printf("  seed %u: %.1f / %.1f dB\n", seed, ra, rb);
+        (void)sb;
+    }
+    printf("ends: %d morphs that do not end as a recall\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* the hiss left behind (the owner's case): an effect slot with TAPE hissing (AGE high) in A, the same TAPE silent of hiss
+ * (AGE 0) in B; recalled from the SNAPSHOTS page with a morph; after it, with every note let go and the slot's gate
+ * still open (a loop playing nothing would keep it open: here, a held note on another generator) -- the hiss gone */
+static int cmd_hiss(void)
+{
+    int fails = 0;
+    uint32_t l, s0;
+    for (s0 = 0; s0 < 2u; s0++) {
+        fx_patch_t *f;
+        double hiss;
+        uint32_t i;
+        fm1_in.notes = fm1_in.buttons = 0;
+        ui_init();
+        ui.seed = 555u + s0;
+        gens_init(ui.seed);
+        ses_init(1);
+        master_q12 = 4096;
+        for (l = 0; l < NFX; l++) {                      /* slot 4: TAPE alone, every generator off it */
+            f = &fbuf[l][f_use[l]];
+            memset(f, 0, sizeof *f);
+            f->n = 2;
+            f->e[0].kind = RM_TAP;
+            f->e[0].p[0] = 50; f->e[0].p[1] = 0; f->e[0].p[2] = 30; f->e[0].p[3] = 100;
+            f->e[1].kind = RM_FLT;
+            f->e[1].p[0] = 10; f->e[1].p[1] = 80;
+        }
+        for (l = 0; l < NGEN; l++)
+            gbuf[l][g_use[l]].nent = 0;
+        press(B_FX, 50);
+        key(0, 1);
+        key(KEY_SHIFT, 1);
+        ui_input();
+        key(KEY_SHIFT, 0);
+        key(0, 0);
+        fw_run(1000);
+        snap_store(1);                                   /* snapshot 2: hissing */
+        for (l = 0; l < NFX; l++)
+            fbuf[l][f_use[l]].e[0].p[3] = 0;             /* snapshot 3: the same, no hiss, quieter */
+        fx_lvl[0] = 12;
+        snap_store(2);
+        ui.morph = 0;
+        snap_recall(1);
+        fw_run(500);
+        key(KEY_SHIFT, 1);                               /* the SNAPSHOTS page, KNOB 1 to 4 s, the third key */
+        press(B_SAVE, 50);
+        key(KEY_SHIFT, 0);
+        ui.morph = s0 ? 20 : 8;
+        key(4, 1);                                       /* (the third white key) */
+        fw_run(10);
+        key(4, 0);
+        for (i = 0; i < 1378u * 14u / 14u; i++) {
+            fw_run(14);
+            ui_input();
+        }
+        for (hiss = 0, i = 0; i < 1378u; i++) {          /* the slots' own output, alone: is TAPE still hissing? */
+            uint32_t j;
+            fw_run(1);
+            for (j = 0; j < CTL; j++)
+                hiss += (double)fx_l[j] * fx_l[j];
+        }
+        hiss = __builtin_sqrt(hiss / (1378.0 * CTL));
+        printf("hiss: morph %u s: TAPE's AGE now %u (snapshot %u) -- the slots' output %.1f\n", ui.morph / 2u,
+               fbuf[0][f_use[0]].e[0].p[3], snap_current() + 1, hiss);
+        if (fbuf[0][f_use[0]].e[0].p[3] != 0 || snap_current() != 2)
+            printf("FAIL hiss: snapshot 3 not reached\n"), fails++;
+    }
     return fails ? 1 : 0;
 }
 
@@ -2094,6 +2251,22 @@ static int cmd_screens(int argc, char **argv)
     fm1_in.enc[PANEL_ENC[EN_PRESET]] = 9;
     ui_input();
     SHOT("snapshots");
+    fm1_in.enc[PANEL_ENC[EN_K1]] = 9;                    /* KNOB 1 on it: the MORPH TIME dial */
+    ui_input();
+    ui.load_at = fm1_ms - 1000u;
+    ui.msg_until = 0;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-morph-dial.ppm", dir);
+    screen_save(name);
+    ui.dial_until = fm1_ms;
+    ui_draw();
+    morph_start(&snap.s[2], 2, 4000);                    /* a morph into snapshot 3: its square blinking */
+    fw_run(400);
+    ui_input();
+    ui.force = 1;
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-snapshots-morph.ppm", dir);
+    screen_save(name);
     pages_off();
 #undef SHOT
     return 0;
@@ -2199,6 +2372,10 @@ int main(int argc, char **argv)
         return cmd_ears();
     if (!strcmp(argv[1], "morph"))
         return cmd_morph();
+    if (!strcmp(argv[1], "ends"))
+        return cmd_ends();
+    if (!strcmp(argv[1], "hiss"))
+        return cmd_hiss();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

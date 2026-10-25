@@ -2,6 +2,20 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 14 (2026-10-25): the morph fixed; its dial; the snapshots' keys
+
+- **A morph no longer carries the snapshot before into the one after.** An effect slot whose effects stayed the same
+  had its values glided in place, its memory kept: a frozen CLOUD went on holding the earlier snapshot's sound for ever
+  (recalled at once, the slot was cleared -- and a frozen CLOUD then stayed empty and silent). Now a slot with a CLOUD
+  whose values change is swapped (faded out, cleared, faded in) like a slot whose effects change, and a fresh CLOUD
+  fills its 0.74 s with the sound playing before it freezes. Tests: `host ends` (twelve morphs, each against the same
+  snapshot applied at once to a fresh machine: the same state, the same loudness), `host hiss` (a hissing TAPE morphed
+  into a quiet one).
+- **KNOB 1's dial**: turned, on the playing page or the SNAPSHOTS page, it covers the screen for 1.5 s -- MORPH, the
+  time very large (4.5, or OFF), SECONDS, a bar of its reach (0 .. 30 s). (The large font gained . O S.)
+- **The SNAPSHOTS page's keys**: every stored snapshot's key glows dimly, the one chosen lit, the one a morph flows into
+  blinking.
+
 ## Build 13 (2026-10-25): snapshots morph
 
 - **KNOB 1** (playing, and on the SNAPSHOTS page) sets the morph time, 0 .. 30 s in half seconds (MORPH 4.5 S; 0:

@@ -541,7 +541,8 @@ static void m_glt(const uint8_t *p, m_glt_t *s, int32_t *x)
  * written into 0.74 s (8-bit mu-law at FS / 2) and read back as up to six Hann grains of SIZE (p0: 30 .. 250 ms),
  * DENSITY a second (p1: 3 .. 60), each from a place drawn at random up to SPREAD back (p3: 0.05 .. 0.7 s), at the
  * sound's own speed (never another pitch); FREEZE (p2 above its middle) stops the writing: the cloud turns over what it
- * holds (and the slot's gate still closes it once no note sounds). The grains alone come out */
+ * holds (and the slot's gate still closes it once no note sounds); a fresh one (a new patch, a recall) fills its 0.74 s
+ * with the sound first, then holds it. The grains alone come out */
 #define CLD_N 16384u
 #define CLD_G 6u
 typedef struct {
@@ -555,7 +556,8 @@ static void m_cld(const uint8_t *p, m_cld_t *s, int32_t *x)
 {
     uint32_t len = ms_samples2(30u + p[0] * 220u / 100u), rate = 3u + p[1] * 57u / 100u, iv = 22050u / rate;
     uint32_t spread = ms_samples2(50u + p[3] * 650u / 100u), i, k, k2;
-    int frozen = p[2] >= 50;
+    int frozen = p[2] >= 50 && s->filled >= CLD_N;   /* (frozen only once it holds something: a fresh cloud fills first,
+                                                     * with the sound now, then holds it -- never an empty, silent one) */
     int32_t norm, o0;
     if (!s->r.s)
         rnd_seed(&s->r, 0x434C44u ^ (uint32_t)(uintptr_t)s);

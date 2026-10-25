@@ -189,6 +189,9 @@ static struct {
     uint8_t fl_shown;
     int32_t shown_ses, shown_snap;
     uint8_t morph;               /* KNOB 1: a snapshot's morph time, half seconds (0: at once) */
+    uint32_t dial_until;         /* the MORPH TIME dial over the screen, until (KNOB 1 turned) */
+    uint8_t dial_shown;
+    int32_t shown_dial;
 } ui;
 enum { SP_LIST = 1, SP_ASK = 2 };
 #define C_SES RGB(255, 200, 60)
@@ -721,15 +724,9 @@ static void ui_input(void)
         }
     } else {                                     /* KNOB 1: the morph time; KNOB 3, KNOB 4: the generator's sends */
         s = fm1_enc_take(PANEL_ENC[EN_K1]);
-        if (s) {
-            char m[16] = "MORPH ";
+        if (s) {                                 /* (shown on its dial, over whatever page is up) */
             ui.morph = (uint8_t)clampi((int32_t)ui.morph + s, 0, MORPH_STEPS_UI);
-            if (ui.morph) {
-                fmt_fix(m + 6, ui.morph * 5, 1);
-                str_cpy(m + str_len(m), " S", 3);
-            } else
-                str_cpy(m + 6, "OFF", 4);
-            say(m, 1200);
+            ui.dial_until = fm1_ms + 1500u;
         }
         s = fm1_enc_take(PANEL_ENC[EN_K3]);
         if (s) {
@@ -854,6 +851,24 @@ static void ui_input(void)
 }
 
 /* ---------------------------------------------------------------- LEDs --- */
+/* a key's glow, dim, under the lit ones (Tonitor's led_dim_key) */
+static void led_dim_key(uint32_t id, int on)
+{
+#ifdef HOST
+    (void)id;
+    (void)on;
+#else
+    uint32_t p, r;
+    for (p = 0; p < FM1_NCOL; p++)
+        for (r = 1; r < 5u; r++)
+            if (FM1_KEYMAP[r][p] == (int8_t)id) {
+                if (on)
+                    fm1_led_dim[p] |= (uint8_t)(1u << r);
+                else
+                    fm1_led_dim[p] &= (uint8_t)~(1u << r);
+            }
+#endif
+}
 static void ui_leds(void)
 {
     uint32_t k;
@@ -875,10 +890,11 @@ static void ui_leds(void)
     for (k = 0; k < NKEY; k++) {                 /* a key held, or latched on the generator the keys play */
         int32_t w = white_ix(k);
         const looper_t *p = &loop[ui.gen];
-        if (ui.snap_page)                        /* the SNAPSHOTS page: the snapshots that hold a state, lit (the one a
-                                                  * morph flows into blinking) */
-            fm1_led_key(14u + k, w >= 0 && w < (int32_t)NSNAP && snap_has((uint32_t)w) &&
-                                 (w != snap_morph_target() || (fm1_ms / 250u) & 1u));
+        int stored = ui.snap_page && w >= 0 && w < (int32_t)NSNAP && snap_has((uint32_t)w);
+        led_dim_key(14u + k, stored);            /* (the SNAPSHOTS page: every stored snapshot glows dimly) */
+        if (ui.snap_page)                        /* .. the one chosen lit, the one a morph flows into blinking */
+            fm1_led_key(14u + k, stored && (w == snap_morph_target() ? (int)((fm1_ms / 250u) & 1u)
+                                                                     : w == snap_current() && snap_morph_target() < 0));
         else if (ui.ovd)                         /* PLAY held: the loops that play, lit */
             fm1_led_key(14u + k, w >= 0 && (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
         else if (w >= 0)
@@ -1227,6 +1243,41 @@ static void draw_fx_page(void)
     ui.shown_fx_touch = (int8_t)t;
 }
 
+/* KNOB 1's dial, over the screen while it turns and 1.5 s after: what it sets (MORPH TIME), its value very large (4.5 S,
+ * or OFF), a bar of its reach (0 .. 30 s). Then the page that was up comes back */
+static int draw_dial(void)
+{
+    int32_t key = ui.morph;
+    char v[12];
+    if ((int32_t)(ui.dial_until - fm1_ms) <= 0) {
+        if (ui.dial_shown) {
+            ui.dial_shown = 0;
+            ui.force = 1;
+            ui.shown_page = 0xFF;
+        }
+        return 0;
+    }
+    if (ui.dial_shown && ui.shown_dial == key)
+        return 1;
+    if (ui.morph)
+        fmt_fix(v, ui.morph * 5, 1);
+    else
+        str_cpy(v, "OFF", 4);
+    CV_AREA(0, 0, 240, 50, C_BLACK)
+        cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "MORPH", C_SNAP);
+    CV_AREA(0, 50, 240, 112, C_BLACK)
+        cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+    CV_AREA(0, 162, 240, 40, C_BLACK)
+        if (ui.morph)
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, "SECONDS", C_GREY);
+    CV_AREA(0, 202, 240, 38, C_BLACK) {
+        cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
+        cv_rect(12, 8, ui.morph * 216 / MORPH_STEPS_UI, 22, C_SNAP);
+    }
+    ui.dial_shown = 1;
+    ui.shown_dial = key;
+    return 1;
+}
 /* the whole screen's message (flash): l1 very large, l2 under it */
 static int draw_flash(void)
 {
@@ -1444,6 +1495,8 @@ static void ui_draw(void)
 {
     uint32_t l, n = 0, mods[NGEN], all;
     if (draw_flash())
+        return;
+    if (draw_dial())
         return;
     if (ui.ses_page || ui.snap_page) {
         uint8_t id = ui.ses_page ? 8u : 9u;

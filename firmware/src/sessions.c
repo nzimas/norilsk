@@ -176,14 +176,20 @@ static struct {
     st_t a, b;                   /* from, to */
     morph_w_t w[NGEN + NFX];
 } morph;
+/* a slot whose values may glide: the same effects in the same places -- but not a CLOUD whose values change: glided, it
+ * would go on holding the snapshot before's sound (frozen, for ever); it is swapped instead, filled anew with the sound
+ * the morph flows into */
 static int fx_same_effects(const fx_patch_t *a, const fx_patch_t *b)
 {
     uint32_t k;
     if (a->n != b->n)
         return 0;
-    for (k = 0; k < a->n && k < FX_N; k++)
+    for (k = 0; k < a->n && k < FX_N; k++) {
         if (a->e[k].kind != b->e[k].kind)
             return 0;
+        if (a->e[k].kind == RM_CLD && memcmp(a->e[k].p, b->e[k].p, 4))
+            return 0;
+    }
     return 1;
 }
 AINL int32_t mlerp(int32_t a, int32_t b, int32_t u) { return a + (int32_t)(((int64_t)(b - a) * u + (u >= 0 ? Q15 / 2 : 0)) >> 15); }

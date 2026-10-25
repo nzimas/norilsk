@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # MOLECULAR: the screen's fonts (Tonitor's), rendered to a C header. Made for low vision: three large sizes only.
-#   XL  the layer number      digits (and the notes A..G, #: the root), ~100 px
+#   XL  the layer number      digits (and the notes A..G, #: the root; . O S: the morph time), ~100 px
 #   L   the engine            capitals, digits, + - . ! ?, ~46 px
 #   M   the sound, messages   the same set, ~34 px
 # With assets/fonts/AtkinsonHyperlegible-Bold.ttf (the Braille Institute's typeface for low vision,
@@ -21,7 +21,7 @@ BDF = FONTS / "ter-u16b.bdf"
 PAD = 2
 CHARS = " !#%+-./0123456789?ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # name, characters, TTF pixel size, Terminus scale
-SIZES = [("XL", "#0123456789ABCDEFG", 136, 9), ("L", CHARS, 60, 4), ("M", CHARS, 46, 3), ("S", CHARS, 35, 2),
+SIZES = [("XL", "#.0123456789ABCDEFGOS", 136, 9), ("L", CHARS, 60, 4), ("M", CHARS, 46, 3), ("S", CHARS, 35, 2),
          ("XS", " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", 26, 1)]   # (XS: the chord form under CHO, the ENVELOPE page)
 
 
