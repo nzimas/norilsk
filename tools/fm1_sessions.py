@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""List and save NORILSK's sessions from an FM-1 over USB-MIDI (reading only: nothing is written to the FM-1).
+"""List, save and restore NORILSK's sessions on an FM-1 over USB-MIDI.
 
   fm1_sessions.py                 the sessions on the FM-1: number, bytes
   fm1_sessions.py save N [DIR]    session N to DIR/session_N.bin (default: build/)
+  fm1_sessions.py restore FILE    a saved session back onto the FM-1, under its own number (replacing the one there)
 
 The protocol is the firmware's backup.c (Tonitor's backup protocol, reading only): the installer's framing,
-F0 pack7(00 59 cmd len24 body ~sum) F7; 0x50 the list, 0x51 a piece of a record. Only an FM-1 that answers the
+F0 pack7(00 59 cmd len24 body ~sum) F7; 0x50 the list, 0x51 a piece of a record; 0x52 .. 0x54 a record written (build 21). Only an FM-1 that answers the
 handshake as NORILSK (FM-1_7xx) is asked. The saved file is the record as the flash holds it: build/host replay
 plays it. Needs mido (as fm1_install.py).
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -67,11 +69,32 @@ def read(link, num, length):
     return bytes(out)
 
 
+STATUS = ["done", "the FM-1 has no flash store", "not as asked", "no room left on the FM-1",
+          "not a whole record (a damaged file?)", "writing the flash failed"]
+
+
+def restore(link, data):
+    if data[:4] != b"MOL1" or len(data) < 32:
+        sys.exit("not a NORILSK session file")
+    num = data[4] | data[5] << 8
+    for cmd, body in [(0x52, bytes([num & 0xFF, num >> 8]) + len(data).to_bytes(4, "little"))] + \
+            [(0x53, off.to_bytes(4, "little") + data[off:off + PIECE]) for off in range(0, len(data), PIECE)] + [(0x54, b"")]:
+        b = ask(link, cmd, body)
+        if b is None or len(b) != 1:
+            sys.exit(f"session {num}: no answer (an older firmware answers 2: update it)")
+        if b[0]:
+            sys.exit(f"session {num}: {STATUS[b[0]] if b[0] < len(STATUS) else b[0]}")
+    print(f"session {num}: {len(data)} B restored")
+
+
 def main():
     args = sys.argv[1:]
     dev = Updater(MidoBackend()).find(want=lambda i: i.model == "FM-1" and 700 <= i.version <= 799 and not i.loader)
+    if dev and not re.search(r"norilsk|molecular", dev.name, re.I):   # (Tonitor and Bigorna answer FM-1_700 too)
+        dev.link.close()
+        dev = None
     if not dev:
-        sys.exit("no FM-1 running NORILSK found (FM-1_7xx)")
+        sys.exit("no FM-1 running NORILSK found (its USB name: FM-1 Norilsk)")
     try:
         print(f"{dev.id.text} on {dev.name}")
         recs = listing(dev.link)
@@ -80,6 +103,10 @@ def main():
                 print(f"  session {num}: {n} B")
             if not recs:
                 print("  no sessions")
+            return
+        if args[0] == "restore" and len(args) == 2:
+            with open(args[1], "rb") as f:
+                restore(dev.link, f.read())
             return
         if args[0] != "save" or len(args) < 2:
             sys.exit(__doc__)

@@ -2509,13 +2509,14 @@ static int bk_wire(const uint8_t *p, uint32_t n)        /* F0 .. F7 -> decoded (
 }
 static void bk_ask(uint32_t cmd, const uint8_t *b, uint32_t n)
 {
-    uint8_t m[32];
+    uint8_t m[8 + 4 + 256];
     uint32_t i, s = 0;
     m[0] = 0;
     m[1] = 0x59;
     m[2] = (uint8_t)cmd;
     m[3] = (uint8_t)n;
-    m[4] = m[5] = 0;
+    m[4] = (uint8_t)(n >> 8);
+    m[5] = 0;
     for (i = 0; i < n; i++)
         s += m[6u + i] = b[i];
     m[6u + n] = (uint8_t)~s;
@@ -2589,12 +2590,56 @@ static int cmd_backup(void)
                 printf("FAIL backup: bytes past the end of %u\n", num), fails++;
         }
     }
-    for (k = 0x52; k <= 0x54; k++) {
-        uint8_t q[6] = {2, 0, 0, 1, 0, 0};
-        uint32_t sum = fnv(2166136261u, hflash + SES_LO, SES_HI - SES_LO);
-        bk_ask(k, q, 6);
-        if (!bk_reply_ok(k) || bk_got[6] != 2u || sum != fnv(2166136261u, hflash + SES_LO, SES_HI - SES_LO))
-            printf("FAIL backup: write 0x%02X not refused\n", k), fails++;
+    {   /* the restore (build 21): session 2 written back as it was saved -- loaded after; a copy with one byte wrong
+         * refused, the session there kept; another firmware's sector never touched */
+        static uint8_t rec[SES_NSECT * SES_SECT / 8u];
+        uint32_t len = 0, num = 2, f;
+        int at = ses_find(num), r;
+        FILE *fp = fopen("build/backup_session.bin", "rb");
+        uint32_t foreign = SES_NSECT - 1u, fsum;
+        if (fp) {
+            len = (uint32_t)fread(rec, 1, sizeof rec, fp);
+            fclose(fp);
+        }
+        memcpy(hflash + SES_LO + foreign * SES_SECT, "TON1another", 11);   /* (another firmware's, at the top) */
+        fw_init();
+        fsum = fnv(2166136261u, hflash + SES_LO + foreign * SES_SECT, SES_SECT);
+        for (r = 0; r < 2; r++) {
+            uint8_t q[8 + 256];
+            uint32_t ok = 1, last = 0;
+            if (r == 1)
+                rec[100] ^= 0x5Au;                       /* (the second time: one byte of its body wrong) */
+            q[0] = (uint8_t)num;
+            q[1] = (uint8_t)(num >> 8);
+            bk_wr32(q + 2, len);
+            bk_ask(0x52, q, 6);
+            ok &= bk_reply_ok(0x52) && bk_got[6] == 0u;
+            for (off = 0; ok && off < len; off += 256u) {
+                uint32_t n = len - off < 256u ? len - off : 256u;
+                bk_wr32(q, off);
+                memcpy(q + 4, rec + off, n);
+                bk_ask(0x53, q, 4u + n);
+                ok &= bk_reply_ok(0x53) && bk_got[6] == 0u;
+            }
+            bk_ask(0x54, 0, 0);
+            last = bk_got[6];
+            if (r == 0 && (!ok || last != 0u || ses_load_slot(num) != SES_OK))
+                printf("FAIL backup: the restore of session 2 (status %u)\n", last), fails++;
+            if (r == 1 && (last != 4u || ses_load_slot(num) != SES_OK))
+                printf("FAIL backup: a damaged record not refused (status %u), or the session there lost\n", last), fails++;
+        }
+        for (f = 0, at = 0; f < ses.n; f++)
+            at += ses.num[f] == num;
+        if (at != 1)
+            printf("FAIL backup: session 2 listed %d times after the restores\n", at), fails++;
+        if (fsum != fnv(2166136261u, hflash + SES_LO + foreign * SES_SECT, SES_SECT))
+            printf("FAIL backup: another firmware's sector changed\n"), fails++;
+    }
+    {   /* not a session number: refused */
+        uint8_t q[6] = {65, 0, 0, 1, 0, 0};
+        bk_ask(0x52, q, 6);
+        if (!bk_reply_ok(0x52) || bk_got[6] != 2u)
+            printf("FAIL backup: session 65 not refused\n"), fails++;
     }
     printf("backup: %d failures\n", fails);
     return fails ? 1 : 0;

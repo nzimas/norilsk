@@ -2,6 +2,15 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 21 (2026-10-25): sessions restored over USB
+
+- **Sessions can be written back to the FM-1** over USB (Tonitor's backup protocol, now with its writes): the website's
+  backup page and `tools/fm1_sessions.py restore FILE` put a saved session back in its slot, replacing the one there
+  only once the new copy is whole and checked. Only blank sectors or Norilsk's own retired ones are written -- never
+  another firmware's. A damaged record is refused and the session already there kept. Test: `host backup`.
+- `tools/fm1_sessions.py` talks only to an FM-1 whose USB name is FM-1 Norilsk (Tonitor and Bigorna answer the same
+  identity).
+
 ## Build 20 (2026-10-25): PLAY is the loops'
 
 - **PLAY is for the loops only.** With an effect slot chosen it does nothing -- pressed, held, with SHIFT -- and stays

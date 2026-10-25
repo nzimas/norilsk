@@ -1,14 +1,31 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * NORILSK: the sessions read over USB MIDI -- Tonitor's backup protocol (backup.c, the same author), reading only.
+ * NORILSK: the sessions over USB MIDI -- Tonitor's backup protocol (backup.c, the same author).
  * The installer's framing (ota.c: F0 pack7(00 59 cmd len24 body ~sum) F7):
  *   0x50  list                       -> 0x50  count, then a record each: number (u16), length (u32)
  *   0x51  read  number off(u32) n(u16, <= 256)   -> 0x51  number off n, then n bytes of the record
- *   0x52 .. 0x54 (Tonitor's writes)  -> the same command, status 2 (not as asked): nothing is written here.
- * tools/fm1_sessions.py lists and saves them. All in the main loop. */
+ *   0x52  write number len(u32)      -> 0x52  status: room made for it (only blank sectors, or Norilsk's own retired
+ *                                      ones: never another firmware's -- sessions.c ses_place)
+ *   0x53  data off(u32) bytes (<= 256, in order) -> 0x53  status
+ *   0x54  commit                     -> 0x54  status: its head and body checked, it is number's now (the old copy
+ *                                      retired only then)
+ * (build 21: the writes, Tonitor's; reading only before.) A record goes back whole and as it was, only its sequence
+ * number new and it made live. Statuses: 0 done, 1 no flash, 2 not as asked, 3 no room, 4 not a whole record (head,
+ * length, CRC, a format this firmware does not read), 5 the flash failed. Sessions 1 .. 64. tools/fm1_sessions.py
+ * and the website's backup page (docs/js/backup.js) use it. All in the main loop. */
 
 static int bk_wire(const uint8_t *p, uint32_t n);   /* one F0 .. F7 message to the host (main.c; host.c) */
+static void bk_done(uint32_t num) { ses_done(SES_OK, "RESTORED", num); }   /* (the screen says so: ui.c) */
 
 #define BK_DATA 256u
+static struct {
+    uint8_t on;                  /* a write under way */
+    uint16_t num;
+    uint32_t len, got;           /* its length; bytes taken */
+    int s;                       /* its first sector */
+    uint32_t ns;                 /* .. sectors */
+    uint16_t crc;                /* its body's CRC, as it comes */
+    ses_head_t h;
+} bk;
 typedef char bk_read_fits[7u + 1u + SES_MAX * 6u >= 7u + 8u + BK_DATA ? 1 : -1];
 static uint8_t bk_msg[7u + 1u + SES_MAX * 6u], bk_out[2u + (sizeof bk_msg * 8u + 6u) / 7u];
 
@@ -47,6 +64,29 @@ static void bk_send(uint32_t cmd, uint32_t n)        /* the body already in bk_m
     bk_out[o++] = 0xF7;
     bk_wire(bk_out, o);
 }
+static void bk_status(uint32_t cmd, uint32_t st)
+{
+    bk_msg[6] = (uint8_t)st;
+    bk_send(cmd, 1u);
+}
+/* the bytes taken so far that fill a sector (or end the record): written to the flash -- the head checked and given a
+ * new sequence number, made live, first */
+static int bk_flush(uint32_t upto)
+{
+    uint32_t sec = (upto - 1u) / SES_SECT, from = sec * SES_SECT, n = upto - from;
+    if (sec == 0u) {
+        memcpy(&bk.h, ses_chunk, sizeof bk.h);
+        if (!ses_head_ok(&bk.h) || bk.h.len != bk.len || bk.h.num != bk.num || bk.h.format < 1u || bk.h.format > SES_FORMAT)
+            return 4;
+        bk.h.seq = ++ses.seq;
+        bk.h.live = SES_LIVE;
+        bk.h.head_crc = ses_crc((const uint8_t *)&bk.h, 24u, 0);
+        memcpy(ses_chunk, &bk.h, sizeof bk.h);
+        bk.crc = ses_crc(ses_chunk + sizeof bk.h, n - sizeof bk.h, 0);
+    } else
+        bk.crc = ses_crc(ses_chunk, n, bk.crc);
+    return ses_flash_prog(SES_LO + ((uint32_t)bk.s + sec) * SES_SECT, ses_chunk, n) ? 5 : 0;
+}
 /* a message from the host (decoded: 00 59 cmd len24 body sum) */
 static void bk_handle(const uint8_t *m, uint32_t d)
 {
@@ -78,8 +118,52 @@ static void bk_handle(const uint8_t *m, uint32_t d)
         if (cnt)
             ses_flash_read(SES_LO + ses.sect[at] * SES_SECT + off, bk_msg + 14, cnt);
         bk_send(0x51u, 8u + cnt);
-    } else {                                         /* the writes: not here */
-        bk_msg[6] = 2u;
-        bk_send(cmd, 1u);
-    }
+    } else if (cmd == 0x52u && n == 6u) {            /* a record to come */
+        uint32_t num = b[0] | (uint32_t)b[1] << 8, len = bk_rd32(b + 2);
+        int s;
+        bk.on = 0;
+        if (!ses.ok) {
+            bk_status(0x52u, 1u);
+            return;
+        }
+        if (len < sizeof(ses_head_t) || len > SES_NSECT * SES_SECT || num < 1u || num > SES_SLOTS) {
+            bk_status(0x52u, 2u);
+            return;
+        }
+        s = ses_place(len, &bk.ns);
+        if (s < 0) {
+            bk_status(0x52u, s == -SES_FULL ? 3u : 5u);
+            return;
+        }
+        bk.on = 1;
+        bk.num = (uint16_t)num;
+        bk.len = len;
+        bk.got = 0;
+        bk.s = s;
+        bk_status(0x52u, 0u);
+    } else if (cmd == 0x53u && n >= 4u) {            /* its bytes, in order */
+        uint32_t off = bk_rd32(b), cnt = n - 4u, st = 0;
+        if (!bk.on || off != bk.got || off + cnt > bk.len || cnt > BK_DATA) {
+            bk.on = 0;
+            bk_status(0x53u, 2u);
+            return;
+        }
+        for (i = 0; i < cnt && !st; i++) {
+            ses_chunk[bk.got % SES_SECT] = b[4u + i];
+            if (++bk.got % SES_SECT == 0u || bk.got == bk.len)
+                st = (uint32_t)bk_flush(bk.got);
+        }
+        if (st)
+            bk.on = 0;
+        bk_status(0x53u, st);
+    } else if (cmd == 0x54u) {                       /* whole: its body checked, then it is the record */
+        uint32_t st = !bk.on || bk.got != bk.len ? 2u : bk.crc != bk.h.body_crc ? 4u : 0u;
+        if (!st && ses_commit(bk.num, bk.s, bk.ns, &bk.h) != SES_OK)
+            st = 5u;
+        bk.on = 0;
+        bk_status(0x54u, st);
+        if (!st)
+            bk_done(bk.num);
+    } else
+        bk_status(cmd, 2u);
 }
