@@ -1175,8 +1175,10 @@ static uint32_t ses_idle_at;
 static void ses_idle(int quiet)
 {
     uint32_t s;
-    if (!ses.ok || !quiet || (uint32_t)(fm1_ms - ses_idle_at) < 1000u)
-        return;
+    if (!ses.ok || !quiet || (uint32_t)(fm1_ms - ses_idle_at) < 1000u || ses_locked())
+        return;                                         /* (build 24: not while a session comes in over USB -- its
+                                                         * sectors look retired until it is committed, and the first,
+                                                         * written, was erased under it in silence) */
     ses_idle_at = fm1_ms;
     for (s = 0; s < SES_NSECT; s++)
         if (ses.st[s] == SC_MINE) {

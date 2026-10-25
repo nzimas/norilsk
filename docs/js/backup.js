@@ -73,7 +73,7 @@ async function connect() {
     onDevice = await listOn(device.link);
     if (!onDevice) {
       say("This FM-1 cannot be backed up from here",
-        "It runs a Norilsk older than build 22. Install the latest (Install page), then come back.", "bad");
+        "It runs a Norilsk older than build 24. Install the latest (Install page), then come back.", "bad");
       onDevice = null;
       return;
     }

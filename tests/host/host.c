@@ -2777,6 +2777,40 @@ static int cmd_backup(void)
         if (ses_save(7) != SES_OK)
             printf("FAIL backup: a save still BUSY after a restore was abandoned\n"), fails++;
     }
+    {   /* the owner's case (build 24): a restore while nothing sounds -- the main loop's tidying (ses_idle, a retired
+         * sector of Norilsk's erased each second in silence) between its messages, its own sectors among the retired
+         * ones it might take: the restore goes through, whole */
+        static uint8_t rec3[SES_NSECT * SES_SECT / 8u];
+        uint8_t q[8 + 256];
+        uint32_t len3 = 0, off3, k3;
+        FILE *fp = fopen("build/backup_session.bin", "rb");
+        if (fp) {
+            len3 = (uint32_t)fread(rec3, 1, sizeof rec3, fp);
+            fclose(fp);
+        }
+        for (k3 = 0; k3 < SES_NSECT; k3++)               /* (no other retired sector to erase first) */
+            if (ses.st[k3] == SC_MINE) {
+                ses_flash_erase(SES_LO + k3 * SES_SECT);
+                ses.st[k3] = SC_BLANK;
+            }
+        q[0] = 2;
+        q[1] = 0;
+        bk_wr32(q + 2, len3);
+        ses_idle_at = fm1_ms;                            /* (the tidying has just run: its next turn comes mid-restore) */
+        bk_ask(0x52, q, 6);
+        for (off3 = 0; off3 < len3; off3 += 256u) {
+            uint32_t n3 = len3 - off3 < 256u ? len3 - off3 : 256u;
+            bk_wr32(q, off3);
+            memcpy(q + 4, rec3 + off3, n3);
+            bk_ask(0x53, q, 4u + n3);
+            fm1_ms += bk.got % SES_SECT ? 50u : 1100u;   /* (~50 ms a message; a second of silence just after a sector
+                                                          * is written: the worst moment) */
+            ses_idle(1);
+        }
+        bk_ask(0x54, 0, 0);
+        if (bk_got[6] != 0u || ses_load_slot(2) != SES_OK)
+            printf("FAIL backup: a restore in silence did not go through (status %u: the tidying erased it)\n", bk_got[6]), fails++;
+    }
     {   /* not a session number: refused */
         uint8_t q[6] = {65, 0, 0, 1, 0, 0};
         bk_ask(0x52, q, 6);

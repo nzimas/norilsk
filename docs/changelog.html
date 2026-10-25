@@ -44,6 +44,14 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-24-2026-10-25-restores-that-always-go-through">Build 24 (2026-10-25): restores that always go through</h2>
+<ul>
+<li><b>Found with build 23's diagnosis</b>: a failed restore's new copy had its first sector blank — written, then erased. While nothing sounds, the main loop blanks one of Norilsk's retired sectors a second; a restore's sectors look retired until it is committed, so when the FM-1 was silent during a restore and no older retired sector lay below them, the first was erased under it. The tidying now waits while a session comes in over USB. (A save from the panel is written in one go and never met it.) Test: <code>host backup</code>, a restore in silence with the tidying's turn falling just after its first sector is written — it failed before.</li>
+</ul>
+<h2 id="build-23-2026-10-25-a-diagnosis-of-the-flash-over-usb">Build 23 (2026-10-25): a diagnosis of the flash, over USB</h2>
+<ul>
+<li>A restore over USB sometimes stops at its last check ("the flash failed" while checking: the new copy's head does not read back as written) — safely, the session already there kept, and the same restore goes through when tried again. To find why, the backup protocol answers a diagnosis (0x55, reading only): each sector's state as the firmware sees it, the last write's sectors and their states before, and the last commit's head as meant and as read back. <code>tools/fm1_sessions.py diag</code> prints it.</li>
+</ul>
 <h2 id="build-22-2026-10-25-a-restore-is-never-disturbed">Build 22 (2026-10-25): a restore is never disturbed</h2>
 <ul>
 <li><b>While a session is being restored over USB, saving or loading a session on the FM-1 shows BUSY.</b> A restore keeps its sectors reserved and half a sector waiting between its messages; a save or a load in the middle of it shares the same buffer and could take the same sectors. Found by the first restore on the device, which stopped with "the flash failed" (the session there kept, as it should be); six restores after it went through. A restore abandoned half-way frees them 5 s after its last message. Test: <code>host backup</code>.</li>

@@ -2,6 +2,15 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 24 (2026-10-25): restores that always go through
+
+- **Found with build 23's diagnosis**: a failed restore's new copy had its first sector blank -- written, then erased.
+  While nothing sounds, the main loop blanks one of Norilsk's retired sectors a second; a restore's sectors look
+  retired until it is committed, so when the FM-1 was silent during a restore and no older retired sector lay below
+  them, the first was erased under it. The tidying now waits while a session comes in over USB. (A save from the
+  panel is written in one go and never met it.) Test: `host backup`, a restore in silence with the tidying's turn
+  falling just after its first sector is written -- it failed before.
+
 ## Build 23 (2026-10-25): a diagnosis of the flash, over USB
 
 - A restore over USB sometimes stops at its last check ("the flash failed" while checking: the new copy's head does not
