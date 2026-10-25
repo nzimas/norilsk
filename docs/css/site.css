@@ -216,7 +216,7 @@ main .project h2 { margin: 0; padding: 0; border: 0; font-size: 34px; }
   body { background-size: 160% 120px, 100% 100%; font-size: 18px; }
   .layout { flex-direction: column; }
   .side { width: auto; height: auto; position: static; align-self: stretch; border-right: 0; border-bottom: 2px solid var(--line); padding: 16px 20px 12px; }
-  .brand img { width: auto; height: 64px; }       /* (the letters about half of it) */
+  .brand img { width: auto; height: 34px; }
   .top { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
   .menu-btn { display: flex; flex-direction: column; justify-content: center; gap: 5px; width: 44px; height: 44px; flex: none;
               padding: 10px; background: none; border: 1px solid var(--line); cursor: pointer; }
