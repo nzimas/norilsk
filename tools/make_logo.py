@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# NORILSK: the logo -- the smelter's banded stacks under their plume, a sulphur sun drowned in it at the horizon, and the
-# name in heavy stencil capitals (drawn here as blocks: no font needed), their edges eaten away. Ash, sulphur and the
-# oxide red of the river the nickel works turned red.
+# NORILSK: the logo -- the polar night, no sun. A smelter hall with its sawtooth roof and three tapered stacks, each
+# with one oxide band; their fumes bend over and run flat to the right as a low ceiling over the name, fading out.
+# The name in condensed stencil capitals (drawn here as blocks: no font needed), corners cut, edges eaten away.
+# Ash, soot, sulphur fumes and the oxide red of the river the nickel works turned red.
 #   python3 tools/make_logo.py        writes docs/assets/mark.svg, logo-dark.svg, logo-light.svg
 from pathlib import Path
 
@@ -10,30 +11,33 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "assets"
 
 ASH, ASH_DARK = "#ddd6c1", "#24211b"            # the letters and stacks, on a dark ground / on a light one
-SULPHUR, OXIDE, SMOG, BILE = "#bea43a", "#b5432a", "#5f5a4a", "#8a7630"
+OXIDE = "#a8402a"
+FUMES = ["#4b4739", "#5c5644", "#6a5d2c"]       # the three plumes: soot, smog, sulphur dioxide
 
-U = 6.0                                         # the letters' grid unit; capitals 12 units high
-# each letter: filled polygons (grid units, y down) and the stencil's cuts (rectangles taken out)
+U = 6.0                                         # the letters' grid unit
+H, T = 13.0, 2.4                                # capitals' height and stroke, units
+C = 1.3                                         # the corners cut off (top left, bottom right), units
+# each letter: filled polygons (grid units, y down), the stencil's cuts (rectangles taken out), its width
 LETTERS = {
-    "N": ([[(0, 0), (3, 0), (3, 12), (0, 12)], [(5, 0), (8, 0), (8, 12), (5, 12)],
-           [(0, 0), (3, 0), (8, 12), (5, 12)]],
-          [(4.3, 8.4, 0.7, 3.6)], 8),
-    "O": ([[(0, 0), (8, 0), (8, 12), (0, 12), (0, 0), (3, 3), (3, 9), (5, 9), (5, 3), (3, 3)]],
-          [(3.6, 0, 0.8, 3), (3.6, 9, 0.8, 3)], 8),
-    "R": ([[(0, 0), (3, 0), (3, 12), (0, 12)],
-           [(3, 0), (8, 0), (8, 7), (3, 7), (3, 0), (3, 2.6), (5.2, 2.6), (5.2, 4.4), (3, 4.4), (3, 2.6)],
-           [(3.4, 7), (6.4, 7), (8.4, 12), (5.4, 12)]],
-          [(3.0, 0, 0.7, 7)], 8.4),
-    "I": ([[(0, 0), (3, 0), (3, 12), (0, 12)]], [(0, 5.6, 3, 0.7)], 3),
-    "L": ([[(0, 0), (3, 0), (3, 12), (0, 12)], [(3, 9), (7, 9), (7, 12), (3, 12)]], [(3.0, 9, 0.7, 3)], 7),
-    "S": ([[(0, 0), (8, 0), (8, 3), (0, 3)], [(0, 0), (3, 0), (3, 7.5), (0, 7.5)], [(0, 4.5), (8, 4.5), (8, 7.5), (0, 7.5)],
-           [(5, 4.5), (8, 4.5), (8, 12), (5, 12)], [(0, 9), (8, 9), (8, 12), (0, 12)]],
-          [(5.2, 0, 0.7, 3), (2.1, 9, 0.7, 3)], 8),
-    "K": ([[(0, 0), (3, 0), (3, 12), (0, 12)], [(3.7, 5.2), (5.6, 0), (8.6, 0), (6.4, 6.4), (3.7, 6.4)],
-           [(3.7, 5.6), (6.4, 5.6), (8.6, 12), (5.6, 12), (3.7, 7.0)]],
-          [(3.0, 0, 0.7, 12)], 8.6),
+    "N": ([[(0, 0), (T, 0), (T, H), (0, H)], [(7 - T, 0), (7, 0), (7, H), (7 - T, H)],
+           [(0, 0), (T, 0), (7, H), (7 - T, H)]],
+          [(7 - T - 0.6, 9.0, 0.6, 4.0)], 7),
+    "O": ([[(0, 0), (7, 0), (7, H), (0, H), (0, 0), (T, T), (T, H - T), (7 - T, H - T), (7 - T, T), (T, T)]],
+          [(3.1, 0, 0.8, T), (3.1, H - T, 0.8, T)], 7),
+    "R": ([[(0, 0), (T, 0), (T, H), (0, H)],
+           [(T, 0), (7.2, 0), (7.2, 7.4), (T, 7.4), (T, 0), (T, T), (4.8, T), (4.8, 5.0), (T, 5.0), (T, T)],
+           [(3.4, 7.4), (6.0, 7.4), (7.8, H), (5.2, H)]],
+          [(T, 0, 0.6, 7.4)], 7.8),
+    "I": ([[(0, 0), (T, 0), (T, H), (0, H)]], [(0, 6.2, T, 0.6)], T),
+    "L": ([[(0, 0), (T, 0), (T, H), (0, H)], [(T, H - T), (6.2, H - T), (6.2, H), (T, H)]], [(T, H - T, 0.6, T)], 6.2),
+    "S": ([[(0, 0), (7, 0), (7, T), (0, T)], [(0, 0), (T, 0), (T, 7.7), (0, 7.7)], [(0, 5.3), (7, 5.3), (7, 7.7), (0, 7.7)],
+           [(7 - T, 5.3), (7, 5.3), (7, H), (7 - T, H)], [(0, H - T), (7, H - T), (7, H), (0, H)]],
+          [(4.4, 0, 0.6, T), (2.0, H - T, 0.6, T)], 7),
+    "K": ([[(0, 0), (T, 0), (T, H), (0, H)], [(T + 0.6, 5.6), (4.9, 0), (7.6, 0), (5.4, 6.9), (T + 0.6, 6.9)],
+           [(T + 0.6, 6.1), (5.4, 6.1), (7.8, H), (5.1, H), (T + 0.6, 7.7)]],
+          [(T, 0, 0.6, H)], 7.8),
 }
-GAP = 1.6                                       # between letters, units
+GAP = 1.5                                       # between letters, units
 
 
 def word(text, ink):
@@ -45,69 +49,93 @@ def word(text, ink):
             polys.append(f'<path fill-rule="evenodd" d="M' + " L".join(f"{(x + px) * U:.1f},{py * U:.1f}" for px, py in p) + ' Z"/>')
         for cx, cy, cw, chh in cs:
             cuts.append(f'<rect x="{(x + cx) * U:.1f}" y="{cy * U:.1f}" width="{cw * U:.1f}" height="{chh * U:.1f}" fill="#000"/>')
+        for tri in ([(x, 0), (x + C, 0), (x, C)], [(x + w, H), (x + w - C, H), (x + w, H - C)]):
+            cuts.append('<path fill="#000" d="M' + " L".join(f"{px * U:.1f},{py * U:.1f}" for px, py in tri) + ' Z"/>')
         x += w + GAP
     width = (x - GAP) * U
-    mask = (f'<mask id="cut" maskUnits="userSpaceOnUse" x="-10" y="-10" width="{width + 20:.0f}" height="{12 * U + 20:.0f}">'
-            f'<rect x="-10" y="-10" width="{width + 20:.0f}" height="{12 * U + 20:.0f}" fill="#fff"/>{"".join(cuts)}</mask>')
+    mask = (f'<mask id="cut" maskUnits="userSpaceOnUse" x="-10" y="-10" width="{width + 20:.0f}" height="{H * U + 20:.0f}">'
+            f'<rect x="-10" y="-10" width="{width + 20:.0f}" height="{H * U + 20:.0f}" fill="#fff"/>{"".join(cuts)}</mask>')
     body = f'<g fill="{ink}" mask="url(#cut)" filter="url(#erode)">{"".join(polys)}</g>'
     return mask, body, width
 
 
 ERODE = ('<filter id="erode" x="-5%" y="-10%" width="110%" height="120%">'
          '<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>'
-         '<feDisplacementMap in="SourceGraphic" in2="n" scale="2.6" xChannelSelector="R" yChannelSelector="G"/></filter>')
+         '<feDisplacementMap in="SourceGraphic" in2="n" scale="2.0" xChannelSelector="R" yChannelSelector="G"/></filter>')
+
+BASE = H * U                                    # the ground line: the letters' baseline
+# the stacks: centre x, top y, width at the foot, width at the top (px, before scaling); and each one's plume:
+# the height it levels out at, its half thickness there, where it fades out
+STACKS = [(22, -24, 11, 7, -40, 5.0, 300), (42, -40, 13, 8, -55, 6.5, 470), (62, -12, 10, 6, -27, 4.0, 200)]
 
 
-def stacks(ink, x0=0.0, scale=1.0, tag="m"):
-    """the mark: three stacks, banded, their plume smeared right and down across a sun sunk in the ground; 96 x 76"""
-    s = scale
-    def r(x, y, w, h, fill, extra=""):
-        return f'<rect x="{x0 + x * s:.1f}" y="{y * s:.1f}" width="{w * s:.1f}" height="{h * s:.1f}" fill="{fill}"{extra}/>'
-    out = [f'<clipPath id="{tag}g"><rect x="{x0 - 4 * s:.1f}" y="{-20 * s:.1f}" width="{110 * s:.1f}" height="{94 * s:.1f}"/></clipPath>',
-           f'<filter id="{tag}b" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="{2.4 * s:.2f}"/></filter>',
-           f'<circle cx="{x0 + 74 * s:.1f}" cy="{74 * s:.1f}" r="{15 * s:.1f}" fill="{SULPHUR}" opacity="0.9" clip-path="url(#{tag}g)"/>']
-    plume = []                                  # (smeared ellipses, heavier near the stacks)
-    for cx, cy, rx, ry, op in [(22, 11, 10, 8, 1), (35, 12, 14, 9, .95), (50, 17, 17, 10, .9), (66, 25, 18, 10, .85),
-                               (81, 35, 17, 10, .75), (93, 47, 14, 9, .6), (102, 58, 11, 7, .45), (58, 30, 15, 6, .6)]:
-        plume.append(f'<ellipse cx="{x0 + cx * s:.1f}" cy="{cy * s:.1f}" rx="{rx * s:.1f}" ry="{ry * s:.1f}" '
-                     f'transform="rotate(24 {x0 + cx * s:.1f} {cy * s:.1f})" opacity="{op}"/>')
-    sick = []                                   # (under it, a sulphurous brown seeping out)
-    for cx, cy, rx, ry in [(46, 26, 16, 5), (70, 38, 18, 6), (90, 55, 14, 5)]:
-        sick.append(f'<ellipse cx="{x0 + cx * s:.1f}" cy="{cy * s:.1f}" rx="{rx * s:.1f}" ry="{ry * s:.1f}" '
-                    f'transform="rotate(24 {x0 + cx * s:.1f} {cy * s:.1f})"/>')
-    out.append(f'<g fill="{BILE}" opacity="0.55" filter="url(#{tag}b)">{"".join(sick)}</g>')
-    out.append(f'<g fill="{SMOG}" filter="url(#{tag}b)">{"".join(plume)}</g>')
-    for x, top, w in [(8, 22, 8), (22, 12, 9), (37, 30, 7)]:          # the stacks, each with oxide bands
-        out.append(r(x, top, w, 74 - top, ink))
-        for b in range(2):
-            out.append(r(x, top + 4 + b * 10, w, 3.2, OXIDE))
-    out.append(r(-2, 74, 104, 2.2, ink))                              # the ground
-    return "".join(out)
+def smelter(ink, x0=0.0, s=1.0, tag="m", reach=1.0):
+    """the mark: hall, stacks and their plumes, ground at BASE; reach scales how far the plumes run"""
+    def X(v): return f"{x0 + v * s:.1f}"
+    def Y(v): return f"{v * s:.1f}"
+    defs, back, front = [], [], []
+    for i, (cx, top, wb, wt, py, ht, xe) in enumerate(STACKS):
+        xe = cx + (xe - cx) * reach
+        g = f"{tag}f{i}"
+        defs.append(f'<linearGradient id="{g}" gradientUnits="userSpaceOnUse" x1="{X(cx)}" y1="0" x2="{X(xe)}" y2="0">'
+                    f'<stop offset="0" stop-color="{FUMES[i]}"/><stop offset="0.45" stop-color="{FUMES[i]}" stop-opacity="0.8"/>'
+                    f'<stop offset="1" stop-color="{FUMES[i]}" stop-opacity="0"/></linearGradient>')
+        l, r, bend = cx - wt / 2, cx + wt / 2, cx + 26
+        droop = 3.0                              # (the far end sinks a little: the fumes are heavy)
+        mid = bend + (xe - bend) * 0.45           # (the fumes swell as they go, then thin out)
+        d = (f"M{X(l)},{Y(top)} C{X(l)},{Y(py - ht - 3)} {X(cx + 6)},{Y(py - ht)} {X(bend)},{Y(py - ht)} "
+             f"Q{X(mid)},{Y(py - ht * 2.2)} {X(xe)},{Y(py + droop - 0.5)} "
+             f"Q{X(mid)},{Y(py + ht * 1.9 + droop)} {X(bend)},{Y(py + ht)} "
+             f"C{X(cx + 12)},{Y(py + ht)} {X(r)},{Y(py + ht + 3)} {X(r)},{Y(top)} Z")
+        back.append(f'<path d="{d}" fill="url(#{g})" filter="url(#{tag}r)"/>')
+        front.append(f'<path d="M{X(cx - wb / 2)},{Y(BASE)} L{X(l)},{Y(top)} L{X(r)},{Y(top)} L{X(cx + wb / 2)},{Y(BASE)} Z" fill="{ink}"/>')
+        b0, b1 = top + 5, top + 10               # the oxide band, following the taper
+        def half(y): return (wt + (wb - wt) * (y - top) / (BASE - top)) / 2
+        front.append(f'<path d="M{X(cx - half(b0))},{Y(b0)} L{X(cx + half(b0))},{Y(b0)} L{X(cx + half(b1))},{Y(b1)} '
+                     f'L{X(cx - half(b1))},{Y(b1)} Z" fill="{OXIDE}"/>')
+    roof = [(4, BASE), (4, 58)]                  # the hall: a sawtooth roof, five teeth
+    for k in range(5):
+        x = 4 + 15 * k
+        roof += [(x + 15, 50), (x + 15, 58)]
+    roof.append((79, BASE))
+    front.append('<path d="M' + " L".join(f"{X(px)},{Y(py)}" for px, py in roof) + f' Z" fill="{ink}"/>')
+    front.append(f'<rect x="{X(-2)}" y="{Y(BASE)}" width="{86 * s:.1f}" height="{2.4 * s:.1f}" fill="{ink}"/>')
+    haze = (f'<filter id="{tag}b" x="-20%" y="-80%" width="140%" height="260%"><feGaussianBlur stdDeviation="{5 * s:.1f}"/></filter>')
+    defs.append(haze)
+    defs.append(f'<filter id="{tag}r" x="-5%" y="-60%" width="110%" height="220%">'   # (ragged, torn edges)
+                f'<feTurbulence type="fractalNoise" baseFrequency="{0.035 / s:.3f} {0.12 / s:.3f}" numOctaves="3" seed="11" result="n"/>'
+                f'<feDisplacementMap in="SourceGraphic" in2="n" scale="{9 * s:.1f}" xChannelSelector="R" yChannelSelector="G"/></filter>')
+    murk = (f'<ellipse cx="{X(150 * reach + 40)}" cy="{Y(-42)}" rx="{160 * reach * s:.1f}" '
+            f'ry="{14 * s:.1f}" fill="{FUMES[0]}" opacity="0.35" filter="url(#{tag}b)"/>')
+    return "".join(defs), murk + "".join(back) + "".join(front)
 
 
 def mark():
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -2 112 80" width="112" height="80">
+    defs, body = smelter(ASH, 0, 1.0, "m", 0.12)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -74 104 158" width="104" height="158">
   <title>Norilsk</title>
-  {stacks(ASH)}
+  <defs>{defs}</defs>
+  {body}
 </svg>
 """
 
 
 def logo(ink, path):
     mask, body, w = word("NORILSK", ink)
-    mx = 106 * (12 * U / 76) + 18                # the mark as tall as the capitals, then a gap
+    defs, sm = smelter(ink, 0, 1.0, "w")
+    mx = 96                                      # the word after the hall
     total = mx + w
-    h = 12 * U
-    sc = h / 76
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 {total + 8:.0f} {h + 8:.0f}" width="{total + 8:.0f}" height="{h + 8:.0f}">
+    top = -74
+    h = BASE + 3 - top
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 {top} {total + 8:.0f} {h:.0f}" width="{total + 8:.0f}" height="{h:.0f}">
   <title>Norilsk</title>
-  <defs>{ERODE}{mask}</defs>
-  {stacks(ink, 0, sc, "w")}
+  <defs>{ERODE}{mask}{defs}</defs>
+  {sm}
   <g transform="translate({mx:.1f} 0)">{body}</g>
 </svg>
 """
     path.write_text(svg)
-    return total + 8, h + 8
+    return total + 8, h
 
 
 if __name__ == "__main__":

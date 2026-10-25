@@ -170,7 +170,7 @@ def page(title, current, body, desc, head=""):
 <div class="layout">
   <aside class="side">
     <div class="top">
-      <a class="brand" href="./"><img src="assets/logo-dark.svg?v={LOGO_V}" alt="Norilsk" width="490" height="80"></a>
+      <a class="brand" href="./"><img src="assets/logo-dark.svg?v={LOGO_V}" alt="Norilsk" width="429" height="155"></a>
       <button class="menu-btn" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
     <nav id="site-nav" aria-label="Site">

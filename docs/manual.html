@@ -6,17 +6,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Norilsk manual</title>
 <meta name="description" content="The Norilsk manual: every control of the FM-1 under Norilsk.">
-<link rel="icon" href="assets/mark.svg?v=3481f80dd2" type="image/svg+xml">
+<link rel="icon" href="assets/mark.svg?v=0d6de6d076" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Big+Shoulders+Stencil+Display:wght@700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/site.css?v=a9fad8db73">
+<link rel="stylesheet" href="css/site.css?v=229bf85ef3">
 </head>
 <body>
 <div class="layout">
   <aside class="side">
     <div class="top">
-      <a class="brand" href="./"><img src="assets/logo-dark.svg?v=3481f80dd2" alt="Norilsk" width="490" height="80"></a>
+      <a class="brand" href="./"><img src="assets/logo-dark.svg?v=0d6de6d076" alt="Norilsk" width="429" height="155"></a>
       <button class="menu-btn" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
     <nav id="site-nav" aria-label="Site">
@@ -61,7 +61,7 @@
 <h2 id="how-it-is-put-together">How it is put together</h2>
 <p>Three <b>generators</b> make sound; three <b>effect slots</b> wreck it; a master <b>delay</b> and <b>plate reverb</b> close the chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared between the three generators.</p>
 <ul>
-<li>Each generator is wired by cables into one, two or three effects anywhere in the effect slots (none, one time in twenty), and keeps a dry share of its own that goes straight to the master. Now and then another generator modulates it (ring, amplitude, filter).</li>
+<li>Each generator is wired by cables into one, two or three effects anywhere in the effect slots (none, one time in twenty), and keeps a dry share of its own that goes straight to the master. One generator may modulate another (ring, amplitude, filter) — only when you link them: SHIFT, hold one generator's button, then the other's.</li>
 <li>Each effect slot is a chain of two or three effects, drawn from a recipe. Any effect may also be wired across into an effect of a later slot, or sent out to the master on its own.</li>
 <li>Each generator has its level, pan, mute, delay and reverb sends, a looper, and a DISINTEGRATOR; each effect slot its level, pan and mute.</li>
 <li>The first processor core renders the voices; the second runs the effects, a block behind.</li>
@@ -72,7 +72,7 @@
 <ol>
 <li><b>The sound.</b> MOLECULE, the engine, draws a sound from a family, a seed, a path and an engine generation, bit for bit the same every time: a sound is kept as its seed, and a session brings it back exactly.</li>
 <li><b>The note in motion.</b> In every voice an invisible hand (after Anima) keeps drifting the four macros; Russolo's grit cuts bits, crosses the sound with itself and stutters it from points of its own; the grains are taken from places that wander. The same key held twice never sounds the same twice.</li>
-<li><b>The generator</b> (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it is cabled into and where, its dry share, now and then a modulation by another generator.</li>
+<li><b>The generator</b> (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it is cabled into and where, its dry share.</li>
 <li><b>The effect slot</b> (HOME on an effect slot): one of 22 recipes, each place filled from the recipe's choices that fit the slot's memory, every value drawn around its home, the outs, the cables across to the slots after it.</li>
 <li><b>The paths.</b> ABRASIVE and DARK lean every draw above: the scenes, the families, the recipes, the effects' values.</li>
 <li><b>Partial throws.</b> REWIRE draws only the cables; RAND PARAMS only an effect slot's values, or a generator's sound within its family; SHIFT + HOME keeps the family or the recipe; HOME held throws all six slots at once.</li>
@@ -93,12 +93,13 @@
 <tr><td>a white key held, then <b>SHIFT</b></td><td>its note latched (the key stays lit); <b>SHIFT</b> held, then the lit key: let go</td></tr>
 <tr><td><b>SELECT / ALGORITHM</b></td><td>the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right</td></tr>
 <tr><td><b>OCT− / OCT+</b></td><td>the octave, −3 to +3</td></tr>
-<tr><td><b>ARP</b></td><td>the SCALE page: SELECT the scale (23), ALGORITHM the root</td></tr>
+<tr><td><b>ARP</b></td><td>the SCALE page: SELECT the root, ALGORITHM the scale (23)</td></tr>
 <tr><td><b>KNOB 1</b></td><td>playing: the DISINTEGRATOR of the generator the keys play, 0 to 100. On the SNAPSHOTS page: the morph time, 0 to 30 s</td></tr>
 <tr><td><b>KNOB 3 / KNOB 4</b></td><td>the delay send / reverb send of the generator the keys play</td></tr>
 <tr><td><b>SEQ</b></td><td>the DELAY page, again the REVERB page, again the MOD page, again back: KNOB 1 to 4 set the four rows</td></tr>
 <tr><td><b>SHIFT + SEQ</b></td><td>the chosen slot's modulation thrown anew</td></tr>
-<tr><td>1st black key</td><td>REWIRE the chosen slot: a generator's cables and modulation, or an effect slot's outs and cables, drawn anew; its sound and values stay</td></tr>
+<tr><td><b>SHIFT</b> + hold a generator's button, then hold another's</td><td>LINK: the first modulates the second (RING, AM or FILTER, drawn), shown in two lines over the screen and as a band at the foot of the second's block in the first's colour; the same again unlinks (OFF)</td></tr>
+<tr><td>1st black key</td><td>REWIRE the chosen slot: a generator's cables, or an effect slot's outs and cables, drawn anew; its sound and values stay</td></tr>
 <tr><td><b>SHIFT</b> + 1st black key</td><td>RAND PARAMS: an effect slot's every value anew (in place, no break: its effects and cables stay), or a generator's sound of the same family (its cables stay)</td></tr>
 <tr><td>2nd black key</td><td>the ABRASIVE path on or off (lit while on)</td></tr>
 <tr><td>3rd black key</td><td>the DARK path on or off (lit while on). One path at a time; neither: anything goes</td></tr>
@@ -122,7 +123,7 @@
 <p>Made for low vision: few words, very large, high contrast. At the top, the audio's load at the left and the battery at the right. Under it the three generators as large numbered blocks in their colours (red, blue, green), the chosen one framed in white. Under them the three effect slots, a row each, their effects as named tiles: FLT filter, FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, DLY delay, TAP tape, RVS reverse, SPR spring, REV reverb, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank. Each tile is bordered in the colours of the generators cabled into it; the tiles the chosen generator feeds are filled with its colour; a tile brightens as sound passes through it; a muted row is dark. No cables are drawn. KNOB 1 shows its value on a dial over the whole screen.</p>
 <h2 id="the-generators">The generators</h2>
 <p>Each generator is a <b>MOLECULE</b>: six-operator FM (msfa, Dexed's core, in Felucca's integer port as Tonitor shaped it), its operators reading the sine or one of 28 band-limited single cycles, morphed and bent by phase distortion; its sound written into a buffer of about half a second a voice and read back as grains — a CLOUD at a rate of its own, pitched by the sound's intervals, reversed, darkened, fed back, FROZEN — or a PULSAR at a ratio of the note.</p>
-<p>Twenty <b>families</b>: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE, FURNACE, HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL. Four <b>scenes</b> choose among them: FIELD (ambient), MATERIAL (open), FEEDBACK and EROSION (experimental), each with its own families and its chance of a modulation by another generator. Four macros — BRIGHTNESS, DETUNE (INHARMONIC on the metallic and noisy bodies), GRAIN, MOTION — moved by the invisible hand, by the LFOs, and by you. Every sound is measured as it is made and brought to one level. <code>docs/ENGINE.md</code> has the design in full.</p>
+<p>Twenty <b>families</b>: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE, FURNACE, HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL. Four <b>scenes</b> choose among them: FIELD (ambient), MATERIAL (open), FEEDBACK and EROSION (experimental), each with its own families. Four macros — BRIGHTNESS, DETUNE (INHARMONIC on the metallic and noisy bodies), GRAIN, MOTION — moved by the invisible hand, by the LFOs, and by you. Every sound is measured as it is made and brought to one level. <code>docs/ENGINE.md</code> has the design in full.</p>
 <h3 id="the-disintegrator">The DISINTEGRATOR</h3>
 <p>KNOB 1 while playing: an unstable gate on the generator the keys play, 0 to 100, after its sound is made and before its cables, so the effects hear it too. The sound goes as a chain of pulses of uneven length. A pulse lets it through, gates it down (to nothing from 60 up), stutters a slice of what it has just made (10 to 90 ms, repeated), or crushes it (bits and rate), and may throw its dry part across the stereo image. The higher, the shorter and less even the pulses, the more of them act, the deeper and wider. Every edge glides over about 1.5 ms: no clicks. At 0 nothing is touched. Each generator keeps its own, in snapshots and sessions. (Ideas from Destroy FX's Skidder and from buffer repeaters; none of their code.)</p>
 <h2 id="the-effect-slots">The effect slots</h2>
@@ -184,6 +185,6 @@
     </footer>
   </div>
 </div>
-<script src="js/menu.js?v=a9fad8db73"></script>
+<script src="js/menu.js?v=229bf85ef3"></script>
 </body>
 </html>
