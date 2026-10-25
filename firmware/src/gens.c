@@ -44,6 +44,7 @@ typedef struct {
     uint8_t xsrc, xkind, xdepth; /* modulated by generator xsrc (XM_NONE: none), how, how deep (0 .. 100) */
     uint8_t scene;
     uint8_t rewired;             /* the same sound, new cables (the first black key): taken without a fade */
+    uint16_t xfade;              /* a snapshot's morph: blocks the notes held cross over in, on a voice each (0: as ever) */
     uint32_t seed, serial;
 } gen_patch_t;
 static gen_patch_t gbuf[NGEN][2];
@@ -52,6 +53,10 @@ static volatile uint8_t gen_mute[NGEN];
 static uint8_t gen_drawn[NGEN];
 static volatile int8_t gen_lvl[NGEN], gen_pan[NGEN];   /* the level (0 .. LEVEL_MAX) and pan (-PAN_MAX .. PAN_MAX) */
 static volatile int32_t gen_meter[NGEN];      /* each generator's sound, its last peaks (the screen's) */
+/* a snapshot's morph (sessions.c): each generator's level finer than its steps (Q8 steps, 0: silent) while it glides --
+ * the mute folded in -- a bit a generator when in force */
+static volatile int16_t gen_lvl_q8[NGEN];
+static volatile uint8_t gen_fine;
 /* the modulation (mod.c, after this file): each generator's macros, level (steps), pan, sends (0 .. 100) moved */
 static int8_t gen_mac[NGEN][4];
 static uint8_t gen_mac_on[NGEN];
@@ -71,6 +76,7 @@ typedef struct {
     int32_t lvl;
     uint16_t quiet;
     uint32_t cost;               /* what a block of it took, of late (ticks) */
+    uint16_t xf, xflen;          /* a morph's crossfade: blocks left of its long fade out, of how many */
 } voice_t;
 static voice_t vox[NVOICE];
 static mo_voice_t vmem[NVOICE] POOL;
@@ -128,6 +134,7 @@ static void voice_start(uint32_t k, uint32_t slot, uint32_t note, uint32_t latch
     v->pend = 0;
     v->dsg = g_use[slot];
     v->age = ++age_clock;
+    v->xf = v->xflen = 0;
     v->pk = 0;
     v->lvl = 0;
     v->quiet = 0;
@@ -259,6 +266,34 @@ static void gens_take(void)
                 if (vox[k].sounding && vox[k].slot == l && vox[k].dsg == g_use[l])
                     vox[k].dsg = g_pub[l];
             g_use[l] = g_pub[l];
+        } else if (g_pub[l] != g_use[l] && gbuf[l][g_pub[l]].xfade) {   /* a morph: the notes cross over */
+            uint32_t old = g_use[l], xl = gbuf[l][g_pub[l]].xfade, j;
+            g_use[l] = g_pub[l];
+            for (k = 0; k < NVOICE; k++) {
+                voice_t *v = &vox[k];
+                if (!v->sounding || v->slot != l || v->dsg != old || v->xf)
+                    continue;
+                if (!v->gate || v->fade || v->pend)
+                    continue;                            /* (a tail, or already on its way out: as it is) */
+                for (j = 0; j < NVOICE && vox[j].sounding; j++)
+                    ;                                    /* a free voice for the new sound */
+                if (j == NVOICE) {                       /* (none: the quick change, as ever) */
+                    v->pend = 1;
+                    v->pend_note = v->note;
+                    v->pend_slot = (uint8_t)l;
+                    v->pend_latched = v->latched;
+                    v->pend_src = v->src;
+                    v->pend_vel = v->vel;
+                    v->gate = 0;
+                    v->latched = 0;
+                    v->fade = FADE;
+                    continue;
+                }
+                voice_start(j, l, v->note, v->latched, v->src, v->vel ? v->vel : 127u);
+                v->gate = 0;                             /* the old one: out slowly, on the old sound */
+                v->latched = 0;
+                v->xf = v->xflen = (uint16_t)xl;
+            }
         } else if (g_pub[l] != g_use[l]) {
             for (k = 0; k < NVOICE; k++) {
                 voice_t *v = &vox[k];
@@ -332,6 +367,16 @@ static void voice_post(uint32_t k)
                 return;                                  /* (its first block next time) */
             }
         }
+    }
+    if (v->xf) {                                         /* a morph's crossfade: out over xflen blocks, linear */
+        int32_t g0 = (int32_t)(((uint32_t)v->xf << 15) / v->xflen), g1 = (int32_t)(((uint32_t)(v->xf - 1u) << 15) / v->xflen),
+                dg = (g1 - g0) / (int32_t)CTL;
+        for (i = 0; i < CTL; i++) {
+            g0 += dg;
+            vb[i] = mulq15(vb[i], g0);
+        }
+        if (!--v->xf)
+            alive = 0;
     }
     if (v->vel && v->vel < 127u) {                       /* (a looper's VARY note: its level) */
         int32_t g = (int32_t)v->vel * 258;
@@ -595,6 +640,11 @@ static void mix_block(int32_t *out)
         int32_t g, pl, pr, dg, dpl, dpr;
         if (!pk[l] && !gl_gg[l])
             continue;
+        if ((gen_fine >> l) & 1u) {                      /* (a morph: the level between its steps, the mute in it) */
+            int32_t q = gen_lvl_q8[l] > 0 ? clampi(gen_lvl_q8[l] + gen_mod_lvl[l] * 256, 0, LEVEL_MAX * 256) : 0;
+            g = q >= 256 ? (int32_t)(exp2_q16(((q - LEVEL_UNITY * 256) * 16328) >> 8) >> 2)
+                         : (int32_t)((exp2_q16((1 - LEVEL_UNITY) * 16328) >> 2) * (uint32_t)q >> 8);   /* (to silence) */
+        } else
         g = gen_lvl[l] && !gen_mute[l] ? (int32_t)(exp2_q16((clampi(gen_lvl[l] + gen_mod_lvl[l], 0, LEVEL_MAX) - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a
                                                          * step; muted: 0, gliding */
         pan_gains(clampi(gen_pan[l] + gen_mod_pan[l], -PAN_MAX, PAN_MAX) * (Q15 / PAN_MAX), &pl, &pr);
@@ -825,14 +875,22 @@ static void gen_keep(uint32_t l, gen_keep_t *k)
     k->xdepth = p->xdepth;
     k->drawn = gen_drawn[l];
 }
-static int gen_set(uint32_t l, const gen_keep_t *k)
+/* same sound (what draws it, its level): only cables to change */
+static int gen_same_sound(const gen_keep_t *a, const gen_keep_t *b)
+{
+    return a->dseed == b->dseed && a->gain == b->gain && a->family == b->family && a->path == b->path && a->gen == b->gen;
+}
+/* xfade: blocks a changed sound's held notes cross over in, on a voice each (a morph); 0: the quick change, as ever */
+static int gen_set_x(uint32_t l, const gen_keep_t *k, uint32_t xfade)
 {
     uint32_t b = g_use[l] ^ 1u, i, t0 = fm1_ms;
     gen_patch_t *p = &gbuf[l][b];
     gen_keep_t now;
+    int same;
     gen_keep(l, &now);
     if (!memcmp(&now, k, sizeof now))
         return 1;
+    same = gen_same_sound(&now, k);
     for (;;) {                                           /* (no voice may still play the buffer about to be written) */
         int busy = g_pub[l] != g_use[l];
         for (i = 0; i < NVOICE; i++)
@@ -858,11 +916,14 @@ static int gen_set(uint32_t l, const gen_keep_t *k)
     p->xsrc = k->xsrc < NGEN && k->xsrc != l ? k->xsrc : XM_NONE;
     p->xkind = (uint8_t)(k->xkind < XM_N ? k->xkind : 0);
     p->xdepth = (uint8_t)clampi(k->xdepth, 0, 100);
+    p->rewired = (uint8_t)same;                          /* (the same sound, other cables: no fade at all) */
+    p->xfade = (uint16_t)(same ? 0u : xfade > 65535u ? 65535u : xfade);
     RING_PUBLISH();
     g_pub[l] = (uint8_t)b;
     gen_drawn[l] = k->drawn;
     return 1;
 }
+static int gen_set(uint32_t l, const gen_keep_t *k) { return gen_set_x(l, k, 0); }
 
 static void gens_init(uint32_t seed)
 {

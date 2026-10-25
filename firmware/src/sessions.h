@@ -16,3 +16,5 @@ static int snap_recall(uint32_t i);
 static void snap_clear(uint32_t i);
 static int snap_has(uint32_t i);
 static int snap_current(void);
+static int snap_morph_target(void);
+static void morph_poll(void);

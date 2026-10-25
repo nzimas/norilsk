@@ -152,6 +152,193 @@ static int st_apply(const st_t *t)
     return ok ? SES_OK : SES_BUSY;
 }
 
+/* ------------------------------------------------------------- the morph --- */
+/* A snapshot recalled with a morph time (KNOB 1: 0 .. 30 s) flows into it rather than jumping (build 13):
+ *   glided all the way      every level (finer than its steps: the mixer's fine level, the mutes faded through it),
+ *                           pan and send; the master reverb's DECAY DAMP MIX and the delay's FEEDBACK DAMP MIX; the
+ *                           LFOs' rates, fades and amounts (an amount whose source or destination changes goes out
+ *                           in the first half and the new one in in the second); an effect slot's values where the
+ *                           same effects stand in the same places
+ *   swapped, one at a time  a generator whose sound changes: its held and latched notes cross over, the old sound fading
+ *                           out on its voice as the new one comes in on a voice of its own (one at a time: the voices
+ *                           are few); an effect slot whose effects change: faded out, changed, faded back in. Each its
+ *                           own stretch of the morph, generators and slots taking turns
+ *   switched at the middle  what has no between: the scale and root, the LFOs' shapes, sources and destinations, the
+ *                           cables (a generator's, a slot's) where nothing else changes, the reverb's SIZE and the
+ *                           delay's TIME (moved, they would bend the pitch)
+ * At its end the snapshot is given exactly as stored. Recalled again on the way: a new morph from where it is. The
+ * snapshot it flows into blinks on the SNAPSHOTS page and on its key until it is there */
+#define MORPH_STEPS 60u          /* KNOB 1: 0 .. 60 half seconds */
+typedef struct { uint8_t gen, idx, done, swapped; uint32_t at, len; } morph_w_t;   /* a swap, in turn (ms from t0) */
+static struct {
+    uint8_t on, mid, nw, to;
+    uint32_t t0, dur;            /* ms (at most 30 s: el << 15 fits 32 bits) */
+    st_t a, b;                   /* from, to */
+    morph_w_t w[NGEN + NFX];
+} morph;
+static int fx_same_effects(const fx_patch_t *a, const fx_patch_t *b)
+{
+    uint32_t k;
+    if (a->n != b->n)
+        return 0;
+    for (k = 0; k < a->n && k < FX_N; k++)
+        if (a->e[k].kind != b->e[k].kind)
+            return 0;
+    return 1;
+}
+AINL int32_t mlerp(int32_t a, int32_t b, int32_t u) { return a + (int32_t)(((int64_t)(b - a) * u + (u >= 0 ? Q15 / 2 : 0)) >> 15); }
+static int snap_morph_target(void) { return morph.on ? morph.to : -1; }
+static void morph_start(const st_t *to, uint32_t snap_i, uint32_t ms)
+{
+    uint32_t l, n = 0, slice;
+    st_capture(&morph.a);
+    morph.b = *to;
+    morph.on = 1;
+    morph.mid = 0;
+    morph.to = (uint8_t)snap_i;
+    morph.t0 = fm1_ms;
+    morph.dur = ms ? ms : 1u;
+    for (l = 0; l < NGEN + NFX; l++) {           /* the swaps: generators and slots taking turns */
+        uint32_t g = l & 1u ? NGEN + l / 2u : l / 2u;   /* (g0 f0 g1 f1 g2 f2) */
+        int change = g < NGEN ? !gen_same_sound(&morph.a.g[g].g, &morph.b.g[g].g)
+                              : !fx_same_effects(&morph.a.x[g - NGEN].f, &morph.b.x[g - NGEN].f);
+        if (change) {
+            morph.w[n].gen = (uint8_t)(g < NGEN);
+            morph.w[n].idx = (uint8_t)(g < NGEN ? g : g - NGEN);
+            morph.w[n].done = 0;
+            morph.w[n].swapped = 0;
+            n++;
+        }
+    }
+    morph.nw = (uint8_t)n;
+    slice = n ? morph.dur / n : morph.dur;
+    for (l = 0; l < n; l++) {
+        morph.w[l].at = l * slice;
+        morph.w[l].len = slice ? slice : 1u;
+    }
+    for (l = 0; l < NGEN; l++)                   /* (the fine levels from where they are) */
+        gen_lvl_q8[l] = (int16_t)(morph.a.g[l].mute ? 0 : morph.a.g[l].lvl * 256);
+    for (l = 0; l < NFX; l++)
+        fx_lvl_q8[l] = (int16_t)(morph.a.x[l].mute ? 0 : morph.a.x[l].lvl * 256);
+    RING_PUBLISH();
+    gen_fine = (uint8_t)((1u << NGEN) - 1u);
+    fx_fine = (uint8_t)((1u << NFX) - 1u);
+}
+/* the main loop, every frame: the morph a step on */
+static void morph_poll(void)
+{
+    uint32_t el, l, k;
+    int32_t u;
+    if (!morph.on)
+        return;
+    el = fm1_ms - morph.t0;
+    u = el >= morph.dur ? Q15 : (int32_t)((el << 15) / morph.dur);
+    /* the swaps due */
+    for (k = 0; k < morph.nw; k++) {
+        morph_w_t *w = &morph.w[k];
+        if (w->done || el < w->at)
+            continue;
+        if (w->gen) {                            /* a generator: its notes cross over through its stretch */
+            if (gen_set_x(w->idx, &morph.b.g[w->idx].g, (w->len * 1378u) / 1000u + 1u))
+                w->done = 1;
+        } else if (!w->swapped && el >= w->at + w->len * 2u / 5u) {   /* a slot: changed at its quietest */
+            if (fx_set(w->idx, &morph.b.x[w->idx].f))
+                w->swapped = 1;
+        } else if (w->swapped && el >= w->at + w->len)
+            w->done = 1;
+    }
+    /* the levels, pans, sends: glided (an effect slot's level dipped through its swap) */
+    for (l = 0; l < NGEN; l++) {
+        int32_t qa = morph.a.g[l].mute ? 0 : morph.a.g[l].lvl * 256, qb = morph.b.g[l].mute ? 0 : morph.b.g[l].lvl * 256;
+        gen_lvl_q8[l] = (int16_t)mlerp(qa, qb, u);
+        gen_pan[l] = (int8_t)mlerp(morph.a.g[l].pan, morph.b.g[l].pan, u);
+        ui.rsend[l] = (int8_t)mlerp(morph.a.g[l].rsend, morph.b.g[l].rsend, u);
+        ui.dsend[l] = (int8_t)mlerp(morph.a.g[l].dsend, morph.b.g[l].dsend, u);
+        sends_apply(l);
+    }
+    for (l = 0; l < NFX; l++) {
+        int32_t qa = morph.a.x[l].mute ? 0 : morph.a.x[l].lvl * 256, qb = morph.b.x[l].mute ? 0 : morph.b.x[l].lvl * 256,
+                q = mlerp(qa, qb, u), dip = Q15;
+        for (k = 0; k < morph.nw; k++) {         /* (its swap: down over the first 2/5, up over the last 2/5) */
+            morph_w_t *w = &morph.w[k];
+            if (!w->gen && w->idx == l && el >= w->at && el < w->at + w->len) {
+                uint32_t e = el - w->at, f = w->len * 2u / 5u ? w->len * 2u / 5u : 1u;
+                dip = e < f ? Q15 - (int32_t)((e << 15) / f)
+                    : e < w->len - f ? 0 : (int32_t)(((e - (w->len - f)) << 15) / f);
+            }
+        }
+        fx_lvl_q8[l] = (int16_t)mulq15(q, clampi(dip, 0, Q15));
+        fx_pan[l] = (int8_t)mlerp(morph.a.x[l].pan, morph.b.x[l].pan, u);
+        if (fx_same_effects(&morph.a.x[l].f, &morph.b.x[l].f) && f_pub[l] == f_use[l] && fx_phase[l] == FS_ON) {
+            fx_patch_t *f = &fbuf[l][f_use[l]];  /* (the same effects: their values glided, in place) */
+            uint32_t j;
+            for (k = 0; k < f->n && k < FX_N; k++)
+                for (j = 0; j < 4u; j++)
+                    f->e[k].p[j] = (uint8_t)mlerp(morph.a.x[l].f.e[k].p[j], morph.b.x[l].f.e[k].p[j], u);
+        }
+    }
+    /* the master: all but SIZE and TIME glided */
+    for (k = 1; k < 4u; k++) {
+        ui.rvp[k] = (int8_t)mlerp(morph.a.rvp[k], morph.b.rvp[k], u);
+        ui.dlp[k] = (int8_t)mlerp(morph.a.dlp[k], morph.b.dlp[k], u);
+    }
+    ui.rvp[0] = morph.mid ? morph.b.rvp[0] : morph.a.rvp[0];
+    ui.dlp[0] = morph.mid ? morph.b.dlp[0] : morph.a.dlp[0];
+    rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+    mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    /* the LFOs: rates and fades glided; an amount glided where it stays on the same course, else out and in */
+    for (l = 0; l < NSLOT; l++) {
+        mod_t m = morph.mid ? morph.b.mod[l] : morph.a.mod[l];
+        const mod_t *ma = &morph.a.mod[l], *mb = &morph.b.mod[l];
+        for (k = 0; k < 2u; k++) {
+            m.lfo[k].rate = (uint8_t)mlerp(ma->lfo[k].rate, mb->lfo[k].rate, u);
+            m.lfo[k].fade = (uint8_t)mlerp(ma->lfo[k].fade, mb->lfo[k].fade, u);
+        }
+        for (k = 0; k < NMSLOT; k++) {
+            if (ma->s[k].src == mb->s[k].src && ma->s[k].dst == mb->s[k].dst)
+                m.s[k].amt = (int8_t)mlerp(ma->s[k].amt, mb->s[k].amt, u);
+            else
+                m.s[k].amt = (int8_t)(morph.mid ? mlerp(0, mb->s[k].amt, clampi(2 * u - Q15, 0, Q15))
+                                                : mlerp(ma->s[k].amt, 0, clampi(2 * u, 0, Q15)));
+        }
+        slot_mod[l] = m;
+    }
+    /* the middle: what has no between */
+    if (!morph.mid && u >= Q15 / 2) {
+        morph.mid = 1;
+        ui.scale = morph.b.scale < NSCALE ? morph.b.scale : 1u;
+        ui.root = (uint8_t)(morph.b.root % 12u);
+        rack_root = SCALE_BASE + ui.root;
+        lx_post();
+        for (l = 0; l < NGEN; l++)               /* (a generator whose sound stays: its new cables, no fade) */
+            if (gen_same_sound(&morph.a.g[l].g, &morph.b.g[l].g))
+                gen_set(l, &morph.b.g[l].g);
+        for (l = 0; l < NFX; l++)                /* (a slot whose effects stay: its new outs and cables, in place) */
+            if (fx_same_effects(&morph.a.x[l].f, &morph.b.x[l].f) && f_pub[l] == f_use[l]) {
+                fx_patch_t *f = &fbuf[l][f_use[l]];
+                f->out = morph.b.x[l].f.out;
+                for (k = 0; k < FX_N; k++)
+                    f->xto[k] = (uint16_t)(morph.b.x[l].f.xto[k] & ~((1u << ((l + 1u) * FX_N)) - 1u));
+            }
+        ui.force = 1;
+    }
+    /* the end: the snapshot exactly */
+    if (u >= Q15) {
+        for (k = 0; k < morph.nw && morph.w[k].done; k++)
+            ;
+        if (k < morph.nw && el < morph.dur + 3000u)
+            return;                              /* (a swap still on its way in: a moment more) */
+        if (st_apply(&morph.b) != SES_OK && el < morph.dur + 3000u)
+            return;
+        RING_PUBLISH();
+        gen_fine = 0;
+        fx_fine = 0;
+        morph.on = 0;
+        snap.cur = (int8_t)morph.to;
+        ui.force = 1;
+    }
+}
+
 /* the snapshots (SHIFT + SAVE): in RAM, with the session */
 static void snap_store(uint32_t i)
 {
@@ -165,6 +352,14 @@ static int snap_recall(uint32_t i)
 {
     if (i >= NSNAP || !((snap.used >> i) & 1u))
         return SES_FAIL;
+    if (ui.morph) {                              /* (a morph time: it flows there) */
+        morph_start(&snap.s[i], i, ui.morph * 500u);
+        return SES_OK;
+    }
+    if (morph.on) {                              /* (a morph on its way: given up, the snapshot at once) */
+        morph.on = 0;
+        gen_fine = fx_fine = 0;
+    }
     snap.cur = (int8_t)i;
     return st_apply(&snap.s[i]);
 }
@@ -478,7 +673,8 @@ typedef struct {
     int8_t oct, lx, lxt[NGEN];
     int8_t snap_cur;
     uint16_t snap_used;
-    uint8_t rsv[4];
+    uint8_t morph;               /* KNOB 1's morph time, half seconds (0 in sessions saved before build 13) */
+    uint8_t rsv[3];
 } ses_glob_t;
 typedef struct {
     uint8_t ntrk, dmode, rate, vary, play, rsv[3];
@@ -577,6 +773,7 @@ static void ses_glob_now(ses_glob_t *g)
         g->lxt[l] = ui.lxt[l];
     g->snap_cur = snap.cur;
     g->snap_used = snap.used;
+    g->morph = ui.morph;
 }
 
 /* save the machine as session num (a new one, or over the one of that number). Counted, then written a sector at a
@@ -673,6 +870,9 @@ static int ses_load(uint32_t i)
     ses_body(&g);
     if (ss.err)
         return SES_FAIL;
+    morph.on = 0;
+    gen_fine = fx_fine = 0;
+    ui.morph = (uint8_t)(g.morph <= MORPH_STEPS ? g.morph : 0);
     snap.used = g.snap_used;
     snap.cur = (int8_t)(g.snap_cur >= 0 && g.snap_cur < (int8_t)NSNAP ? g.snap_cur : -1);
     ui.gen = (uint8_t)(g.gen < NGEN ? g.gen : 0);
@@ -746,6 +946,8 @@ static void ses_fresh(uint32_t num)
         new_patch(l, 0);
     memset(&snap, 0, sizeof snap);
     snap.cur = -1;
+    morph.on = 0;
+    gen_fine = fx_fine = 0;
     ses.current = (uint16_t)num;
     ui.force = 1;
 }

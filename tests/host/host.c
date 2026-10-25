@@ -1714,6 +1714,98 @@ static int cmd_ears(void)
     return fails ? 1 : 0;
 }
 
+/* a snapshot's morph: two snapshots apart in nearly everything, notes held, recalled with 4 s of morph -- the sound
+ * never gone, generator 1's old and new sounds heard together a while, its level gliding (no step past a fine one),
+ * the reverb's SIZE kept until the middle, the target blinking, and at the end the snapshot exactly */
+static int cmd_morph(void)
+{
+    int fails = 0;
+    st_t b, now;
+    uint32_t t, both = 0, minw = 0xFFFFFFFFu, maxstep = 0, wins = 0;
+    int32_t lastq = -1;
+    int size_early = 0;
+    fm1_in.notes = fm1_in.buttons = 0;
+    ui_init();
+    ui.seed = 2468u;
+    gens_init(ui.seed);
+    ses_init(1);
+    master_q12 = 4096;
+    press(B_FX, 50);
+    key(0, 1);
+    key(KEY_SHIFT, 1);                                   /* (latched: they go on through it all) */
+    ui_input();
+    key(KEY_SHIFT, 0);
+    key(0, 0);
+    press(B_SEL, 50);
+    key(4, 1);
+    key(KEY_SHIFT, 1);
+    ui_input();
+    key(KEY_SHIFT, 0);
+    key(4, 0);
+    fw_run(2000);
+    snap_store(0);                                       /* A */
+    press(B_FX, 50);
+    press(B_HOME, 50);                                   /* generator 1 a new sound */
+    fw_run(60);
+    gen_lvl[1] = 12;                                     /* generator 2 quieter */
+    press(B_LFO, 50);
+    press(B_HOME, 50);                                   /* slot 4 new effects */
+    fw_run(60);
+    ui.rvp[0] = 20;                                      /* the reverb smaller */
+    ui.rvp[1] = 90;
+    ui.scale = 7;
+    snap_store(1);                                       /* B */
+    b = snap.s[1];
+    ui.morph = 0;
+    snap_recall(0);                                      /* back to A at once */
+    fw_run(400);
+    ui_input();
+    ui.morph = 8;                                        /* 4 s */
+    snap_recall(1);
+    if (snap_morph_target() != 1)
+        printf("FAIL morph: the target is not marked to blink\n"), fails++;
+    for (t = 0; t < 1378u * 7u / 14u; t++) {             /* 7 s, a frame every 14 blocks */
+        uint32_t k, on0 = 0;
+        double w = 0;
+        int i;
+        fw_frames = 0;
+        fw_rms = 0;
+        fw_run(14);
+        ui_input();
+        w = __builtin_sqrt(fw_rms / (fw_frames * 2.0));
+        if (morph.on) {
+            wins++;
+            if ((uint32_t)w < minw)
+                minw = (uint32_t)w;
+            for (k = 0; k < NVOICE; k++)
+                on0 += vox[k].sounding && vox[k].slot == 0;
+            both += on0 >= 2u;
+            if (lastq >= 0 && (uint32_t)absi(gen_lvl_q8[1] - lastq) > maxstep)
+                maxstep = (uint32_t)absi(gen_lvl_q8[1] - lastq);
+            lastq = gen_lvl_q8[1];
+            if (!morph.mid && ui.rvp[0] != morph.a.rvp[0])
+                size_early = 1;
+        }
+        (void)i;
+    }
+    st_capture(&now);
+    if (morph.on || snap_morph_target() >= 0)
+        printf("FAIL morph: not finished after 7 s\n"), fails++;
+    if (!st_same(&now, &b))
+        printf("FAIL morph: the end is not the snapshot\n"), fails++;
+    if (minw < 60u)
+        printf("FAIL morph: the sound gone a moment (rms %u)\n", minw), fails++;
+    if (!both)
+        printf("FAIL morph: generator 1's old and new sounds never heard together\n"), fails++;
+    if (maxstep > 160u)
+        printf("FAIL morph: generator 2's level stepped (%u / 256 of a step in a frame)\n", maxstep), fails++;
+    if (size_early)
+        printf("FAIL morph: the reverb's SIZE moved before the middle\n"), fails++;
+    printf("morph: %u frames, quietest rms %u, crossing over %u frames, largest level step %u/256, %d failures\n", wins,
+           minw, both, maxstep, fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -2105,6 +2197,8 @@ int main(int argc, char **argv)
         return cmd_rewire();
     if (!strcmp(argv[1], "ears"))
         return cmd_ears();
+    if (!strcmp(argv[1], "morph"))
+        return cmd_morph();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

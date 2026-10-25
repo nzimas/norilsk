@@ -43,6 +43,8 @@
  *                             SHIFT held too: emptied. PRESETS moves the frame; SAVE recalls the one framed, SAVE held
  *                             stores into it. SHIFT + SAVE again, or a slot button: back. Kept in the flash with the
  *                             session (SAVE held)
+ *   KNOB 1                    (playing, and on the SNAPSHOTS page) the morph time: a snapshot recalled flows into place
+ *                             over 0 .. 30 s (sessions.c); its square blinks, and its key, until it is there
  *   SEQ (third press)         the MOD page of the slot chosen (Tonitor's): PRESETS through LFO 1, LFO 2, MOD A .. D,
  *                             KNOB 1 .. 4 their values. SHIFT + SEQ: the slot's modulation thrown anew
  *   USB MIDI notes            as the keys, on the generator chosen last
@@ -186,11 +188,13 @@ static struct {
     uint32_t fl_until;
     uint8_t fl_shown;
     int32_t shown_ses, shown_snap;
+    uint8_t morph;               /* KNOB 1: a snapshot's morph time, half seconds (0: at once) */
 } ui;
 enum { SP_LIST = 1, SP_ASK = 2 };
 #define C_SES RGB(255, 200, 60)
 #define C_FULL RGB(255, 60, 60)
 #define C_SNAP RGB(120, 220, 255)
+#define MORPH_STEPS_UI 60        /* (sessions.c MORPH_STEPS: 30 s in half seconds) */
 static const int8_t RV_DEF[4] = {70, 65, 40, 50};      /* Tonitor's: lush, present, not overdone */
 static const char *const RV_NAME[4] = {"SIZE", "DECAY", "DAMP", "MIX"};
 static const int8_t DL_DEF[4] = {65, 40, 40, 50};      /* Tonitor's: 400 ms, a few repeats, a little darker each */
@@ -473,6 +477,7 @@ static void ui_input(void)
 {
     uint32_t rel, press = fm1_input_edges(&rel), keys, ch, k, l;
     int32_t s;
+    morph_poll();                                /* (a snapshot's morph, a step on) */
     if (ui.was_on && !audio_worker_online)
         say("1 CORE", 4000);                     /* (CPU1 retired as it plays: said, once) */
     ui.was_on = (uint8_t)audio_worker_online;
@@ -714,7 +719,18 @@ static void ui_input(void)
                 ui.fx_touch_until = fm1_ms + 1500u;
             }
         }
-    } else {                                     /* KNOB 3, KNOB 4: the generator's delay and reverb sends */
+    } else {                                     /* KNOB 1: the morph time; KNOB 3, KNOB 4: the generator's sends */
+        s = fm1_enc_take(PANEL_ENC[EN_K1]);
+        if (s) {
+            char m[16] = "MORPH ";
+            ui.morph = (uint8_t)clampi((int32_t)ui.morph + s, 0, MORPH_STEPS_UI);
+            if (ui.morph) {
+                fmt_fix(m + 6, ui.morph * 5, 1);
+                str_cpy(m + str_len(m), " S", 3);
+            } else
+                str_cpy(m + 6, "OFF", 4);
+            say(m, 1200);
+        }
         s = fm1_enc_take(PANEL_ENC[EN_K3]);
         if (s) {
             ui.dsend[ui.gen] = (int8_t)clampi(ui.dsend[ui.gen] + 2 * s, 0, 100);
@@ -859,8 +875,10 @@ static void ui_leds(void)
     for (k = 0; k < NKEY; k++) {                 /* a key held, or latched on the generator the keys play */
         int32_t w = white_ix(k);
         const looper_t *p = &loop[ui.gen];
-        if (ui.snap_page)                        /* the SNAPSHOTS page: the snapshots that hold a state, lit */
-            fm1_led_key(14u + k, w >= 0 && w < (int32_t)NSNAP && snap_has((uint32_t)w));
+        if (ui.snap_page)                        /* the SNAPSHOTS page: the snapshots that hold a state, lit (the one a
+                                                  * morph flows into blinking) */
+            fm1_led_key(14u + k, w >= 0 && w < (int32_t)NSNAP && snap_has((uint32_t)w) &&
+                                 (w != snap_morph_target() || (fm1_ms / 250u) & 1u));
         else if (ui.ovd)                         /* PLAY held: the loops that play, lit */
             fm1_led_key(14u + k, w >= 0 && (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
         else if (w >= 0)
@@ -1281,7 +1299,11 @@ static void draw_snap_page(void)
     int32_t key, cur = snap_current();
     for (r = 0; r < NSNAP; r++)
         used |= (uint32_t)snap_has(r) << r;
-    key = (int32_t)(used ^ (uint32_t)ui.snap_ix << 16 ^ (uint32_t)(cur + 1) << 21);
+    {   /* (a morph: the square it flows into blinks) */
+        int32_t tg = snap_morph_target();
+        key = (int32_t)(used ^ (uint32_t)ui.snap_ix << 16 ^ (uint32_t)(cur + 1) << 21 ^
+                        (uint32_t)(tg >= 0 ? (tg + 1) * 2 + ((fm1_ms / 250u) & 1u) : 0) << 26);
+    }
     if (!ui.force && ui.shown_snap == key)
         return;
     ui.shown_snap = key;
@@ -1298,6 +1320,8 @@ static void draw_snap_page(void)
             int32_t x = 2 + (int32_t)c * 60;
             char n[4];
             uint16_t fill = (int32_t)k == cur ? C_WHITE : C_SNAP;
+            if ((int32_t)k == snap_morph_target())   /* (flowing into it: white and black by turns) */
+                fill = (fm1_ms / 250u) & 1u ? C_WHITE : C_GREY;
             const font_t *nf;
             fmt_int(n, (int32_t)k + 1);
             nf = k < 9u ? &FONT_M : &FONT_S;   /* (10 .. 16 a size smaller, alike: inside the box) */

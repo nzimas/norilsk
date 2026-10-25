@@ -24,6 +24,7 @@ build/host ears
 build/host master
 build/host mod
 build/host sessions
+build/host morph
 build/host paint | tail -1
 build/host cores
 build/host modules build/sounds > build/sounds/modules.txt

@@ -929,6 +929,8 @@ static volatile int32_t fx_rsend[NFX], fx_dsend[NFX];   /* each slot's sends, Q1
 static int16_t fx_mod_p[NFX][12], fx_mod_lvl[NFX], fx_mod_pan[NFX];
 static uint8_t fx_mod_on[NFX];
 static uint8_t rm_plate_p[NINST][3];             /* (the plate's values as last set: set again when moved) */
+static volatile int16_t fx_lvl_q8[NFX];           /* a snapshot's morph: each slot's level between its steps (Q8, 0 silent) */
+static volatile uint8_t fx_fine;                  /* .. a bit a slot when in force (the mute folded in) */
 static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was sent into) */
 static uint32_t rack_ticks;                    /* what the last block of the rack took */
 
@@ -1052,7 +1054,8 @@ static void fx_take(void)
             fx_phase[s] = FS_FADE;
             fx_count[s] = FX_FADE;
         }
-        if (fx_phase[s] == FS_FADE && (!fx_count[s] || fx_mute[s])) {   /* (muted: nothing to fade) */
+        if (fx_phase[s] == FS_FADE && (!fx_count[s] || (fx_mute[s] && !((fx_fine >> s) & 1u)))) {   /* (muted: nothing to
+                                                                                                * fade) */
             f_use[s] = f_pub[s];
             fx_phase[s] = FS_CLEAR;
             fx_count[s] = 0;
@@ -1084,7 +1087,7 @@ static void rack_job(void)
         int32_t sl[CTL], sr[CTL], g, gl, gr, dg, dgl, dgr, gw;
         uint32_t ph;
         int fading = fx_phase[s] == FS_FADE;
-        if (fx_phase[s] == FS_CLEAR || fx_mute[s]) {
+        if (fx_phase[s] == FS_CLEAR || (fx_mute[s] && !((fx_fine >> s) & 1u))) {   /* (a morph: the mute is its level) */
             fx_g[s] = 0;
             continue;
         }
@@ -1162,7 +1165,11 @@ static void rack_job(void)
             }
         }
         /* the slot out: its level, its place (the mono parts panned; the plate's stereo as it is), its fade */
-        {
+        if ((fx_fine >> s) & 1u) {                   /* (a morph: between its steps, the mute in it) */
+            int32_t q = fx_lvl_q8[s] > 0 ? clampi(fx_lvl_q8[s] + fx_mod_lvl[s] * 256, 0, 23 * 256) : 0;
+            gw = q >= 256 ? (int32_t)(exp2_q16(((q - 20 * 256) * 16328) >> 8) >> 2)
+                          : (int32_t)((exp2_q16((1 - 20) * 16328) >> 2) * (uint32_t)q >> 8);
+        } else {
             int32_t lv = fx_lvl[s] ? clampi(fx_lvl[s] + fx_mod_lvl[s], 0, 23) : 0;   /* (its modulation added) */
             gw = lv ? (int32_t)(exp2_q16((lv - 20) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a step */
         }

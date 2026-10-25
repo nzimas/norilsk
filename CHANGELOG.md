@@ -2,6 +2,24 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 13 (2026-10-25): snapshots morph
+
+- **KNOB 1** (playing, and on the SNAPSHOTS page) sets the morph time, 0 .. 30 s in half seconds (MORPH 4.5 S; 0:
+  OFF, at once as before); kept with the session.
+- **A snapshot recalled with a morph time flows into place**: every level (finer than its 1.5 dB steps while it
+  glides; mutes faded through it), pan and send, the master reverb's DECAY DAMP MIX and the delay's FEEDBACK DAMP MIX,
+  the LFOs' rates, fades and amounts, and an effect slot's values where the same effects stand in the same places,
+  glided all the way. A generator whose sound changes: its held and latched notes cross over, the old sound fading out
+  on its voice while the new one comes in on a voice of its own; an effect slot whose effects change: faded out,
+  changed, faded back in -- each its own stretch of the morph, generators and slots taking turns (the voices and the
+  memory allow one at a time). At the middle what has no between: the scale and root, the LFOs' shapes and courses,
+  cables where nothing else changes, the reverb's SIZE and the delay's TIME (glided, they would bend the pitch). At the
+  end the snapshot exactly as stored. Recalled again on the way: a new morph from where it is.
+- The snapshot it flows into **blinks** on the SNAPSHOTS page, and its key, until it is there.
+- A test, `host morph`: notes held through a 4 s morph between snapshots apart in nearly everything -- never silent,
+  old and new sounds heard together, levels gliding in steps of a few 256ths, SIZE kept to the middle, the snapshot
+  exactly at the end.
+
 ## Build 12 (2026-10-25): the dull effects made drastic
 
 Saved sessions and snapshots that use these effects sound different from build 12 on (their values are kept; what
