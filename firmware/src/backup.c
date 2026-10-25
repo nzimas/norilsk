@@ -121,7 +121,8 @@ static void bk_handle(const uint8_t *m, uint32_t d)
     } else if (cmd == 0x52u && n == 6u) {            /* a record to come */
         uint32_t num = b[0] | (uint32_t)b[1] << 8, len = bk_rd32(b + 2);
         int s;
-        bk.on = 0;
+        bk.on = 0;                               /* (a write cut off before: given up for this one) */
+        ses_ext = 0;
         if (!ses.ok) {
             bk_status(0x52u, 1u);
             return;
@@ -136,6 +137,8 @@ static void bk_handle(const uint8_t *m, uint32_t d)
             return;
         }
         bk.on = 1;
+        ses_ext = 1;                             /* (no save or load until it is done: sessions.c ses_locked) */
+        ses_ext_t = fm1_ms;
         bk.num = (uint16_t)num;
         bk.len = len;
         bk.got = 0;
@@ -143,24 +146,27 @@ static void bk_handle(const uint8_t *m, uint32_t d)
         bk_status(0x52u, 0u);
     } else if (cmd == 0x53u && n >= 4u) {            /* its bytes, in order */
         uint32_t off = bk_rd32(b), cnt = n - 4u, st = 0;
-        if (!bk.on || off != bk.got || off + cnt > bk.len || cnt > BK_DATA) {
-            bk.on = 0;
+        if (!bk.on || !ses_locked() || off != bk.got || off + cnt > bk.len || cnt > BK_DATA) {
+            bk.on = 0;                           /* (out of order, or silent too long: abandoned) */
+            ses_ext = 0;
             bk_status(0x53u, 2u);
             return;
         }
+        ses_ext_t = fm1_ms;
         for (i = 0; i < cnt && !st; i++) {
             ses_chunk[bk.got % SES_SECT] = b[4u + i];
             if (++bk.got % SES_SECT == 0u || bk.got == bk.len)
                 st = (uint32_t)bk_flush(bk.got);
         }
         if (st)
-            bk.on = 0;
+            bk.on = ses_ext = 0;
         bk_status(0x53u, st);
     } else if (cmd == 0x54u) {                       /* whole: its body checked, then it is the record */
         uint32_t st = !bk.on || bk.got != bk.len ? 2u : bk.crc != bk.h.body_crc ? 4u : 0u;
         if (!st && ses_commit(bk.num, bk.s, bk.ns, &bk.h) != SES_OK)
             st = 5u;
         bk.on = 0;
+        ses_ext = 0;
         bk_status(0x54u, st);
         if (!st)
             bk_done(bk.num);

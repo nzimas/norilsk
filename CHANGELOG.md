@@ -2,6 +2,15 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 22 (2026-10-25): a restore is never disturbed
+
+- **While a session is being restored over USB, saving or loading a session on the FM-1 shows BUSY.** A restore keeps
+  its sectors reserved and half a sector waiting between its messages; a save or a load in the middle of it shares
+  the same buffer and could take the same sectors. Found by the first restore on the device, which stopped with "the
+  flash failed" (the session there kept, as it should be); six restores after it went through. A restore abandoned
+  half-way frees them 5 s after its last message. Test: `host backup`.
+- `tools/fm1_sessions.py restore` says which step failed, if one does.
+
 ## Build 21 (2026-10-25): sessions restored over USB
 
 - **Sessions can be written back to the FM-1** over USB (Tonitor's backup protocol, now with its writes): the website's

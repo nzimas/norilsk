@@ -2741,6 +2741,42 @@ static int cmd_backup(void)
         if (fsum != fnv(2166136261u, hflash + SES_LO + foreign * SES_SECT, SES_SECT))
             printf("FAIL backup: another firmware's sector changed\n"), fails++;
     }
+    {   /* a save or a load during a restore: BUSY (they share its buffer and could take its sectors); after it, or
+         * 5 s after it was abandoned, free again (build 22) */
+        static uint8_t rec2[SES_NSECT * SES_SECT / 8u];
+        uint8_t q[8 + 256];
+        uint32_t len2 = 0, off2;
+        FILE *fp = fopen("build/backup_session.bin", "rb");
+        if (fp) {
+            len2 = (uint32_t)fread(rec2, 1, sizeof rec2, fp);
+            fclose(fp);
+        }
+        q[0] = 2;
+        q[1] = 0;
+        bk_wr32(q + 2, len2);
+        bk_ask(0x52, q, 6);
+        bk_wr32(q, 0);
+        memcpy(q + 4, rec2, 256);
+        bk_ask(0x53, q, 260);
+        if (ses_save(7) != SES_BUSY || ses_load_slot(2) != SES_BUSY)
+            printf("FAIL backup: a save or a load went ahead during a restore\n"), fails++;
+        for (off2 = 256; off2 < len2; off2 += 256u) {
+            uint32_t n2 = len2 - off2 < 256u ? len2 - off2 : 256u;
+            bk_wr32(q, off2);
+            memcpy(q + 4, rec2 + off2, n2);
+            bk_ask(0x53, q, 4u + n2);
+        }
+        bk_ask(0x54, 0, 0);
+        if (bk_got[6] != 0u || ses_load_slot(2) != SES_OK)
+            printf("FAIL backup: the restore during the lock, or a load after it (status %u)\n", bk_got[6]), fails++;
+        bk_ask(0x52, q, 0);                              /* (a malformed one: nothing locked) */
+        q[0] = 2;
+        bk_wr32(q + 2, len2);
+        bk_ask(0x52, q, 6);                              /* abandoned after its start: free 5 s later */
+        fm1_ms += 6000u;
+        if (ses_save(7) != SES_OK)
+            printf("FAIL backup: a save still BUSY after a restore was abandoned\n"), fails++;
+    }
     {   /* not a session number: refused */
         uint8_t q[6] = {65, 0, 0, 1, 0, 0};
         bk_ask(0x52, q, 6);

@@ -44,6 +44,11 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-22-2026-10-25-a-restore-is-never-disturbed">Build 22 (2026-10-25): a restore is never disturbed</h2>
+<ul>
+<li><b>While a session is being restored over USB, saving or loading a session on the FM-1 shows BUSY.</b> A restore keeps its sectors reserved and half a sector waiting between its messages; a save or a load in the middle of it shares the same buffer and could take the same sectors. Found by the first restore on the device, which stopped with "the flash failed" (the session there kept, as it should be); six restores after it went through. A restore abandoned half-way frees them 5 s after its last message. Test: <code>host backup</code>.</li>
+<li><code>tools/fm1_sessions.py restore</code> says which step failed, if one does.</li>
+</ul>
 <h2 id="build-21-2026-10-25-sessions-restored-over-usb">Build 21 (2026-10-25): sessions restored over USB</h2>
 <ul>
 <li><b>Sessions can be written back to the FM-1</b> over USB (Tonitor's backup protocol, now with its writes): the website's backup page and <code>tools/fm1_sessions.py restore FILE</code> put a saved session back in its slot, replacing the one there only once the new copy is whole and checked. Only blank sectors or Norilsk's own retired ones are written — never another firmware's. A damaged record is refused and the session already there kept. Test: <code>host backup</code>.</li>

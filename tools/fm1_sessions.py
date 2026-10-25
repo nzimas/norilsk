@@ -83,7 +83,8 @@ def restore(link, data):
         if b is None or len(b) != 1:
             sys.exit(f"session {num}: no answer (an older firmware answers 2: update it)")
         if b[0]:
-            sys.exit(f"session {num}: {STATUS[b[0]] if b[0] < len(STATUS) else b[0]}")
+            step = {0x52: "making room", 0x53: f"writing at byte {int.from_bytes(body[:4], 'little')}", 0x54: "checking"}[cmd]
+            sys.exit(f"session {num}: {STATUS[b[0]] if b[0] < len(STATUS) else b[0]} ({step})")
     print(f"session {num}: {len(data)} B restored")
 
 

@@ -954,11 +954,23 @@ static void ses_glob_now(ses_glob_t *g)
 
 /* save the machine as session num (a new one, or over the one of that number). Counted, then written a sector at a
  * time; should a loop change in between (a recording ending), again */
+/* a session coming in over USB (backup.c, build 22): its sectors reserved and the sector buffer half full between its
+ * messages -- a save or a load meanwhile would share both. Until it is committed, abandoned, or silent for 5 s */
+static uint8_t ses_ext;
+static uint32_t ses_ext_t;
+static int ses_locked(void)
+{
+    if (ses_ext && (uint32_t)(fm1_ms - ses_ext_t) > 5000u)
+        ses_ext = 0;                                    /* (abandoned: backup.c sees it and starts again) */
+    return ses_ext;
+}
 static int ses_save(uint32_t num)
 {
     uint32_t tries;
     if (!ses.ok)
         return SES_NOFLASH;
+    if (ses_locked())
+        return SES_BUSY;
     if (num < 1u || num > SES_SLOTS)
         return SES_FAIL;
     st_capture(&ses_live);
@@ -1078,6 +1090,8 @@ static uint32_t ses_current(void) { return ses.current; }
 static int ses_load_slot(uint32_t num)
 {
     int i = ses_find(num);
+    if (ses_locked())
+        return SES_BUSY;
     return i < 0 ? SES_FAIL : ses_load((uint32_t)i);
 }
 /* the first empty slot, 0 = none */
