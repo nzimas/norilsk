@@ -1646,6 +1646,74 @@ static int cmd_rewire(void)
     return fails ? 1 : 0;
 }
 
+/* FILTER kept off the eardrums: each type at its highest resonance (RES at its bound), FREQ across its range, a held
+ * note through it -- the loudest moment and the level against the dry: never past 0.75 of full scale, never more than
+ * 6 dB over the dry */
+static int cmd_ears(void)
+{
+    int fails = 0;
+    uint32_t t, fq;
+    for (t = 0; t < 4u; t++)
+        for (fq = RM_LO[RM_FLT][1]; fq <= RM_HI[RM_FLT][1]; fq += 10u) {
+            double wet = 0, dry = 0;
+            int32_t pk = 0;
+            int pass;
+            for (pass = 0; pass < 2; pass++) {
+                gen_patch_t *p;
+                fx_patch_t *f;
+                uint32_t b;
+                fm1_in.notes = fm1_in.buttons = 0;
+                fw_init();
+                gen_draw(0, MF_DRONE, 777u);
+                fw_run(4);
+                for (b = 1; b < NFX; b++)
+                    fx_mute[b] = 1;
+                for (b = 1; b < NGEN; b++)
+                    gen_mute[b] = 1;
+                f = &fbuf[0][f_use[0]];
+                memset(f, 0, sizeof *f);
+                f->n = 1;
+                f->e[0].kind = RM_FLT;
+                f->e[0].p[0] = (uint8_t)(t * 25u + 10u);
+                f->e[0].p[1] = (uint8_t)fq;
+                f->e[0].p[2] = RM_HI[RM_FLT][2];
+                f->e[0].p[3] = 100;
+                memset(fx_arena[0], 0, FX_ARENA);
+                fx_start(0);
+                p = &gbuf[0][g_use[0]];
+                p->nent = pass ? 0 : 1;
+                p->ent[0] = 0;
+                p->send = Q15;
+                p->dry = pass ? Q15 : 0;
+                p->xsrc = XM_NONE;
+                fw_frames = 0;
+                fw_peak = 0;
+                fw_rms = 0;
+                press(B_FX, 50);
+                key(0, 1);
+                fw_run(1378 * 2);
+                key(0, 0);
+                fw_run(200);
+                if (!pass) {
+                    wet = fw_rms;
+                    pk = fw_peak;
+                } else
+                    dry = fw_rms;
+            }
+            {
+                double db = 10.0 * __builtin_log10((wet + 1) / (dry + 1));
+                if (pk > 24576 || db > 6.0) {
+                    printf("FAIL ears: type %u at %u: peak %.2f, %+.1f dB over the dry\n", t, fq, pk / 32768.0, db);
+                    fails++;
+                }
+                if (getenv("EARS_V"))
+                    printf("  type %u freq %3u: peak %.2f %+.1f dB\n", t, fq, pk / 32768.0, db);
+            }
+        }
+    printf("ears: %d too loud\n", fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -2035,6 +2103,8 @@ int main(int argc, char **argv)
         return cmd_paint();
     if (!strcmp(argv[1], "rewire"))
         return cmd_rewire();
+    if (!strcmp(argv[1], "ears"))
+        return cmd_ears();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

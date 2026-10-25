@@ -20,6 +20,7 @@ build/host tails 24 | tail -1
 build/host flows
 build/host looper
 build/host rewire
+build/host ears
 build/host master
 build/host mod
 build/host sessions

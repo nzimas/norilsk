@@ -108,23 +108,34 @@ AINL uint8_t mu_enc8(int32_t x) { return gr_enc(x); }
 AINL int32_t mu_dec8(uint8_t b) { return gr_dec(b); }
 
 /* ------------------------------------------------------------- FILTER --- */
-typedef struct { svf_t f; uint32_t lfo; } m_flt_t;
+/* (build 12: more drastic, kept off the eardrums) the sound driven (DRIVE, p3: x 1 .. x 12, tanh) into a state-variable
+ * filter -- TYPE (p0): low-pass, band-pass, high-pass, notch; FREQ (p1: 30 Hz up 9 octaves); RES (p2: Q 0.7 .. 12,
+ * squelchy, short of ringing on its own) -- and out through a soft ceiling. Its level comes down as the resonance goes
+ * up, and above 3 kHz the resonance is pulled back with the frequency: it may squelch and screech, never pierce. Fixed
+ * where it is set: nothing sweeps by itself */
+typedef struct { svf_t f; uint32_t rsv; } m_flt_t;
 static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
 {
-    int32_t oct = 321600 + p[1] * (9 * 65536 / 100), hz, q, type;   /* 30 Hz up 9 octaves */
+    int32_t oct = 321600 + p[1] * (9 * 65536 / 100), hz, q, type, drive, comp;
     uint32_t i;
     svf_c c;
-    if (p[3] > 10) {                                    /* a drift: 0.02 .. 0.1 Hz, up to +-2/3 octave */
-        s->lfo += 62000u + (uint32_t)p[3] * 2400u;
-        oct += mulq15(sin_ph(s->lfo), p[3] * (2 * 65536 / 300));
+    hz = clampi((int32_t)(exp2_q16(clampi(oct, 4 << 16, 14 << 16)) >> 16), 30, 16000);
+    type = p[0] < 25 ? 1 : p[0] < 50 ? 2 : p[0] < 75 ? 3 : 4;
+    q = 2896 + p[2] * (12 * 4096 - 2896) / 100;             /* Q 0.7 .. 12, Q12 */
+    if (hz > 3000)                                          /* (high up, less of it: no whistle at 8 kHz) */
+        q = 2896 + (q - 2896) * 3000 / hz;              /* (32 bits: < 1.4e8) */
+    drive = 4096 + p[3] * (11 * 4096) / 100;
+    comp = (int32_t)(((uint32_t)Q15 * 4096u) / (uint32_t)(4096 + (q - 2896) / 3));   /* (x 1 .. ~0.3 with the Q) */
+    svf_coef(&c, hz, q);
+    for (i = 0; i < CTL; i++) {
+        int32_t v = tanh_q15(mulq12(x[i], drive)) >> 1, y;
+        if (type == 4) {                                    /* notch: the band taken out (low + high) */
+            int32_t bp = svf_run(&s->f, &c, v, 2);
+            y = v - mulr24(c.k, bp);
+        } else
+            y = svf_run(&s->f, &c, v, type) * (type == 2 ? 2 : 1);
+        x[i] = mulq15(tanh_q15(mulq15(y, comp) * 2), LV(0.7));   /* (a soft ceiling under full scale) */
     }
-    hz = (int32_t)(exp2_q16(clampi(oct, 4 << 16, 14 << 16)) >> 16);
-    type = p[0] < 34 ? 1 : p[0] < 67 ? 2 : 3;
-    q = type == 2 ? 2896 + p[2] * (8192 - 2896) / 100   /* (the band-pass kept broad, Q 0.7 .. 2: else it is hardly heard) */
-                  : 2896 + p[2] * (10 * 4096 - 2896) / 100;
-    svf_coef(&c, clampi(hz, 30, 16000), q);
-    for (i = 0; i < CTL; i++)
-        x[i] = svf_run(&s->f, &c, x[i], type) * (type == 2 ? 2 : 1);
 }
 
 /* --------------------------------------------------------------- FOLD --- */
@@ -156,16 +167,18 @@ static void m_fld(const uint8_t *p, m_fld_t *s, int32_t *x)
 }
 
 /* -------------------------------------------------------------- MULAW --- */
-/* p0 the rate (FS down to FS / 8, fractional), p1 the bits (8 down to 4, sign included), p2 the filter before and
- * after (0.05 .. 0.5 of the lower rate), p3 the drive into it (x 1 .. x 4: mu-law lifts the quiet) */
+/* (build 12: further) p0 the rate (FS down to FS / 32, fractional: to 1.4 kHz), p1 the bits (8 down to 2, sign
+ * included), p2 the filter before and after (0.05 .. 1.0 of the lower rate: open, it aliases), p3 the drive into it
+ * (x 1 .. x 8: mu-law lifts the quiet) */
 typedef struct { uint32_t ph; int32_t hold, a1, a2, b1, b2; } m_mu_t;
 static void m_mu(const uint8_t *p, m_mu_t *s, int32_t *x)
 {
-    uint32_t div16 = 16u + (uint32_t)p[0] * 112u / 100u, inc = (uint32_t)(0xFFFFFFFFu / div16) << 4;   /* 1 .. 8, Q4 */
-    uint32_t shift = 4u - (uint32_t)(p[1] * 4 / 101), i;      /* code bits dropped: 0 .. 3 */
-    int32_t hz = (int32_t)((uint32_t)FS * 16u / div16) * (5 + p[2] * 45 / 100) / 100;
-    int32_t k = clampi((hz * 4781) >> 10, 300, 32000);   /* a one-pole's step: 2 pi f / FS, Q15 */
-    int32_t drive = 4096 + p[3] * (3 * 4096) / 100;
+    uint32_t div16 = 16u + (uint32_t)(((uint32_t)p[0] * p[0]) * 496u / 10000u), inc = (uint32_t)(0xFFFFFFFFu / div16) << 4;   /* 1 .. 32, Q4
+                                                          * (squared: the low rates at the top of the knob) */
+    uint32_t shift = 6u - (uint32_t)(p[1] * 7 / 101), i;      /* code bits dropped: 0 .. 6 (2 bits left) */
+    int32_t hz = (int32_t)((uint32_t)FS * 16u / div16) * (5 + p[2] * 95 / 100) / 100;
+    int32_t k = clampi((hz * 4781) >> 10, 150, 32000);   /* a one-pole's step: 2 pi f / FS, Q15 */
+    int32_t drive = 4096 + p[3] * (7 * 4096) / 100;
     for (i = 0; i < CTL; i++) {
         uint32_t was = s->ph;
         int32_t v = clampi(mulq12(x[i], drive), -32767, 32767);
@@ -185,13 +198,13 @@ static void m_mu(const uint8_t *p, m_mu_t *s, int32_t *x)
 
 /* -------------------------------------------------------------- SHIFT --- */
 /* Niemitalo's Hilbert pair: two chains of four second-order allpass sections in z^-2, one path a sample late, 90
- * degrees apart from ~20 Hz to ~20 kHz. p0 the shift, 5 Hz .. 2 kHz (log); p1 the feedback through 25 ms, damped;
- * p2 the direction: down below 45, up above 55, both (ring modulation) between; p3 the feedback's tone, 1 .. 8 kHz.
- * The shift is fixed while it sounds: nothing sweeps */
+ * degrees apart from ~20 Hz to ~20 kHz. (build 12: more drastic) p0 the shift, 40 .. 900 Hz (log: every partial moved
+ * off the harmonics, not a chorus); p1 the drive into it (x 1 .. x 6, tanh: denser sidebands); p2 the direction: down
+ * below 45, up above 55, both (ring modulation) between; p3 the tone after, 1 .. 16 kHz. No feedback (a shifter fed
+ * back spirals up or down: a barber pole). The shift is fixed while it sounds: nothing sweeps */
 static const int32_t HB_A[4] = {128688190, 235208111, 262153419, 267764168};   /* a^2, Q28 */
 static const int32_t HB_B[4] = {43421716, 196770956, 253765378, 265911936};
-#define SHF_N 1104u              /* 25 ms */
-typedef struct { int32_t ax[4][2], ay[4][2], bx[4][2], by[4][2], bd; uint32_t ph, lfo, w; int32_t lp; int16_t line[SHF_N]; } m_shf_t;
+typedef struct { int32_t ax[4][2], ay[4][2], bx[4][2], by[4][2], bd; uint32_t ph; int32_t lp; } m_shf_t;
 AINL int32_t hb_sec(int32_t c, int32_t x, int32_t *xs, int32_t *ys)   /* y = c (x + y[n-2]) - x[n-2] */
 {
     int64_t m = (int64_t)c * (x + ys[1]);
@@ -204,15 +217,14 @@ AINL int32_t hb_sec(int32_t c, int32_t x, int32_t *xs, int32_t *ys)   /* y = c (
 }
 static void m_shf(const uint8_t *p, m_shf_t *s, int32_t *x)
 {
-    int32_t oct = 152000 + p[0] * (8 * 65536 / 100 + 3932), fb = p[1] * (27853 / 100), hz8, dir;
-    int32_t tone = 4600 + p[3] * (26000 - 4600) / 100;
+    int32_t oct = 348800 + p[0] * (294000 / 100), drive = 4096 + p[1] * (5 * 4096) / 100, hz8, dir;   /* log2 40 .. 900 Hz */
+    int32_t tone = 2800 + p[3] * (31000 - 2800) / 100;
     uint32_t inc, i, k;
-    hz8 = (int32_t)(exp2_q16(clampi(oct, 2 << 16, 11 << 16)) >> 8);
+    hz8 = (int32_t)(exp2_q16(oct) >> 8);
     inc = hz8_inc(hz8);
     dir = p[2] < 45 ? -1 : p[2] > 55 ? 1 : 0;
     for (i = 0; i < CTL; i++) {
-        int32_t in = x[i] + mulz15(s->lp, fb), a = in, b = in, y, c, sn;
-        uint32_t r = s->w + SHF_N - (SHF_N - 2u);
+        int32_t in = tanh_q15(mulq12(x[i], drive)) >> 1, a = in, b = in, y, c, sn;
         for (k = 0; k < 4u; k++) {
             a = hb_sec(HB_A[k], a, s->ax[k], s->ay[k]);
             b = hb_sec(HB_B[k], b, s->bx[k], s->by[k]);
@@ -221,27 +233,26 @@ static void m_shf(const uint8_t *p, m_shf_t *s, int32_t *x)
         s->ph += inc;
         c = sin_ph(s->ph + 0x40000000u);
         sn = sin_ph(s->ph);
-        y = dir > 0 ? mulq15(a, c) - mulq15(b, sn) : dir < 0 ? mulq15(a, c) + mulq15(b, sn) : mulq15(a, c);
-        s->line[s->w] = (int16_t)clampi(y, -32767, 32767);
-        if (++s->w >= SHF_N)
-            s->w = 0;
-        r = r >= SHF_N ? r - SHF_N : r;
-        s->lp += mulz15(s->line[r] - s->lp, tone);      /* (the feedback's damping) */
-        x[i] = y;
+        y = dir > 0 ? mulq15(a, c) - mulq15(b, sn) : dir < 0 ? mulq15(a, c) + mulq15(b, sn) : mulq15(a, c) * 2;
+        s->lp += mulz15(y - s->lp, tone);
+        x[i] = s->lp * 2;
     }
 }
 
 /* -------------------------------------------------------------- MODAL --- */
 /* three resonators: the root in an octave (p0: 1 .. 4 octaves up from the root at C1 .. B1), its modes at f s and
- * f s^2 (p2: s 1 .. 3.4); Q 4 .. 325 (p1, log); p3 the upper modes' level. Tuned once a block (cheap) */
-typedef struct { res_c c[3]; res_s r[3]; int32_t key; } m_mdl_t;
+ * f s^2 (p2: s 1 .. 4.2: further apart, inharmonic); Q 4 .. 325 (p1, log); p3 the upper modes' level. (build 12) the
+ * sound driven into them, their ring brought up with the Q and held under a soft ceiling: a body that sings, not a
+ * murmur. Tuned once a block (cheap) */
+typedef struct { res_c c[3]; res_s r[3]; int32_t key, mk; } m_mdl_t;
 static void m_mdl(const uint8_t *p, m_mdl_t *s, int32_t *x)
 {
     int32_t key = p[0] | p[1] << 8 | p[2] << 16 | rack_root << 24, lvl = Q15 / 4 + p[3] * (3 * Q15 / 4 / 100), i, k;
     if (key != s->key) {
         int32_t note = 24 + (rack_root % 12) + 12 * (p[0] * 4 / 101), f = note_hz8(note, 0);
-        int32_t sr = 65536 + p[2] * (int32_t)(157286 / 100);           /* s, Q16: 1 .. 3.4 */
+        int32_t sr = 65536 + p[2] * (int32_t)(209715 / 100);           /* s, Q16: 1 .. 4.2 */
         int32_t q8 = (int32_t)(exp2_q16(p[1] * (622 * 65536 / 10000)) >> 8) * 4;   /* 4 .. ~300 (2^6.2), Q8 */
+        s->mk = 512 + q8 / 2;                                          /* (make-up, Q8: x 6 .. x 75 with the Q) */
         for (k = 0; k < 3; k++) {
             res_coef(&s->c[k], f, q8);
             f = (int32_t)(((int64_t)f * sr) >> 16);
@@ -249,8 +260,9 @@ static void m_mdl(const uint8_t *p, m_mdl_t *s, int32_t *x)
         s->key = key;
     }
     for (i = 0; i < CTL; i++) {
-        int32_t in = x[i] >> 1;
-        x[i] = 2 * (res_run(&s->r[0], &s->c[0], in) + mulq15(res_run(&s->r[1], &s->c[1], in) + res_run(&s->r[2], &s->c[2], in), lvl));
+        int32_t in = tanh_q15(x[i] * 2) >> 1,
+                y = res_run(&s->r[0], &s->c[0], in) + mulq15(res_run(&s->r[1], &s->c[1], in) + res_run(&s->r[2], &s->c[2], in), lvl);
+        x[i] = mulq15(tanh_q15(clampi((int32_t)(((int64_t)y * s->mk) >> 8), -8 * Q15, 8 * Q15)), LV(0.6));
     }
 }
 
@@ -295,16 +307,18 @@ static void m_str(const uint8_t *p, m_str_t *s, int32_t *x)
 
 /* -------------------------------------------------------------- VOWEL --- */
 /* three formants (a e i o u: F1 F2 F3) morphing along p0, the whole moved by p1 (x 2^-0.5 .. x 2^0.5), their Q by p2
- * (4 .. 20), the drive into them by p3 (x 1 .. x 8, tanh) */
+ * (build 12: 10 .. 60 -- a voice, not a tint), the drive into them by p3 (x 2 .. x 16, tanh); their ring brought up
+ * with the Q, under a soft ceiling */
 static const int16_t VF[5][3] = {{600, 1040, 2250}, {400, 1620, 2400}, {250, 1750, 2600}, {400, 750, 2400}, {350, 600, 2400}};
-typedef struct { res_c c[3]; res_s r[3]; int32_t key; } m_vow_t;
+typedef struct { res_c c[3]; res_s r[3]; int32_t key, mk; } m_vow_t;
 static void m_vow(const uint8_t *p, m_vow_t *s, int32_t *x)
 {
-    int32_t key = p[0] | p[1] << 8 | p[2] << 16, drive = 4096 + p[3] * (7 * 4096) / 100, i, k;
+    int32_t key = p[0] | p[1] << 8 | p[2] << 16, drive = 8192 + p[3] * (14 * 4096) / 100, i, k;
     if (key != s->key) {
         int32_t pos = p[0] * 4 * 256 / 100, seg = pos >> 8, fr = pos & 255;
         int32_t sc = (int32_t)exp2_q16((p[1] - 50) * (65536 / 100));   /* x 2^-0.5 .. 2^0.5, Q16 */
-        int32_t q8 = (4 + p[2] * 16 / 100) << 8;
+        int32_t q8 = (10 + p[2] * 50 / 100) << 8;
+        s->mk = 256 + q8 / 4;                                          /* (make-up, Q8: x 3.5 .. x 16) */
         seg = seg > 3 ? 3 : seg;
         for (k = 0; k < 3; k++) {
             int32_t f = VF[seg][k] + (((VF[seg + 1][k] - VF[seg][k]) * fr) >> 8);
@@ -313,9 +327,10 @@ static void m_vow(const uint8_t *p, m_vow_t *s, int32_t *x)
         s->key = key;
     }
     for (i = 0; i < CTL; i++) {
-        int32_t in = tanh_q15(mulq12(x[i], drive)) >> 1;
-        x[i] = 3 * (res_run(&s->r[0], &s->c[0], in) + mulq15(res_run(&s->r[1], &s->c[1], in), 19661) +
-                    mulq15(res_run(&s->r[2], &s->c[2], in), 13107));
+        int32_t in = tanh_q15(mulq12(x[i], drive)) >> 1,
+                y = res_run(&s->r[0], &s->c[0], in) + mulq15(res_run(&s->r[1], &s->c[1], in), 19661) +
+                    mulq15(res_run(&s->r[2], &s->c[2], in), 13107);
+        x[i] = mulq15(tanh_q15(clampi((int32_t)(((int64_t)y * s->mk) >> 8), -8 * Q15, 8 * Q15)), LV(0.6));
     }
 }
 
@@ -365,15 +380,17 @@ static void m_dly(const uint8_t *p, m_dly_t *s, int32_t *x)
 }
 
 /* --------------------------------------------------------------- TAPE --- */
-/* an echo on an 8-bit mu-law line at FS / 2: time 25 .. 900 ms (p0), wow (p1: a slow wander of the time, at most
- * +-0.25 % -- the tape's breath, not a bend), feedback 0 .. 0.94 (p2) through the head's saturation, age (p3: the
- * loop's low-pass from 12 kHz down to 800 Hz). The echoes alone come out. A change of time cross-fades */
+/* an echo on an 8-bit mu-law line at FS / 2: time 25 .. 900 ms (p0), (build 12) DROPOUTS (p1: the tape failing --
+ * the echoes gone for 20 .. 200 ms, now and then, up to twice a second), feedback 0 .. 0.94 (p2) through the head's
+ * saturation, AGE (p3: the loop's low-pass from 12 kHz down to 3 kHz, the head driven harder, hiss under it). The
+ * time's own wander is a breath (at most 0.1 %), never a bend. The echoes alone come out. A change of time cross-fades */
 #define TAP_N 19900u             /* 0.9 s at FS / 2 */
-typedef struct { uint8_t line[TAP_N]; uint32_t w; int32_t t, t0, xf, lp, prev, wn, wt; rnd_t r; } m_tap_t;
+typedef struct { uint8_t line[TAP_N]; uint32_t w; int32_t t, t0, xf, lp, prev, wn, wt, dg, drop; rnd_t r; } m_tap_t;
 static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
 {
     int32_t want = (25 + p[0] * 875 / 100) * 2205 / 100 * 256;   /* samples at FS / 2, Q8 */
-    int32_t fb = p[2] * (30802 / 100), age = 31000 - p[3] * (31000 - 3600) / 100;
+    int32_t fb = p[2] * (30802 / 100), age = 31000 - p[3] * (31000 - 12000) / 100, sat = 6144 + p[3] * (10 * 1024) / 100,
+            hiss = p[3] * 6;                              /* (the head x 1.5 .. 4; hiss up to ~-40 dB) */
     uint32_t i;
     if (!s->t)
         s->t = want;
@@ -384,9 +401,13 @@ static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
     }
     if (!(s->r.s))
         rnd_seed(&s->r, 0x7A9Eu);
-    if ((rnd_next(&s->r) & 255u) < 2u)                 /* the wow: a new place every ~0.2 s, glided to */
-        s->wt = mulq15(rnd_bi(&s->r), p[1] * 82 / 100);  /* (Q15 of the time: at most 0.25 %) */
+    if ((rnd_next(&s->r) & 255u) < 2u)                 /* the breath: a new place every ~0.2 s, glided to */
+        s->wt = mulq15(rnd_bi(&s->r), 33);               /* (Q15 of the time: at most 0.1 %) */
     s->wn += (s->wt - s->wn) >> 7;
+    if (!s->drop && p[1] && rnd_below(&s->r, 68900) < p[1])   /* a dropout: up to twice a second (1378 blocks / 100 %) */
+        s->drop = (int32_t)ms_blocks((uint32_t)rnd_in(&s->r, 20, 200));
+    if (s->drop)
+        s->drop--;
     for (i = 0; i + 1u < CTL; i += 2u) {
         int32_t in = (x[i] + x[i + 1u]) >> 1, y, o0, tt = s->t + (int32_t)(((int64_t)s->t * s->wn) >> 15);
         y = mu_tap(s->line, TAP_N, s->w, clampi(tt, 4 << 8, (int32_t)(TAP_N - 4u) << 8));
@@ -395,14 +416,16 @@ static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
             y = yo + (((y - yo) * (int32_t)(XF_PAIRS - (uint32_t)s->xf)) >> 9);
             s->xf--;
         }
-        s->lp += mulq15(y - s->lp, age);
-        s->line[s->w] = mu_enc8(tanh_q15((in + mulq15(s->lp, fb)) * 3 / 2) * 2 / 3);
+        s->lp += mulz15(y - s->lp, age);
+        s->line[s->w] = mu_enc8(mulq12(tanh_q15(mulq12(in + mulz15(s->lp, fb), sat)), 4096 * 4096 / sat));
         if (++s->w >= TAP_N)
             s->w = 0;
-        o0 = (s->prev + s->lp) >> 1;
-        s->prev = s->lp;
+        s->dg += ((s->drop ? 0 : Q15) - s->dg) >> 6;     /* (a dropout's edges: ~3 ms, no click) */
+        y = mulq15(s->lp, s->dg) + (hiss ? mulq15(rnd_bi(&s->r), hiss) : 0);
+        o0 = (s->prev + y) >> 1;
+        s->prev = y;
         x[i] = o0;
-        x[i + 1u] = s->lp;
+        x[i + 1u] = y;
     }
 }
 

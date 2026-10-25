@@ -34,9 +34,9 @@ static const char *const GMD_NAME[GMD_N] = {"", "", "", "", "LEVEL", "PAN", "REV
 static const char *const FMD_NAME[4] = {"LEVEL", "PAN", "LFO 1 RATE", "LFO 2 RATE"};
 /* the effects' values, as the MOD page names them */
 static const char *const RM_PNAME[NKIND][4] = {
-    {"TYPE", "FREQ", "RES", "DRIFT"}, {"DRIVE", "WIDTH", "FOLD 2", "TONE"}, {"RATE", "BITS", "FILTER", "DRIVE"},
-    {"SHIFT", "FEEDBACK", "DIRECTION", "TONE"}, {"PITCH", "Q", "SPREAD", "UPPER"}, {"PITCH", "RING", "DETUNE", "TONE"},
-    {"VOWEL", "MOVE", "Q", "DRIVE"}, {"TIME", "FEEDBACK", "DAMP", "LEVEL"}, {"TIME", "WOW", "FEEDBACK", "AGE"},
+    {"TYPE", "FREQ", "RES", "DRIVE"}, {"DRIVE", "WIDTH", "FOLD 2", "TONE"}, {"RATE", "BITS", "FILTER", "DRIVE"},
+    {"SHIFT", "DRIVE", "DIRECTION", "TONE"}, {"PITCH", "Q", "SPREAD", "UPPER"}, {"PITCH", "RING", "DETUNE", "TONE"},
+    {"VOWEL", "MOVE", "Q", "DRIVE"}, {"TIME", "FEEDBACK", "DAMP", "LEVEL"}, {"TIME", "DROPOUT", "FEEDBACK", "AGE"},
     {"WINDOW", "TONE", "FEEDBACK", "SPREAD"}, {"CHIRP", "TANK", "DECAY", "TONE"}, {"SIZE", "DECAY", "DAMP", "LEVEL"},
     {"BEND", "CLOCK", "STUTTER", "SPAN"},
     {"SIZE", "DENSITY", "FREEZE", "SPREAD"}, {"SIZE", "FEEDBACK", "TONE", "DRIVE"}, {"FREQ", "DIODE", "SELF", "TONE"},

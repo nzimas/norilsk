@@ -2,6 +2,25 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 12 (2026-10-25): the dull effects made drastic
+
+Saved sessions and snapshots that use these effects sound different from build 12 on (their values are kept; what
+they do with them changed).
+- **FILTER**: a notch beside low-, band- and high-pass; DRIVE (x 1 .. x 12, tanh) into it in place of the slow drift
+  (with more resonance it would have swept like a siren); RES up to Q 12, squelchy and screechy but kept off the
+  eardrums -- its level comes down as the resonance goes up, the resonance is pulled back above 3 kHz, a soft ceiling
+  under full scale. A test, `host ears`: every type at its highest resonance, across its range: at most 0.44 of full
+  scale and +2.7 dB over the dry.
+- **MULAW**: down to 2 bits (was 4), rates down to FS / 32 (1.4 kHz; was FS / 8), the filters open far enough to
+  alias, drive up to x 8.
+- **SHIFT**: shifts of 40 .. 900 Hz (every partial moved off the harmonics; small shifts sounded like a chorus); the
+  feedback gone (fed back, a shifter spirals: a barber pole) for DRIVE into it (denser sidebands); TONE after it.
+- **MODAL**: its modes further apart (up to 4.2 times), the sound driven into them, their ring brought up with the Q
+  under a soft ceiling: from -14 dB against the dry to +5.
+- **VOWEL**: formants three times sharper (Q 10 .. 60), driven harder (x 2 .. x 16), brought up with the Q.
+- **TAPE**: DROPOUTS in place of the wow (the echoes gone 20 .. 200 ms, up to twice a second; the time's own wander a
+  breath of 0.1 %); AGE now saturates the head harder, darkens to 3 kHz and adds hiss.
+
 ## Build 11 (2026-10-25): rewiring; six drastic effects
 
 - **The first black key rewires the chosen slot**: a generator's cables into the effect slots and its modulation by
