@@ -142,7 +142,7 @@ static const uint16_t GEN_COL[NGEN] = {RGB(255, 72, 72), RGB(72, 150, 255), RGB(
 #define C_SCALE RGB(255, 196, 90)
 #define C_OK RGB(60, 220, 90)
 static const char *const RM_TILE[NKIND] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "DLY", "TAP", "RVS", "SPR", "REV",
-                                           "GLT", "CLD", "SCR", "RNG", "STV", "CHB", "BNK"};
+                                           "GLT", "CLD", "SCR", "RNG", "STV", "CHB", "BNK", "SMR", "DIF", "SLW", "XOR", "DST"};
 
 /* the screen's layout (build 29): the smog, the three lanes, the three furnaces */
 #define TOP_H 48u                /* the smog, with the load and the battery */

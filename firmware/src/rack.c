@@ -8,7 +8,7 @@
  * turn and out of the last to the master, and now and then out of one before it too. The same effect may stand in
  * several slots: each is an instance of its own, in its slot's memory (36 KiB a slot from build 31: a recipe is drawn so that its
  * effects fit). A generator's patch says which effects it is wired into (slots.c); an effect hears the sum of what
- * reaches it. The three slots sound at three places, left, middle, right (the plate is stereo of its own). Every
+ * reaches it. The three slots sound at three places, left, middle, right (mono each from build 32). Every
  * effect's output passes a guard (a level rider and a ceiling, as Vascular's every processor). Nothing bends a
  * pitch: no swept delays, no wobbling shifts, delay times that change cross-fade.
  *
@@ -24,37 +24,45 @@
  *   MDL  MODAL     three resonators tuned to the scale's root: struck metal, bars, bells
  *   STR  STRING    three Karplus strings tuned to the root, detuned: everything that passes rings
  *   VOX  VOWEL     three formants between a, e, i, o, u
- *   DLY  DELAY     Tonitor's delay: 20 ms .. 1 s, feedback, damping (8-bit line at half the rate)
+ *   DLY  DELAY     (the master's from build 30; a saved one loads as TAPE, build 31)
  *   TAP  TAPE      a tape echo: saturation, age, a faint wow (8-bit line at half the rate)
  *   RVS  REVERSE   windows of the sound played backwards, at their pitch, fed back if asked
  *   SPR  SPRING    a spring reverb: allpass chirps in a short tank, a resonance for its tone
- *   REV  REVERB    Tonitor's Dattorro plate, stereo */
+ *   REV  REVERB    (the master's from build 30; a saved one loads as SPRING, build 31)
+ * and build 32's: SMR SMEAR, DIF DIFFUSE, SLW SLEW, XOR XOR, DST DUST (further down) */
 
 enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, RM_GLT,
-       RM_CLD, RM_SCR, RM_RNG, RM_STV, RM_CHB, RM_BNK, NKIND };
+       RM_CLD, RM_SCR, RM_RNG, RM_STV, RM_CHB, RM_BNK, RM_SMR, RM_DIF, RM_SLW, RM_XOR, RM_DST, NKIND };
 static const char *const RM_NAME[NKIND] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "DELAY",
                                            "TAPE", "REVERSE", "SPRING", "REVERB", "GLITCH",
-                                           "CLOUD", "SCREAM", "RING", "STARVE", "CHEB", "BANK"};
+                                           "CLOUD", "SCREAM", "RING", "STARVE", "CHEB", "BANK",
+                                           "SMEAR", "DIFFUSE", "SLEW", "XOR", "DUST"};
 /* the values an effect comes back to (a draw moves them, as Vascular draws a processor's) */
 static const uint8_t RM_HOME[NKIND][4] = {
     {20, 55, 40, 30}, {45, 45, 20, 70}, {45, 60, 50, 30}, {40, 30, 70, 50}, {40, 55, 40, 50}, {35, 60, 40, 60},
     {50, 50, 50, 30}, {65, 40, 40, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55},
     {50, 40, 35, 45},
-    {55, 45, 20, 50}, {50, 60, 45, 50}, {45, 50, 20, 60}, {60, 30, 35, 55}, {40, 50, 60, 60}, {40, 60, 30, 50}};
+    {55, 45, 20, 50}, {50, 60, 45, 50}, {45, 50, 20, 60}, {60, 30, 35, 55}, {40, 50, 60, 60}, {40, 60, 30, 50},
+    {60, 40, 70, 55}, {60, 55, 70, 60}, {35, 40, 70, 60}, {40, 15, 45, 45}, {40, 40, 45, 70}};
 /* .. and the bounds a draw keeps them in, so that every effect is heard: no band-pass at 15 kHz, no spring tuned where
  * the sound has nothing */
 static const uint8_t RM_LO[NKIND][4] = {
     {0, 35, 0, 0}, {10, 10, 0, 30}, {0, 30, 20, 0}, {0, 0, 0, 0}, {0, 15, 0, 20}, {0, 25, 0, 30},
     {0, 0, 10, 0}, {20, 0, 0, 40}, {10, 0, 0, 0}, {0, 30, 0, 0}, {0, 0, 35, 10}, {20, 20, 0, 40}, {15, 0, 0, 0},
-    {10, 10, 0, 10}, {0, 25, 10, 10}, {0, 0, 0, 20}, {20, 0, 0, 20}, {0, 0, 20, 20}, {0, 25, 0, 10}};
+    {10, 10, 0, 10}, {0, 25, 10, 10}, {0, 0, 0, 20}, {20, 0, 0, 20}, {0, 0, 20, 20}, {0, 25, 0, 10},
+    {0, 0, 30, 20}, {0, 0, 30, 20}, {0, 0, 30, 15}, {0, 0, 0, 20}, {0, 0, 15, 30}};
 static const uint8_t RM_HI[NKIND][4] = {
     {100, 85, 80, 100}, {90, 90, 80, 100}, {100, 100, 100, 80}, {100, 90, 100, 100}, {100, 85, 100, 100}, {100, 95, 100, 100},
     {100, 100, 90, 80}, {100, 85, 100, 100}, {100, 100, 90, 85}, {100, 100, 80, 100}, {100, 100, 92, 60}, {100, 95, 100, 100},
     {100, 90, 85, 100},
-    {100, 100, 100, 100}, {100, 92, 90, 100}, {100, 100, 90, 100}, {100, 70, 100, 100}, {100, 100, 100, 100}, {100, 95, 100, 100}};
+    {100, 100, 100, 100}, {100, 92, 90, 100}, {100, 100, 90, 100}, {100, 70, 100, 100}, {100, 100, 100, 100}, {100, 95, 100, 100},
+    {100, 100, 100, 100}, {100, 100, 100, 100}, {85, 100, 100, 100}, {100, 100, 90, 85}, {100, 85, 90, 100}};
 static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what MODAL and STRING are tuned to */
 
 /* AINL helpers the effects share; then the effects */
+/* an instance's place in the effect slots' memory (build 32: its random seed -- the same on the device and on a
+ * computer, run after run; the address itself before) */
+static uint32_t fx_place(const void *st);
 /* ------------------------------------------------------------- shared --- */
 /* a constant-peak-gain resonator (Smith and Angell): zeros at DC and Nyquist, poles at f, radius r. Q28 coefficients */
 typedef struct { int32_t a1, a2, g; } res_c;
@@ -115,20 +123,28 @@ AINL int32_t mu_dec8(uint8_t b) { return gr_dec(b); }
  * squelchy, short of ringing on its own) -- and out through a soft ceiling. Its level comes down as the resonance goes
  * up, and above 3 kHz the resonance is pulled back with the frequency: it may squelch and screech, never pierce. Fixed
  * where it is set: nothing sweeps by itself */
-typedef struct { svf_t f; uint32_t rsv; } m_flt_t;
+/* (build 32: an effect's values from its knobs are worked out when the knobs move, not every block -- the same
+ * numbers; key: the knobs packed, have: worked out once) */
+AINL uint32_t p_key(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+typedef struct { svf_t f; uint32_t key, have; svf_c c; int32_t type, drive, comp; } m_flt_t;
 static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
 {
-    int32_t oct = 321600 + p[1] * (9 * 65536 / 100), hz, q, type, drive, comp;
+    int32_t type, drive, comp;
     uint32_t i;
-    svf_c c;
-    hz = clampi((int32_t)(exp2_q16(clampi(oct, 4 << 16, 14 << 16)) >> 16), 30, 16000);
-    type = p[0] < 25 ? 1 : p[0] < 50 ? 2 : p[0] < 75 ? 3 : 4;
-    q = 2896 + p[2] * (12 * 4096 - 2896) / 100;             /* Q 0.7 .. 12, Q12 */
-    if (hz > 3000)                                          /* (high up, less of it: no whistle at 8 kHz) */
-        q = 2896 + (q - 2896) * 3000 / hz;              /* (32 bits: < 1.4e8) */
-    drive = 4096 + p[3] * (11 * 4096) / 100;
-    comp = (int32_t)(((uint32_t)Q15 * 4096u) / (uint32_t)(4096 + (q - 2896) / 3));   /* (x 1 .. ~0.3 with the Q) */
-    svf_coef(&c, hz, q);
+    if (!s->have || s->key != p_key(p)) {
+        int32_t oct = 321600 + p[1] * (9 * 65536 / 100), hz, q;
+        hz = clampi((int32_t)(exp2_q16(clampi(oct, 4 << 16, 14 << 16)) >> 16), 30, 16000);
+        q = 2896 + p[2] * (12 * 4096 - 2896) / 100;         /* Q 0.7 .. 12, Q12 */
+        if (hz > 3000)                                      /* (high up, less of it: no whistle at 8 kHz) */
+            q = 2896 + (q - 2896) * 3000 / hz;          /* (32 bits: < 1.4e8) */
+        s->type = p[0] < 25 ? 1 : p[0] < 50 ? 2 : p[0] < 75 ? 3 : 4;
+        s->drive = 4096 + p[3] * (11 * 4096) / 100;
+        s->comp = (int32_t)(((uint32_t)Q15 * 4096u) / (uint32_t)(4096 + (q - 2896) / 3));   /* (x 1 .. ~0.3 with the Q) */
+        svf_coef(&s->c, hz, q);
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    type = s->type, drive = s->drive, comp = s->comp;
     {   /* (build 17: nothing in and only a remainder left -- a high Q's rounding held one for ever: let it go) */
         uint32_t any = 0;
         for (i = 0; i < CTL; i++)
@@ -139,36 +155,50 @@ static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
     for (i = 0; i < CTL; i++) {
         int32_t v = tanh_q15(mulq12(x[i], drive)) >> 1, y;
         if (type == 4) {                                    /* notch: the band taken out (low + high) */
-            int32_t bp = svf_run(&s->f, &c, v, 2);
-            y = v - mulr24(c.k, bp);
+            int32_t bp = svf_run(&s->f, &s->c, v, 2);
+            y = v - mulr24(s->c.k, bp);
         } else
-            y = svf_run(&s->f, &c, v, type) * (type == 2 ? 2 : 1);
+            y = svf_run(&s->f, &s->c, v, type) * (type == 2 ? 2 : 1);
         x[i] = mulq15(tanh_q15(mulq15(y, comp) * 2), LV(0.7));   /* (a soft ceiling under full scale) */
     }
 }
 
 /* --------------------------------------------------------------- FOLD --- */
-typedef struct { int32_t lp; } m_fld_t;
-AINL int32_t fold_into(int32_t x, int32_t w)      /* reflected into -w .. w */
+typedef struct { int32_t lp; uint32_t key, have, rp; int32_t g1, w, g2, tone, back; } m_fld_t;
+/* reflected into -w .. w: (x + w) mod 4w, by a reciprocal of 4w (rp = (2^32 - 1) / 4w, worked out with the values)
+ * and a step or two of correction -- the remainder exactly as % gives it, without a division a sample */
+AINL int32_t fold_into(int32_t x, int32_t w, uint32_t rp)
 {
-    int32_t p = 4 * w;
+    uint32_t p = 4u * (uint32_t)w;
     if (x > w || x < -w) {
-        x = ((x + w) % p + p) % p;
-        x = x < 2 * w ? x - w : 3 * w - x;
+        int32_t u = x + w;
+        uint32_t a = (uint32_t)(u < 0 ? -u : u), m = a - (uint32_t)(((uint64_t)a * rp) >> 32) * p;
+        while (m >= p)
+            m -= p;
+        if (u < 0 && m)
+            m = p - m;
+        x = (int32_t)m < 2 * w ? (int32_t)m - w : 3 * w - (int32_t)m;
     }
     return x;
 }
 static void m_fld(const uint8_t *p, m_fld_t *s, int32_t *x)
 {
-    int32_t g1 = (int32_t)(exp2_q16((p[0] * (5 * 65536 / 100)) - 65536) >> 4),   /* x 0.5 .. x 16, Q12 */
-            w = 2621 + p[1] * (19005 - 2621) / 100,                              /* 0.08 .. 0.58 */
-            g2 = 4096 + p[2] * (4 * 4096) / 100,                                 /* x 1 .. x 5, Q12 */
-            tone = 1400 + p[3] * (29430 - 1400) / 100,                           /* 300 Hz .. 16 kHz */
-            back = (int32_t)((Q15 * 6000u) / (uint32_t)w);                       /* 0.18 / w, Q15 */
-    uint32_t i;
+    int32_t g1, w, g2, tone, back;
+    uint32_t i, rp;
+    if (!s->have || s->key != p_key(p)) {
+        s->g1 = (int32_t)(exp2_q16((p[0] * (5 * 65536 / 100)) - 65536) >> 4);   /* x 0.5 .. x 16, Q12 */
+        s->w = 2621 + p[1] * (19005 - 2621) / 100;                             /* 0.08 .. 0.58 */
+        s->g2 = 4096 + p[2] * (4 * 4096) / 100;                                /* x 1 .. x 5, Q12 */
+        s->tone = 1400 + p[3] * (29430 - 1400) / 100;                          /* 300 Hz .. 16 kHz */
+        s->back = (int32_t)((Q15 * 6000u) / (uint32_t)s->w);                   /* 0.18 / w, Q15 */
+        s->rp = 0xFFFFFFFFu / (4u * (uint32_t)s->w);
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    g1 = s->g1, w = s->w, g2 = s->g2, tone = s->tone, back = s->back, rp = s->rp;
     for (i = 0; i < CTL; i++) {
-        int32_t y = fold_into(mulq12(x[i], g1), w);
-        y = fold_into(mulq12(y, g2), w);
+        int32_t y = fold_into(mulq12(x[i], g1), w, rp);
+        y = fold_into(mulq12(y, g2), w, rp);
         y = mulq15(y, back > 4 * Q15 ? 4 * Q15 : back);
         s->lp += mulq15(y - s->lp, tone);
         x[i] = s->lp;
@@ -179,15 +209,24 @@ static void m_fld(const uint8_t *p, m_fld_t *s, int32_t *x)
 /* (build 12: further) p0 the rate (FS down to FS / 32, fractional: to 1.4 kHz), p1 the bits (8 down to 2, sign
  * included), p2 the filter before and after (0.05 .. 1.0 of the lower rate: open, it aliases), p3 the drive into it
  * (x 1 .. x 8: mu-law lifts the quiet) */
-typedef struct { uint32_t ph; int32_t hold, a1, a2, b1, b2; } m_mu_t;
+typedef struct { uint32_t ph; int32_t hold, a1, a2, b1, b2; uint32_t key, have, inc, shift; int32_t k, drive, undo; } m_mu_t;
 static void m_mu(const uint8_t *p, m_mu_t *s, int32_t *x)
 {
-    uint32_t div16 = 16u + (uint32_t)(((uint32_t)p[0] * p[0]) * 496u / 10000u), inc = (uint32_t)(0xFFFFFFFFu / div16) << 4;   /* 1 .. 32, Q4
-                                                          * (squared: the low rates at the top of the knob) */
-    uint32_t shift = 6u - (uint32_t)(p[1] * 7 / 101), i;      /* code bits dropped: 0 .. 6 (2 bits left) */
-    int32_t hz = (int32_t)((uint32_t)FS * 16u / div16) * (5 + p[2] * 95 / 100) / 100;
-    int32_t k = clampi((hz * 4781) >> 10, 150, 32000);   /* a one-pole's step: 2 pi f / FS, Q15 */
-    int32_t drive = 4096 + p[3] * (7 * 4096) / 100;
+    uint32_t inc, shift, i;
+    int32_t k, drive, undo;
+    if (!s->have || s->key != p_key(p)) {
+        uint32_t div16 = 16u + (uint32_t)(((uint32_t)p[0] * p[0]) * 496u / 10000u);   /* 1 .. 32, Q4 (squared: the
+                                                          * low rates at the top of the knob) */
+        int32_t hz = (int32_t)((uint32_t)FS * 16u / div16) * (5 + p[2] * 95 / 100) / 100;
+        s->inc = (uint32_t)(0xFFFFFFFFu / div16) << 4;
+        s->shift = 6u - (uint32_t)(p[1] * 7 / 101);     /* code bits dropped: 0 .. 6 (2 bits left) */
+        s->k = clampi((hz * 4781) >> 10, 150, 32000);   /* a one-pole's step: 2 pi f / FS, Q15 */
+        s->drive = 4096 + p[3] * (7 * 4096) / 100;
+        s->undo = (4096 * 4096) / s->drive;
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    inc = s->inc, shift = s->shift, k = s->k, drive = s->drive, undo = s->undo;
     for (i = 0; i < CTL; i++) {
         uint32_t was = s->ph;
         int32_t v = clampi(mulq12(x[i], drive), -32767, 32767);
@@ -201,7 +240,7 @@ static void m_mu(const uint8_t *p, m_mu_t *s, int32_t *x)
         }
         s->b1 += mulq15(s->hold - s->b1, k);            /* two poles after */
         s->b2 += mulq15(s->b1 - s->b2, k);
-        x[i] = mulq12(s->b2, (4096 * 4096) / drive);
+        x[i] = mulq12(s->b2, undo);
     }
 }
 
@@ -280,29 +319,41 @@ static void m_mdl(const uint8_t *p, m_mdl_t *s, int32_t *x)
  * pitch), two more strings +0.9 % and -0.7 % off (p2: their level), the loop's low-pass 400 Hz .. 14 kHz (p3); the
  * input low-passed at ~4 kHz */
 #define STR_N 1400u              /* C1, 32.7 Hz */
-typedef struct { int16_t line[3][STR_N]; uint32_t w; int32_t lp[3], in; } m_str_t;
+typedef struct { int16_t line[3][STR_N]; uint32_t w; int32_t lp[3], in; uint32_t key, have; int32_t d8[3], g, tone, lvl, root; } m_str_t;
 static void m_str(const uint8_t *p, m_str_t *s, int32_t *x)
 {
-    int32_t note = 24 + (rack_root % 12) + 12 * (p[0] * 4 / 101), hz8 = note_hz8(note, 0), len8[3], g, tone, lvl, k;
-    int32_t t100 = (int32_t)((8u * exp2_q16(p[1] * (664 * 65536 / 10000))) >> 16);   /* 0.08 .. 8 s, x 100 (2^6.64 = 100) */
+    int32_t g, tone, lvl, k, root = rack_root;
     uint32_t i;
-    len8[0] = (int32_t)(((uint32_t)FS << 16) / (uint32_t)hz8);   /* samples, Q8 */
-    len8[1] = (int32_t)(((int64_t)len8[0] * 64936) >> 16);   /* +0.9 % */
-    len8[2] = (int32_t)(((int64_t)len8[0] * 65995) >> 16);   /* -0.7 % */
-    /* the loop gain: 60 dB in T s, a trip each 1 / f: 2^(-9.966 / (T f)) */
-    {   /* 9.966 / (T f), Q16 = 9.966 x 65536 x 100 x 256 / (t100 x hz8) */
-        uint32_t den = ((uint32_t)t100 * (uint32_t)hz8) >> 8;
-        g = (int32_t)(exp2_q16(-(int32_t)(65313178u / (den ? den : 1u))) >> 1);
+    if (!s->have || s->key != p_key(p) || s->root != root) {
+        int32_t note = 24 + (root % 12) + 12 * (p[0] * 4 / 101), hz8 = note_hz8(note, 0), len8[3];
+        int32_t t100 = (int32_t)((8u * exp2_q16(p[1] * (664 * 65536 / 10000))) >> 16);   /* 0.08 .. 8 s, x 100 (2^6.64 = 100) */
+        len8[0] = (int32_t)(((uint32_t)FS << 16) / (uint32_t)hz8);   /* samples, Q8 */
+        len8[1] = (int32_t)(((int64_t)len8[0] * 64936) >> 16);   /* +0.9 % */
+        len8[2] = (int32_t)(((int64_t)len8[0] * 65995) >> 16);   /* -0.7 % */
+        for (k = 0; k < 3; k++)
+            s->d8[k] = clampi(len8[k], 4 << 8, (int32_t)(STR_N - 3u) << 8);
+        /* the loop gain: 60 dB in T s, a trip each 1 / f: 2^(-9.966 / (T f)) */
+        {   /* 9.966 / (T f), Q16 = 9.966 x 65536 x 100 x 256 / (t100 x hz8) */
+            uint32_t den = ((uint32_t)t100 * (uint32_t)hz8) >> 8;
+            g = (int32_t)(exp2_q16(-(int32_t)(65313178u / (den ? den : 1u))) >> 1);
+        }
+        s->g = clampi(g, 6554, 32751);
+        s->tone = 2800 + p[3] * (30500 - 2800) / 100;
+        s->lvl = p[2] * (Q15 / 100);
+        s->key = p_key(p);
+        s->root = root;
+        s->have = 1;
     }
-    g = clampi(g, 6554, 32751);
-    tone = 2800 + p[3] * (30500 - 2800) / 100;
-    lvl = p[2] * (Q15 / 100);
+    g = s->g, tone = s->tone, lvl = s->lvl;
     for (i = 0; i < CTL; i++) {
         int32_t y = 0;
         s->in += mulz15(x[i] - s->in, 15700);           /* (~4 kHz; towards zero, so silence settles at 0, not -1) */
         for (k = 0; k < 3; k++) {
-            int32_t d8 = clampi(len8[k], 4 << 8, (int32_t)(STR_N - 3u) << 8), v;
-            uint32_t rp = (s->w << 8) + (STR_N << 8) - (uint32_t)d8, i0 = (rp >> 8) % STR_N, i1 = i0 + 1u >= STR_N ? 0u : i0 + 1u;
+            int32_t v;
+            uint32_t rp = (s->w << 8) + (STR_N << 8) - (uint32_t)s->d8[k], i0 = rp >> 8, i1;
+            if (i0 >= STR_N)                            /* (w + N - d, d within 4 .. N - 3: under 2N, one step) */
+                i0 -= STR_N;
+            i1 = i0 + 1u >= STR_N ? 0u : i0 + 1u;
             v = s->line[k][i0] + (((s->line[k][i1] - s->line[k][i0]) * (int32_t)(rp & 255u)) >> 8);
             s->lp[k] += mulz15(v - s->lp[k], tone);
             s->line[k][s->w] = (int16_t)clampi(s->in / 4 + mulz15(s->lp[k], g), -32767, 32767);
@@ -347,47 +398,16 @@ static void m_vow(const uint8_t *p, m_vow_t *s, int32_t *x)
 /* an 8-bit mu-law line at FS / 2 (a sample at the half rate, read with linear interpolation) */
 AINL int32_t mu_tap(const uint8_t *line, uint32_t n, uint32_t w, int32_t t8)   /* t8 samples ago, Q8 */
 {
-    uint32_t q = (w << 8) + (n << 8) - (uint32_t)t8, i0 = (q >> 8) % n, f = q & 255u;
-    int32_t y = mu_dec8(line[i0]);
+    uint32_t q = (w << 8) + (n << 8) - (uint32_t)t8, i0 = q >> 8, f = q & 255u;
+    int32_t y;
+    if (i0 >= n)                                 /* (build 32: the remainder by a step -- w + n - t is under 2n) */
+        i0 -= n;
+    if (i0 >= n)
+        i0 %= n;
+    y = mu_dec8(line[i0]);
     return y + (((mu_dec8(line[i0 + 1u >= n ? 0u : i0 + 1u]) - y) * (int32_t)f) >> 8);
 }
 #define XF_PAIRS 512u            /* a change of time: the old head fades out, the new in, over 23 ms */
-/* Tonitor's delay: TIME 20 ms .. 1 s (p0, log), feedback 0 .. 0.92 (p1), damping (p2: the echoes' low-pass, none
- * .. 0.12), level (p3: 0.25 .. 1). The echoes alone come out. A change of time cross-fades (no pitch slide) */
-#define DLY_N 22050u             /* 1 s at FS / 2 */
-typedef struct { uint8_t line[DLY_N]; uint32_t w; int32_t t, t0, xf, lp, prev; } m_dly_t;
-static void m_dly(const uint8_t *p, m_dly_t *s, int32_t *x)
-{
-    int32_t ms = (int32_t)((20u * exp2_q16(p[0] * (5644 * 65536 / 100000))) >> 16);   /* 20 x 50^(p / 100) */
-    int32_t want = clampi(ms * 2205 / 100 * 256, 2 * 256, (int32_t)(DLY_N - 4u) * 256);
-    int32_t fb = p[1] * (LV(0.92) / 100), damp = Q15 - p[2] * (LV(0.88) / 100), lvl = 8192 + p[3] * (24576 / 100);
-    uint32_t i;
-    if (!s->t)
-        s->t = want;
-    if (want != s->t && !s->xf) {
-        s->t0 = s->t;
-        s->t = want;
-        s->xf = XF_PAIRS;
-    }
-    for (i = 0; i + 1u < CTL; i += 2u) {
-        int32_t in = (x[i] + x[i + 1u]) >> 1, y = mu_tap(s->line, DLY_N, s->w, s->t), o0;
-        if (s->xf) {
-            int32_t yo = mu_tap(s->line, DLY_N, s->w, s->t0);
-            y = yo + (((y - yo) * (int32_t)(XF_PAIRS - (uint32_t)s->xf)) >> 9);
-            s->xf--;
-        }
-        s->lp += mulq15(y - s->lp, damp);
-        s->line[s->w] = mu_enc8(clampi(in + mulq15(s->lp, fb), -32767, 32767));
-        if (++s->w >= DLY_N)
-            s->w = 0;
-        y = mulq15(s->lp, lvl);
-        o0 = (s->prev + y) >> 1;
-        s->prev = y;
-        x[i] = o0;
-        x[i + 1u] = y;
-    }
-}
-
 /* --------------------------------------------------------------- TAPE --- */
 /* an echo on an 8-bit mu-law line at FS / 2: time 25 .. 900 ms (p0), (build 12) DROPOUTS (p1: the tape failing --
  * the echoes gone for 20 .. 200 ms, now and then, up to twice a second), feedback 0 .. 0.94 (p2) through the head's
@@ -508,7 +528,7 @@ static void m_glt(const uint8_t *p, m_glt_t *s, int32_t *x)
     uint32_t i, tick = 97391u * 2u * (50u + p[1] * 1550u / 100u) / 100u;   /* 0.5 .. 16 Hz at FS / 2 (2^32 / 22050 a Hz:
                                                                              * in 32 bits, at most 3.1e8 before / 100) */
     if (!s->r.s)
-        rnd_seed(&s->r, 0x474C54u ^ (uint32_t)(uintptr_t)s);
+        rnd_seed(&s->r, 0x474C54u ^ fx_place(s));
     if (!s->back)
         s->back = s->oback = span;
     for (i = 0; i + 1u < CTL; i += 2u) {
@@ -577,7 +597,7 @@ static void m_cld(const uint8_t *p, m_cld_t *s, int32_t *x)
                                                      * going on over it) */
     int32_t norm, o0;
     if (!s->r.s)
-        rnd_seed(&s->r, 0x434C44u ^ (uint32_t)(uintptr_t)s);
+        rnd_seed(&s->r, 0x434C44u ^ fx_place(s));
     k2 = (iv << 15) / (3u * len);                        /* (as the voices' cloud: each grain at sqrt(8 / 3 O)) */
     norm = clampi((int32_t)isqrt32((k2 > 65535u ? 65535u : k2) << 16) << 1, 4096, 2 * Q15);
     for (i = 0; i + 1u < CTL; i += 2u) {
@@ -842,6 +862,199 @@ static void m_spr(const uint8_t *p, m_spr_t *s, int32_t *x)
 #define FX_FADE 12u              /* blocks of a slot's fade out before a new patch (~9 ms) */
 #define RM_TAIL 2756u            /* an effect nothing reaches goes on until its output has been near silence 2 s */
 
+/* ============================================================== build 32 ===
+ * Five more, cheap -- each under ~40 operations a sample and a few KiB --, none sounding with nothing in, none bending
+ * a pitch. (Their names are provisional.) */
+
+/* -------------------------------------------------------------- SMEAR --- */
+/* a velvet-noise smear (after Alary, Politis and Valimaki's velvet-noise decorrelator, DAFx 2017): the sound through
+ * SMR_T taps at random places within SPAN (p0: 12 .. 46 ms), each + or -, their weights falling to TAIL (p1: the last
+ * at 1.0 .. 0.1 of the first) -- smoke, not a room; p2 the mix (0.4 .. 1 of it), p3 the tone after (300 Hz .. 16 kHz).
+ * No feedback: nothing in, nothing out 46 ms later. The taps are drawn from the instance's place: the same each time */
+#define SMR_N 2048u              /* 46 ms */
+#define SMR_T 20u
+typedef struct { int16_t line[SMR_N]; uint16_t at[SMR_T]; int16_t g[SMR_T]; uint32_t w, key, have; int32_t lp, norm, mix, tone; } m_smr_t;
+static void m_smr(const uint8_t *p, m_smr_t *s, int32_t *x)
+{
+    uint32_t i, k;
+    int32_t norm, mix, tone;
+    if (!s->have || s->key != p_key(p)) {
+        rnd_t r;
+        uint32_t span = 530u + (uint32_t)p[0] * (SMR_N - 8u - 530u) / 100u, seg = span / SMR_T, e2 = 0;
+        int32_t gl = Q15 - p[1] * (Q15 * 9 / 10) / 100;   /* (the last tap's weight) */
+        rnd_seed(&r, 0x534D52u ^ fx_place(s));
+        for (k = 0; k < SMR_T; k++) {
+            int32_t g = (Q15 + (gl - Q15) * (int32_t)k / (int32_t)(SMR_T - 1u)) >> 4;   /* Q11 */
+            s->at[k] = (uint16_t)(1u + k * seg + (uint32_t)rnd_below(&r, (int32_t)seg));
+            s->g[k] = (int16_t)(rnd_chance(&r, 50) ? g : -g);
+            e2 += (uint32_t)(g * g);
+        }
+        s->norm = (int32_t)((2048u * 32768u) / (isqrt32(e2) + 1u));   /* (the sum's level as the sound's, Q15) */
+        s->mix = LV(0.4) + p[2] * (Q15 - LV(0.4)) / 100;
+        s->tone = 1400 + p[3] * (30000 - 1400) / 100;
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    norm = s->norm, mix = s->mix, tone = s->tone;
+    for (i = 0; i < CTL; i++) {
+        int32_t acc = 0, y;
+        s->line[s->w] = (int16_t)clampi(x[i], -32767, 32767);
+        for (k = 0; k < SMR_T; k++)                     /* (Q15 x Q11, twenty: under 2^31) */
+            acc += s->line[(s->w - s->at[k]) & (SMR_N - 1u)] * s->g[k];
+        s->w = (s->w + 1u) & (SMR_N - 1u);
+        y = mulq15(acc >> 11, norm);
+        y = mulq15(x[i], Q15 - mix) + mulq15(y, mix);
+        s->lp += mulz15(y - s->lp, tone);
+        x[i] = s->lp;
+    }
+}
+
+/* ------------------------------------------------------------ DIFFUSE --- */
+/* four allpasses in a row (Schroeder's; the lengths of Mutable Instruments' Clouds diffuser, at 44.1 kHz): the edges
+ * of the sound blurred, no tail of its own. p0 the size (0.4 .. 1 of the lengths), p1 the diffusion (0.4 .. 0.75), p2
+ * the mix (0.5 .. 1), p3 the tone after. The lengths never slide: a new size starts each line's reading afresh */
+#define DIF_N 1405u
+static const uint16_t DIF_L[4] = {174, 248, 371, 612}, DIF_O[4] = {0, 174, 422, 793};
+typedef struct { int16_t d[DIF_N]; uint16_t len[4], w[4]; uint32_t key, have; int32_t lp, kap, mix, tone; } m_dif_t;
+static void m_dif(const uint8_t *p, m_dif_t *s, int32_t *x)
+{
+    uint32_t i, k;
+    int32_t kap, mix, tone;
+    if (!s->have || s->key != p_key(p)) {
+        for (k = 0; k < 4u; k++) {
+            s->len[k] = (uint16_t)maxi(8, DIF_L[k] * (40 + p[0] * 60 / 100) / 100);
+            if (s->w[k] >= s->len[k])
+                s->w[k] = 0;
+        }
+        s->kap = LV(0.4) + p[1] * (LV(0.75) - LV(0.4)) / 100;
+        s->mix = LV(0.5) + p[2] * (Q15 - LV(0.5)) / 100;
+        s->tone = 1400 + p[3] * (30000 - 1400) / 100;
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    kap = s->kap, mix = s->mix, tone = s->tone;
+    for (i = 0; i < CTL; i++) {
+        int32_t v = x[i], y;
+        for (k = 0; k < 4u; k++) {
+            int16_t *line = &s->d[DIF_O[k]];
+            int32_t d = line[s->w[k]], a = v + mulz15(d, kap);   /* (towards zero: it dies out to nothing) */
+            line[s->w[k]] = (int16_t)clampi(a, -32767, 32767);
+            v = d - mulz15(a, kap);
+            if (++s->w[k] >= s->len[k])
+                s->w[k] = 0;
+        }
+        y = mulq15(x[i], Q15 - mix) + mulq15(v, mix);
+        s->lp += mulz15(y - s->lp, tone);
+        x[i] = s->lp;
+    }
+}
+
+/* --------------------------------------------------------------- SLEW --- */
+/* a slew limiter (after Airwindows' Slew): the sound may move only so far a sample -- the highs turned to dark,
+ * grinding ramps. p0 the rate (40 .. 4000 a sample: from treacle to a trace), p1 the drive into it (x 1 .. x 8),
+ * p2 the mix (0.3 .. 1), p3 the tone after. With nothing in it walks to 0 and stays */
+typedef struct { int32_t y, lp; uint32_t key, have; int32_t step, drive, mix, tone; } m_slw_t;
+static void m_slw(const uint8_t *p, m_slw_t *s, int32_t *x)
+{
+    uint32_t i;
+    int32_t step, drive, mix, tone;
+    if (!s->have || s->key != p_key(p)) {
+        s->step = (int32_t)((40u * exp2_q16(p[0] * (664 * 65536 / 10000))) >> 16);   /* 40 .. 4000 */
+        s->drive = 4096 + p[1] * (7 * 4096) / 100;
+        s->mix = LV(0.3) + p[2] * (Q15 - LV(0.3)) / 100;
+        s->tone = 1400 + p[3] * (30000 - 1400) / 100;
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    step = s->step, drive = s->drive, mix = s->mix, tone = s->tone;
+    for (i = 0; i < CTL; i++) {
+        int32_t v = clampi(mulq12(x[i], drive), -2 * Q15, 2 * Q15), y;
+        s->y += clampi(v - s->y, -step, step);
+        y = mulq15(x[i], Q15 - mix) + mulq15(tanh_q15(s->y), mix);
+        s->lp += mulz15(y - s->lp, tone);
+        x[i] = s->lp;
+    }
+}
+
+/* ---------------------------------------------------------------- XOR --- */
+/* the sound combined bit by bit with itself a moment before (after the Teensy Audio library's effect_combine):
+ * broken, digital, following the sound's shape. p0 the moment (0.1 .. 23 ms), p1 the operation (XOR, AND, OR), p2 the
+ * bits kept (3 .. 10: fewer, harsher), p3 the tone after. Both taken towards zero first, so near-silence is silence;
+ * the lean the bits leave taken off */
+#define XOR_N 1024u
+typedef struct { int16_t line[XOR_N]; uint32_t w, key, have; int32_t dx, dy, lp, back, op, sh, tone; } m_xor_t;
+AINL int32_t xor_q(int32_t v, int32_t sh) { return v < 0 ? -((-v) >> sh) : v >> sh; }
+static void m_xor(const uint8_t *p, m_xor_t *s, int32_t *x)
+{
+    uint32_t i;
+    int32_t back, op, sh, tone;
+    if (!s->have || s->key != p_key(p)) {
+        s->back = 4 + p[0] * (int32_t)(XOR_N - 8u) / 100;
+        s->op = p[1] < 34 ? 0 : p[1] < 67 ? 1 : 2;
+        s->sh = 13 - p[2] * 7 / 100;                    /* (16 bits: 3 .. 10 kept) */
+        s->tone = 1400 + p[3] * (30000 - 1400) / 100;
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    back = s->back, op = s->op, sh = s->sh, tone = s->tone;
+    for (i = 0; i < CTL; i++) {
+        int32_t a = clampi(x[i] * 2, -32767, 32767), b = s->line[(s->w - (uint32_t)back) & (XOR_N - 1u)], qa, qb, r, y;
+        s->line[s->w] = (int16_t)a;
+        s->w = (s->w + 1u) & (XOR_N - 1u);
+        qa = xor_q(a, sh);
+        qb = xor_q(b, sh);
+        r = op == 0 ? qa ^ qb : op == 1 ? qa & qb : qa | qb;
+        y = r * (1 << (sh - 1));                        /* (back to the sample, halved) */
+        {   /* (the lean off: y = x - x1 + R y1, towards zero) */
+            int32_t yq = y - s->dx + mulz15(s->dy, 32500);
+            s->dx = y;
+            s->dy = yq;
+            y = yq;
+        }
+        s->lp += mulz15(y - s->lp, tone);
+        x[i] = s->lp;
+    }
+}
+
+/* --------------------------------------------------------------- DUST --- */
+/* hiss and crackle that live where the sound moves (after Airwindows' TapeDust): noise scaled by how fast the sound is
+ * changing, followed a little. p0 the grain (hiss .. crackle, the crackle dense: ~600 grains a second, never a
+ * rhythm), p1 the amount (x 1 .. x 8), p2 the dust's tone (300 Hz .. 16 kHz), p3 the sound under it (0 .. 1).
+ * Nothing moving, nothing in it */
+typedef struct { int32_t prev, env, nlp, seeded; rnd_t r; uint32_t key, have; int32_t grain, amt, tone, dry; } m_dst_t;
+static void m_dst(const uint8_t *p, m_dst_t *s, int32_t *x)
+{
+    uint32_t i;
+    int32_t grain, amt, tone, dry;
+    if (!s->seeded) {
+        rnd_seed(&s->r, 0x445354u ^ fx_place(s));
+        s->seeded = 1;
+    }
+    if (!s->have || s->key != p_key(p)) {
+        s->grain = p[0] * (Q15 / 100);
+        s->amt = 4096 + p[1] * (7 * 4096) / 100;
+        s->tone = 1400 + p[2] * (30000 - 1400) / 100;
+        s->dry = p[3] * (Q15 / 100);
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    grain = s->grain, amt = s->amt, tone = s->tone, dry = s->dry;
+    for (i = 0; i < CTL; i++) {
+        int32_t sl = absi(x[i] - s->prev) * 4, n = rnd_bi(&s->r), hiss, crack = 0;
+        s->prev = x[i];
+        if (sl > s->env)                                /* (the slope followed: fast up, ~20 ms down, to 0) */
+            s->env += (sl - s->env) >> 3;
+        else
+            s->env -= (s->env >> 8) + (s->env > 0);
+        hiss = mulq15(n, mini(s->env, 2 * Q15));
+        if (rnd_q15(&s->r) < 446)                       /* (~600 a second) */
+            crack = hiss * 4;
+        hiss = mulq15(hiss, Q15 - grain) + mulq15(crack, grain);
+        s->nlp += mulz15(clampi(mulq12(hiss, amt), -2 * Q15, 2 * Q15) - s->nlp, tone);
+        x[i] = mulq15(x[i], dry) + s->nlp;
+    }
+}
+
 /* the memory each effect takes, rounded up to 8 bytes */
 static uint32_t rm_size(uint32_t k)
 {
@@ -854,7 +1067,6 @@ static uint32_t rm_size(uint32_t k)
     case RM_MDL: n = sizeof(m_mdl_t); break;
     case RM_STR: n = sizeof(m_str_t); break;
     case RM_VOW: n = sizeof(m_vow_t); break;
-    case RM_DLY: n = sizeof(m_dly_t); break;
     case RM_TAP: n = sizeof(m_tap_t); break;
     case RM_RVS: n = sizeof(m_rvs_t); break;
     case RM_SPR: n = sizeof(m_spr_t); break;
@@ -865,7 +1077,12 @@ static uint32_t rm_size(uint32_t k)
     case RM_STV: n = sizeof(m_stv_t); break;
     case RM_CHB: n = sizeof(m_chb_t); break;
     case RM_BNK: n = sizeof(m_bnk_t); break;
-    default: n = sizeof(rv_t); break;
+    case RM_SMR: n = sizeof(m_smr_t); break;
+    case RM_DIF: n = sizeof(m_dif_t); break;
+    case RM_SLW: n = sizeof(m_slw_t); break;
+    case RM_XOR: n = sizeof(m_xor_t); break;
+    case RM_DST: n = sizeof(m_dst_t); break;
+    default: n = 8u; break;                     /* (DELAY, REVERB: the master's from build 30, nothing here) */
     }
     return (n + 7u) & ~7u;
 }
@@ -875,39 +1092,43 @@ static uint32_t rm_size(uint32_t k)
 #define K(x) (1u << RM_##x)
 enum { FR_SPACE, FR_ECHO, FR_METAL, FR_STRINGS, FR_EROSION, FR_GHOST, FR_SPECTRAL, FR_RESONANT, FR_FOLDS, FR_TELEPHONE,
        FR_HELL, FR_FACTORY, FR_GLITCH, FR_BROADCAST, FR_ABYSS, FR_RUST,
-       FR_FREEZER, FR_FEEDBACK, FR_FOUNDRY, FR_GONG, FR_SPECTRE, FR_SPUTTER, FR_N };
+       FR_FREEZER, FR_FEEDBACK, FR_FOUNDRY, FR_GONG, FR_SPECTRE, FR_SPUTTER, FR_SMOG, FR_STATIC, FR_N };
 static const char *const FR_NAME[FR_N] = {"SPACE", "ECHO", "METAL", "STRINGS", "EROSION", "GHOST", "SPECTRAL", "RESONANT",
                                           "FOLDS", "TELEPHONE", "HELL", "FACTORY", "GLITCH", "BROADCAST", "ABYSS", "RUST",
-                                          "FREEZER", "FEEDBACK", "FOUNDRY", "GONG", "SPECTRE", "SPUTTER"};
+                                          "FREEZER", "FEEDBACK", "FOUNDRY", "GONG", "SPECTRE", "SPUTTER", "SMOG", "STATIC"};
 #define FX_OPT 0x80000000u       /* (a place that may be left out) */
 static const uint32_t FR_PLACE[FR_N][FX_N] = {   /* (build 30: DELAY and REVERB no longer drawn -- they are the
-                                                 * master's; a session saved with them still plays them) */
-    {K(FLT) | K(VOW), K(TAP), K(SPR) | K(CLD)},                                 /* SPACE: a colour, an echo, a room */
-    {K(TAP), K(SPR), FX_OPT | K(FLT)},                                          /* ECHO */
+                                                 * master's; a session saved with them still plays them. Build 32: SMEAR,
+                                                 * DIFFUSE, SLEW, XOR, DUST among the choices; SMOG, STATIC) */
+    {K(FLT) | K(VOW), K(TAP), K(SPR) | K(CLD) | K(DIF)},                        /* SPACE: a colour, an echo, a room */
+    {K(TAP), K(SPR), FX_OPT | K(FLT) | K(DIF)},                                 /* ECHO */
     {K(MDL) | K(SHF), K(FLD) | K(FLT), FX_OPT | K(SPR)},                        /* METAL: struck, bent, a room */
-    {K(STR), K(TAP) | K(FLT), FX_OPT | K(SPR)},                                 /* STRINGS: everything rings */
-    {K(MU) | K(FLD), K(RVS) | K(TAP), FX_OPT | K(SPR)},                         /* EROSION */
-    {K(FLT) | K(VOW), K(RVS), K(SPR) | K(CLD)},                                 /* GHOST: the sound reversed, far off */
-    {K(SHF), K(VOW) | K(FLT), FX_OPT | K(TAP) | K(SPR)},                        /* SPECTRAL: the partials moved */
-    {K(VOW) | K(MDL), K(STR) | K(SPR), FX_OPT | K(TAP)},                        /* RESONANT */
-    {K(FLD), K(FLT) | K(VOW), FX_OPT | K(SPR) | K(TAP)},                        /* FOLDS */
-    {K(MU), K(SHF) | K(FLT), FX_OPT | K(SPR) | K(TAP)},                         /* TELEPHONE */
+    {K(STR), K(TAP) | K(FLT), FX_OPT | K(SPR) | K(DIF)},                        /* STRINGS: everything rings */
+    {K(MU) | K(FLD) | K(SLW), K(RVS) | K(TAP), FX_OPT | K(SPR) | K(DST)},       /* EROSION */
+    {K(FLT) | K(VOW) | K(SMR), K(RVS), K(SPR) | K(CLD)},                        /* GHOST: the sound reversed, far off */
+    {K(SHF), K(VOW) | K(FLT), FX_OPT | K(TAP) | K(SPR) | K(SMR)},               /* SPECTRAL: the partials moved */
+    {K(VOW) | K(MDL), K(STR) | K(SPR), FX_OPT | K(TAP) | K(DIF)},               /* RESONANT */
+    {K(FLD), K(FLT) | K(VOW) | K(SLW), FX_OPT | K(SPR) | K(TAP)},               /* FOLDS */
+    {K(MU), K(SHF) | K(FLT), FX_OPT | K(SPR) | K(TAP) | K(DST)},                /* TELEPHONE */
     /* build 10: hellscapes, atmospheric industrial, abstract glitch */
-    {K(FLD) | K(MU) | K(STV), K(SPR) | K(MDL) | K(SCR), K(SPR) | K(CLD)},       /* HELL: torn, rung, a vast room */
-    {K(MU) | K(STV), K(MDL) | K(STR) | K(BNK) | K(RNG), FX_OPT | K(TAP)},        /* FACTORY: crushed, metal resonance */
-    {K(GLT), K(RVS) | K(MU), FX_OPT | K(TAP)},                                  /* GLITCH: bent buffers */
-    {K(GLT) | K(MU), K(VOW) | K(FLT), FX_OPT | K(TAP)},                         /* BROADCAST: a broken transmission */
-    {K(SHF) | K(RNG), K(STR) | K(MDL) | K(BNK), K(SPR) | K(CLD)},               /* ABYSS: moved partials ringing, deep */
-    {K(SPR), K(FLD) | K(GLT), FX_OPT | K(TAP)},                                 /* RUST: a spring, torn, glitched */
+    {K(FLD) | K(MU) | K(STV) | K(XOR), K(SPR) | K(MDL) | K(SCR), K(SPR) | K(CLD)},   /* HELL: torn, rung, a vast room */
+    {K(MU) | K(STV) | K(XOR), K(MDL) | K(STR) | K(BNK) | K(RNG), FX_OPT | K(TAP)},   /* FACTORY: crushed, metal resonance */
+    {K(GLT), K(RVS) | K(MU) | K(XOR), FX_OPT | K(TAP)},                         /* GLITCH: bent buffers */
+    {K(GLT) | K(MU) | K(DST), K(VOW) | K(FLT), FX_OPT | K(TAP)},                /* BROADCAST: a broken transmission */
+    {K(SHF) | K(RNG), K(STR) | K(MDL) | K(BNK), K(SPR) | K(CLD) | K(DIF)},      /* ABYSS: moved partials ringing, deep */
+    {K(SPR), K(FLD) | K(GLT) | K(SLW), FX_OPT | K(TAP)},                        /* RUST: a spring, torn, glitched */
     /* build 11: the drastic ones */
-    {K(CLD), K(BNK) | K(VOW) | K(SHF), FX_OPT | K(SPR) | K(TAP)},               /* FREEZER: a cloud held, coloured */
-    {K(SCR), K(FLT) | K(BNK) | K(STV), FX_OPT | K(GLT)},                        /* FEEDBACK: a howl, shaped, torn */
+    {K(CLD), K(BNK) | K(VOW) | K(SHF) | K(SMR), FX_OPT | K(SPR) | K(TAP)},      /* FREEZER: a cloud held, coloured */
+    {K(SCR), K(FLT) | K(BNK) | K(STV), FX_OPT | K(GLT) | K(DST)},               /* FEEDBACK: a howl, shaped, torn */
     {K(RNG), K(STV) | K(FLD) | K(CHB), FX_OPT | K(SPR)},                        /* FOUNDRY: clangour through a fuzz */
-    {K(BNK), K(RNG) | K(SHF) | K(CLD), FX_OPT | K(SPR)},                        /* GONG: a struck body, ringing */
-    {K(CHB), K(CLD) | K(RVS), FX_OPT | K(SCR)},                                 /* SPECTRE: re-voiced, smeared */
-    {K(STV), K(GLT) | K(MU) | K(RNG), FX_OPT | K(SPR) | K(TAP)},                /* SPUTTER: torn and broken */
+    {K(BNK), K(RNG) | K(SHF) | K(CLD), FX_OPT | K(SPR) | K(DIF)},               /* GONG: a struck body, ringing */
+    {K(CHB), K(CLD) | K(RVS) | K(SMR), FX_OPT | K(SCR)},                        /* SPECTRE: re-voiced, smeared */
+    {K(STV), K(GLT) | K(MU) | K(RNG) | K(XOR), FX_OPT | K(SPR) | K(TAP)},       /* SPUTTER: torn and broken */
+    /* build 32 */
+    {K(SMR) | K(DIF), K(FLT) | K(VOW) | K(SLW), FX_OPT | K(DST) | K(TAP)},      /* SMOG: a haze, dark, a grain in it */
+    {K(XOR) | K(DST), K(SLW) | K(MU) | K(FLT), FX_OPT | K(DIF) | K(SPR)},       /* STATIC: a broken signal, blurred */
 };
-static const uint8_t FR_W[FR_N] = {4, 4, 4, 3, 4, 3, 3, 3, 3, 2, 4, 4, 4, 3, 4, 3, 5, 4, 5, 4, 4, 4};
+static const uint8_t FR_W[FR_N] = {4, 4, 4, 3, 4, 3, 3, 3, 3, 2, 4, 4, 4, 3, 4, 3, 5, 4, 5, 4, 4, 4, 4, 4};
 #undef K
 
 typedef struct { uint8_t kind, p[4]; } fx_eff_t;
@@ -924,6 +1145,7 @@ static volatile uint8_t f_pub[NFX], f_use[NFX];
 static volatile uint8_t fx_mute[NFX];
 static volatile int8_t fx_lvl[NFX], fx_pan[NFX];   /* each slot's output: level (0 .. LEVEL_MAX) and pan */
 static uint8_t fx_arena[NFX][FX_ARENA] POOL __attribute__((aligned(8)));
+static uint32_t fx_place(const void *st) { return (uint32_t)((const uint8_t *)st - &fx_arena[0][0]); }
 static void *fx_st[NINST];                     /* each instance's state, in its slot's memory */
 enum { FS_ON, FS_FADE, FS_CLEAR };
 static uint8_t fx_phase[NFX];
@@ -937,23 +1159,26 @@ static int32_t fx_g[NFX], fx_gl[NFX], fx_gr[NFX];   /* each slot's output gain a
 static volatile uint8_t rack_voices;   /* a voice sounded this block (gens.c) */
 static int32_t fx_gate[NFX];     /* Q15 */
 static uint32_t fx_idle[NFX];    /* blocks since a voice last sounded */
-static int32_t fx_dcx[NFX][2], fx_dcy[NFX][2];   /* the DC blocker: last input, last output (Q8 above the sample) */
+static int32_t fx_dcx[NFX], fx_dcy[NFX];   /* the DC blocker: last input, last output (Q8 above the sample) */
 static int32_t rm_env[NINST], rm_g[NINST];     /* each instance's guard */
 static volatile int32_t rm_meter[NINST];       /* each instance's output, its last peaks (the screen's) */
 static uint16_t rm_quiet[NINST];
-static uint8_t rm_plate_on[NINST];
 /* the job's buffers: what the generators sent into each instance the block before (CPU0 fills ebus_next, the rack
  * runs on ebus_run: one block later, so the rack can run on CPU1 while CPU0 renders the voices); the rack's output */
-static int32_t ebus_next[NINST][CTL] POOL __attribute__((aligned(32)));
-static int32_t ebus_run[NINST][CTL] POOL __attribute__((aligned(32)));
+static int32_t ebus_mem[2][NINST][CTL] POOL __attribute__((aligned(32)));
+static int32_t (*ebus_next)[CTL] = ebus_mem[0], (*ebus_run)[CTL] = ebus_mem[1];   /* (build 32: swapped, not copied) */
+#define EBUS_SIZE (sizeof ebus_mem[0])
 static int32_t fx_l[CTL], fx_r[CTL];
+/* (build 32: the master delay and reverb run in the rack's job too, on what was sent to them the block before --
+ * mix_block keeps the sends in mst_in_*, adds the returns from mst_out_*: off CPU0's way, 0.7 ms later) */
+static int32_t mst_in_d[CTL], mst_in_r[CTL], mst_out_l[CTL], mst_out_r[CTL];
+static void master_job(void);
 static int32_t fx_mdl[CTL], fx_mrv[CTL];   /* the slots' sends to the master delay and reverb (master.c), this block */
 static volatile int32_t fx_rsend[NFX], fx_dsend[NFX];   /* each slot's sends, Q15: the mean of its generators' (gens.c) */
 /* the modulation's offsets (mod.c, worked out before the work is dealt): each slot's effects' values by place (4 k + j),
  * its level (steps) and pan */
 static int16_t fx_mod_p[NFX][12], fx_mod_lvl[NFX], fx_mod_pan[NFX];
 static uint8_t fx_mod_on[NFX];
-static uint8_t rm_plate_p[NINST][3];             /* (the plate's values as last set: set again when moved) */
 static volatile int16_t fx_lvl_q8[NFX];           /* a snapshot's morph: each slot's level between its steps (Q8, 0 silent) */
 static volatile uint8_t fx_fine;                  /* .. a bit a slot when in force (the mute folded in) */
 static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was sent into) */
@@ -961,9 +1186,9 @@ static uint32_t rack_ticks;                    /* what the last block of the rac
 
 /* the guard: a peak rider (Tonitor's limiter: instant attack, ~200 ms release) to 0.5 */
 #define RM_CEIL 16384
-static void rm_guard(uint32_t i0, int32_t *x)
+static int32_t rm_guard(uint32_t i0, int32_t *x)   /* (returns its output's peak: the meter's, build 32) */
 {
-    int32_t pk = 0, want, g0 = rm_g[i0], dg;
+    int32_t pk = 0, po = 0, want, g0 = rm_g[i0], dg;
     uint32_t i;
     for (i = 0; i < CTL; i++) {
         int32_t a = absi(x[i]);
@@ -981,17 +1206,18 @@ static void rm_guard(uint32_t i0, int32_t *x)
     for (i = 0; i < CTL; i++) {
         g0 += dg;
         x[i] = mulq15(x[i], g0);
+        po = maxi(po, absi(x[i]));
     }
     rm_g[i0] = want;
+    return po;
 }
 
-/* one instance over x (mono, in place); a plate's stereo into l, r (added) when it goes out */
-static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, int32_t *r, int to_master)
+/* one instance over x (mono, in place) */
+static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x)
 {
     void *st = fx_st[inst];
     const uint8_t *p = e->p;
-    int32_t pk = 0;
-    uint32_t i;
+    int32_t pk;
     switch (e->kind) {
     case RM_FLT: m_flt(p, (m_flt_t *)st, x); break;
     case RM_FLD: m_fld(p, (m_fld_t *)st, x); break;
@@ -1000,7 +1226,6 @@ static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, i
     case RM_MDL: m_mdl(p, (m_mdl_t *)st, x); break;
     case RM_STR: m_str(p, (m_str_t *)st, x); break;
     case RM_VOW: m_vow(p, (m_vow_t *)st, x); break;
-    case RM_DLY: m_dly(p, (m_dly_t *)st, x); break;
     case RM_TAP: m_tap(p, (m_tap_t *)st, x); break;
     case RM_RVS: m_rvs(p, (m_rvs_t *)st, x); break;
     case RM_SPR: m_spr(p, (m_spr_t *)st, x); break;
@@ -1011,35 +1236,14 @@ static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, i
     case RM_STV: m_stv(p, (m_stv_t *)st, x); break;
     case RM_CHB: m_chb(p, (m_chb_t *)st, x); break;
     case RM_BNK: m_bnk(p, (m_bnk_t *)st, x); break;
-    default: {                                       /* the plate: stereo */
-        rv_t *R = (rv_t *)st;
-        int32_t pl[CTL], pr[CTL], g = 8192 + p[3] * (24576 / 100);   /* (its level: 0.25 .. 1) */
-        if (!rm_plate_on[inst] || rm_plate_p[inst][0] != p[0] || rm_plate_p[inst][1] != p[1] || rm_plate_p[inst][2] != p[2]) {
-            rv_param(R, p[0], p[1], p[2], 40);       /* (x 0.64: the tail sums over seconds; again when moved) */
-            rm_plate_on[inst] = 1;
-            rm_plate_p[inst][0] = p[0];
-            rm_plate_p[inst][1] = p[1];
-            rm_plate_p[inst][2] = p[2];
-        }
-        for (i = 0; i < CTL; i++)
-            pl[i] = pr[i] = 0;
-        rv_block_fp(R, x, pl, pr, CTL);
-        for (i = 0; i < CTL; i++) {
-            pl[i] = mulq15(pl[i], g);
-            pr[i] = mulq15(pr[i], g);
-            if (to_master) {
-                l[i] += pl[i];
-                r[i] += pr[i];
-            }
-            x[i] = (pl[i] + pr[i]) >> 1;               /* (mono, for what follows it) */
-        }
-        break;
+    case RM_SMR: m_smr(p, (m_smr_t *)st, x); break;
+    case RM_DIF: m_dif(p, (m_dif_t *)st, x); break;
+    case RM_SLW: m_slw(p, (m_slw_t *)st, x); break;
+    case RM_XOR: m_xor(p, (m_xor_t *)st, x); break;
+    case RM_DST: m_dst(p, (m_dst_t *)st, x); break;
+    default: break;                                  /* (DELAY, REVERB: never in a slot from build 31 -- fx_retire) */
     }
-    }
-    if (e->kind != RM_REV)
-        rm_guard(inst, x);
-    for (i = 0; i < CTL; i++)
-        pk = maxi(pk, absi(x[i]));
+    pk = rm_guard(inst, x);
     rm_meter[inst] = pk > rm_meter[inst] ? pk : rm_meter[inst] - (rm_meter[inst] >> 4) - (rm_meter[inst] > 0);
     /* (build 17: down to 0 -- a sixteenth of 15 is nothing, so it stopped at 15 and the effect was never quiet: it ran
      * for ever, nothing reaching it, a TAPE hissing on alone) */
@@ -1056,7 +1260,6 @@ static void fx_start(uint32_t s)
         rm_g[inst] = Q15;
         rm_meter[inst] = 0;
         rm_quiet[inst] = 0xFFFFu;
-        rm_plate_on[inst] = 0;
         fx_st[inst] = 0;
         if (k >= f->n)
             continue;
@@ -1068,8 +1271,6 @@ static void fx_start(uint32_t s)
             ((m_vow_t *)fx_st[inst])->key = -1;
         else if (f->e[k].kind == RM_SPR)
             ((m_spr_t *)fx_st[inst])->key = -1;
-        else if (f->e[k].kind == RM_REV)
-            rv_init((rv_t *)fx_st[inst]);
     }
 }
 /* each slot's patch published: faded out, its memory cleared a piece a block, started (the rack's job, either core) */
@@ -1111,7 +1312,7 @@ static void rack_job(void)
         fx_l[i] = fx_r[i] = fx_mdl[i] = fx_mrv[i] = 0;
     for (s = 0; s < NFX; s++) {
         const fx_patch_t *f = &fbuf[s][f_use[s]];
-        int32_t sl[CTL], sr[CTL], g, gl, gr, dg, dgl, dgr, gw;
+        int32_t sl[CTL], g, gl, gr, dg, dgl, dgr, gw;   /* (mono: build 32 -- no plate in a slot) */
         uint32_t ph;
         int fading = fx_phase[s] == FS_FADE;
         if (fx_phase[s] == FS_CLEAR || (fx_mute[s] && !((fx_fine >> s) & 1u))) {   /* (a morph: the mute is its level) */
@@ -1119,7 +1320,7 @@ static void rack_job(void)
             continue;
         }
         for (i = 0; i < CTL; i++)
-            sl[i] = sr[i] = 0;
+            sl[i] = 0;
         if (rack_voices) {                               /* the gate */
             fx_idle[s] = 0;
             fx_gate[s] = Q15;
@@ -1139,9 +1340,9 @@ static void rack_job(void)
                 for (j = 0; j < 4u; j++)
                     ee.p[j] = (uint8_t)clampi((int32_t)ee.p[j] + fx_mod_p[s][k * 4u + j], RM_LO[ee.kind % NKIND][j],
                                               RM_HI[ee.kind % NKIND][j]);
-                rm_block(inst, &ee, x, sl, sr, (int)out);
+                rm_block(inst, &ee, x);
             } else
-                rm_block(inst, &f->e[k], x, sl, sr, (int)out);
+                rm_block(inst, &f->e[k], x);
             if (rm_meter[inst] < 32) {               /* (-60 dB: build 17, 8 before -- small values some effects
                                                       * hold for ever kept them running, nothing reaching them) */
                 if (rm_quiet[inst] < 0xFFFFu)
@@ -1150,11 +1351,9 @@ static void rack_job(void)
                 rm_quiet[inst] = 0;
             if (rm_quiet[inst] >= RM_TAIL)
                 continue;
-            if (out && f->e[k].kind != RM_REV)
-                for (i = 0; i < CTL; i++) {
+            if (out)
+                for (i = 0; i < CTL; i++)
                     sl[i] += x[i];
-                    sr[i] += x[i];
-                }
             if (k + 1u < f->n) {                     /* down the chain */
                 for (i = 0; i < CTL; i++)
                     ebus_run[inst + 1u][i] += x[i];
@@ -1168,28 +1367,23 @@ static void rack_job(void)
                 }
         }
         {   /* the DC blocker, then the gate */
-            int32_t *ch[2] = {sl, sr}, c;
-            for (c = 0; c < 2; c++)
-                for (i = 0; i < CTL; i++) {
-                    int32_t xq = ch[c][i] << 8;          /* y = x - x1 + R y1, R = 1 - 2 pi 8 / FS (towards zero) */
-                    int32_t y = xq - fx_dcx[s][c] + mulz15(fx_dcy[s][c], 32730);
-                    fx_dcx[s][c] = xq;
-                    fx_dcy[s][c] = y;
-                    ch[c][i] = y >> 8;
-                }
+            for (i = 0; i < CTL; i++) {
+                int32_t xq = sl[i] << 8;                 /* y = x - x1 + R y1, R = 1 - 2 pi 8 / FS (towards zero) */
+                int32_t y = xq - fx_dcx[s] + mulz15(fx_dcy[s], 32730);
+                fx_dcx[s] = xq;
+                fx_dcy[s] = y;
+                sl[i] = y >> 8;
+            }
             if (fx_idle[s] > GATE_WAIT && fx_gate[s] > 0) {
                 int32_t g0 = fx_gate[s], g1 = maxi(g0 - GATE_STEP, 0), dgt = (g1 - g0) / (int32_t)CTL;
                 for (i = 0; i < CTL; i++) {
                     g0 += dgt;
                     sl[i] = mulq15(sl[i], g0);
-                    sr[i] = mulq15(sr[i], g0);
                 }
                 fx_gate[s] = g1;
             } else if (fx_gate[s] < Q15) {
-                for (i = 0; i < CTL; i++) {
+                for (i = 0; i < CTL; i++)
                     sl[i] = mulq15(sl[i], fx_gate[s]);
-                    sr[i] = mulq15(sr[i], fx_gate[s]);
-                }
             }
         }
         /* the slot out: its level, its place (the mono parts panned; the plate's stereo as it is), its fade */
@@ -1213,22 +1407,21 @@ static void rack_job(void)
         dgl = (gl - fx_gl[s]) / (int32_t)CTL;
         dgr = (gr - fx_gr[s]) / (int32_t)CTL;
         for (i = 0; i < CTL; i++) {
-            int32_t a, b;
+            int32_t a;
             fx_g[s] += dg;
             fx_gl[s] += dgl;
             fx_gr[s] += dgr;
             a = (int32_t)(((int64_t)sl[i] * fx_g[s]) >> 14);
-            b = (int32_t)(((int64_t)sr[i] * fx_g[s]) >> 14);
-            /* (the mono parts went into both sides alike: panned here, the plate's two sides with them) */
-            fx_l[i] += mulq15(a, fx_gl[s]);
-            fx_r[i] += mulq15(b, fx_gr[s]);
-            fx_mdl[i] += mulq15((a + b) >> 1, fx_dsend[s]);   /* (on to the master delay and reverb) */
-            fx_mrv[i] += mulq15((a + b) >> 1, fx_rsend[s]);
+            fx_l[i] += mulq15(a, fx_gl[s]);             /* (panned) */
+            fx_r[i] += mulq15(a, fx_gr[s]);
+            fx_mdl[i] += mulq15(a, fx_dsend[s]);        /* (on to the master delay and reverb) */
+            fx_mrv[i] += mulq15(a, fx_rsend[s]);
         }
         fx_g[s] = g;
         fx_gl[s] = gl;
         fx_gr[s] = gr;
     }
+    master_job();                                    /* the master delay and reverb (master.c) */
     rack_ticks = fm1_ticks() - t0;
 }
 static __typeof__(&rack_job) volatile rack_job_fp = rack_job;
@@ -1256,11 +1449,13 @@ static const uint8_t RM_ROLE[NKIND][4] = {
     {0, 0, 0, VR_TONE}, {0, VR_SPACE, 0, VR_TONE}, {0, 0, 0, VR_DRIVE}, {0, 0, VR_DAMP, 0}, {0, VR_BREAK, 0, 0},
     {0, VR_TONE, 0, 0}, {0, 0, VR_SPACE, VR_TONE}, {VR_SPACE, VR_SPACE, VR_DAMP, 0}, {0, VR_BREAK, VR_BREAK, 0},
     {VR_SPACE, 0, 0, 0}, {0, 0, VR_TONE, VR_DRIVE}, {0, VR_DRIVE, VR_DRIVE, VR_TONE}, {VR_DRIVE, VR_BREAK, 0, VR_TONE},
-    {0, 0, VR_DRIVE, VR_TONE}, {0, 0, 0, VR_TONE}};
-#define RM_HARSH ((1u << RM_FLD) | (1u << RM_MU) | (1u << RM_STV) | (1u << RM_SCR) | (1u << RM_GLT) | (1u << RM_CHB) | (1u << RM_RNG))
+    {0, 0, VR_DRIVE, VR_TONE}, {0, 0, 0, VR_TONE},
+    {VR_SPACE, 0, 0, VR_TONE}, {VR_SPACE, 0, 0, VR_TONE}, {0, VR_DRIVE, 0, VR_TONE}, {0, 0, VR_BITS, VR_TONE}, {0, VR_DRIVE, VR_TONE, 0}};
+#define RM_HARSH ((1u << RM_FLD) | (1u << RM_MU) | (1u << RM_STV) | (1u << RM_SCR) | (1u << RM_GLT) | (1u << RM_CHB) | (1u << RM_RNG) | \
+                  (1u << RM_XOR) | (1u << RM_SLW))
 /* the recipes' weights on each path (ANY: FR_W) */
-static const uint8_t FR_W_ROUGH[FR_N] = {0, 1, 3, 1, 6, 1, 2, 1, 6, 4, 6, 6, 6, 5, 2, 6, 1, 6, 6, 1, 3, 6};
-static const uint8_t FR_W_DARK[FR_N] = {6, 5, 1, 4, 1, 6, 4, 5, 0, 0, 2, 0, 0, 0, 6, 0, 6, 0, 0, 4, 4, 0};
+static const uint8_t FR_W_ROUGH[FR_N] = {0, 1, 3, 1, 6, 1, 2, 1, 6, 4, 6, 6, 6, 5, 2, 6, 1, 6, 6, 1, 3, 6, 1, 6};
+static const uint8_t FR_W_DARK[FR_N] = {6, 5, 1, 4, 1, 6, 4, 5, 0, 0, 2, 0, 0, 0, 6, 0, 6, 0, 0, 4, 4, 0, 6, 0};
 /* an effect's value v (0 .. 100 within lo .. hi) leant the path's way */
 static int32_t fx_lean(uint32_t role, int32_t v, int32_t lo, int32_t hi)
 {
@@ -1503,8 +1698,7 @@ static void rack_init(uint32_t seed)
     uint32_t s;
     memset(fx_arena, 0, sizeof fx_arena);
     memset(fbuf, 0, sizeof fbuf);
-    memset(ebus_next, 0, sizeof ebus_next);
-    memset(ebus_run, 0, sizeof ebus_run);
+    memset(ebus_mem, 0, sizeof ebus_mem);
     for (s = 0; s < NFX; s++) {
         f_pub[s] = f_use[s] = 0;
         fx_phase[s] = FS_ON;
@@ -1515,7 +1709,7 @@ static void rack_init(uint32_t seed)
         fx_g[s] = fx_gl[s] = fx_gr[s] = 0;
         fx_gate[s] = Q15;
         fx_idle[s] = 0;
-        fx_dcx[s][0] = fx_dcx[s][1] = fx_dcy[s][0] = fx_dcy[s][1] = 0;
+        fx_dcx[s] = fx_dcy[s] = 0;
         fx_draw(s, -1, seed + s * 7919u);            /* (published to buffer 1) */
         f_use[s] = f_pub[s];                         /* .. and taken at once: the memory is clear */
         fx_start(s);

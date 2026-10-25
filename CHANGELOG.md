@@ -2,6 +2,25 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 32 (2026-10-25): lighter effects and master; five new effects
+
+- **Five new effects** (names provisional): SMEAR (twenty random taps over 12 .. 46 ms, each + or -: a grainy haze, a
+  velvet-noise decorrelator), DIFFUSE (four allpasses, Clouds' lengths: the edges blurred, no tail), SLEW (a slew
+  limiter: dark, grinding ramps), XOR (the sound combined bit by bit with itself a moment before), DUST (hiss and
+  crackle where the sound moves). Each costs under ~40 operations a sample and at most 4.2 KiB; none sounds with
+  nothing in, none bends a pitch. They stand among the choices of fourteen recipes, and in two new ones: SMOG (a haze,
+  dark, a grain in it) and STATIC (a broken signal, blurred). The screen names them SMR DIF SLW XOR DST.
+- **The master delay and reverb run in the effects' job, a block late** (on the second core when it is up): off the
+  first core's way; their returns come 0.7 ms later.
+- **The master plate is in the pool, not RAM** (RAM 87 -> 52 KiB); the engine's measuring voice shares the screen's
+  canvas (13 KiB of the pool).
+- **The same sound for less work**: FOLD, STRING and the delay lines' reads without a division a sample; FILTER, FOLD,
+  MULAW and STRING work out their values only when their knobs move; the LFOs' steps likewise; the effect slots run
+  mono (no plate in them since build 31); each effect's meter is taken in its guard; the effects' input buffers are
+  swapped, not copied. These leave every render bit for bit as before (checked against build 31's).
+- CLOUD and GLITCH draw their randomness from their place in the slot's memory, not its address: the same on the
+  device and on a computer, run after run (a different random stream from before, the same character).
+
 ## Build 31 (2026-10-25): the effect slots' memory 47 KiB -> 36 KiB
 
 - **A session or snapshot saved with DELAY or REVERB in a slot loads them as TAPE and SPRING**, at their home values

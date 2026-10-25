@@ -112,7 +112,9 @@ dark.
 Made for low vision: few words, very large, high contrast. The main view is a place. At the top, smog, drifting
 slowly, the audio's load at the left and the battery at the right on black. Under the ground, the three effect slots
 as rusty pipes, one above another, each effect a section between bolted flanges, its name on a dark plate: FLT filter,
-FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, TAP tape, RVS reverse, SPR spring, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank. Under each name a band in the
+FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, TAP tape, RVS reverse, SPR spring, GLT glitch, CLD
+cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank, SMR smear, DIF diffuse, SLW slew, XOR xor, DST dust. Under
+each name a band in the
 colours of the generators feeding it; the plates the chosen generator feeds are filled with its colour; a section
 glows hotter as sound passes through it; a muted pipe is cold grey. At the foot, the three generators as brick
 furnaces, the fire in the mouth in their colours (red, blue, green), brighter as they sound, dark when muted. The chosen
@@ -144,7 +146,7 @@ repeaters; none of their code.)
 
 ## The effect slots
 
-Seventeen effects drawn, two or three to a slot (build 30: DELAY and REVERB are the master's; from build 31 a session
+Twenty-two effects drawn, two or three to a slot (five more from build 32, their names provisional) (build 30: DELAY and REVERB are the master's; from build 31 a session
 saved with them in a slot loads them as TAPE and SPRING):
 
 | Effect | What it is |
@@ -166,10 +168,15 @@ saved with them in a slot loads them as TAPE and SPRING):
 | STARVE | a starved, gated fuzz (after the Fuzz Factory) |
 | CHEB | a harmonic re-voicer by Chebyshev polynomials (after Airwindows' Pafnuty) |
 | BANK | an inharmonic resonator bank: a bar, a plate, a bell, a membrane (after Mutable Instruments' Rings) |
+| SMEAR | the sound through twenty random taps, each + or −, over 12 to 46 ms: a grainy haze, smoke rather than a room (a velvet-noise decorrelator) |
+| DIFFUSE | four allpasses in a row (the lengths of Mutable Instruments' Clouds): the edges blurred, no tail of its own |
+| SLEW | how far the sound may move a sample, limited: the highs turned to dark, grinding ramps (after Airwindows' Slew) |
+| XOR | the sound combined bit by bit (XOR, AND, OR) with itself a moment before: broken, digital, following its shape |
+| DUST | hiss and crackle where the sound moves, none where it is still (after Airwindows' TapeDust) |
 
-Twenty-two **recipes** decide what may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST, SPECTRAL,
+Twenty-four **recipes** decide what may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST, SPECTRAL,
 RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE,
-SPUTTER. Every effect, given nothing, falls silent: none sounds on by itself.
+SPUTTER, SMOG, STATIC. Every effect, given nothing, falls silent: none sounds on by itself.
 
 ## MESH and LANES
 

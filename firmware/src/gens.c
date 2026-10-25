@@ -232,7 +232,6 @@ static uint32_t loops_playing(void);
 static void loops_init(void);
 /* the master delay and reverb (master.c, after this file) */
 static void master_init(void);
-static void master_block(int32_t *l, int32_t *r, const int32_t *dlin, int32_t *rvin);
 static volatile int32_t gen_rsend[NGEN], gen_dsend[NGEN];   /* each generator's sends to them, Q15 (KNOB 4, KNOB 3) */
 static void events_take(void)
 {
@@ -475,6 +474,8 @@ static void blk_render(void)
         if (rack_core) {
             memset(fx_l, 0, sizeof fx_l);
             memset(fx_r, 0, sizeof fx_r);
+            memset(mst_out_l, 0, sizeof mst_out_l);
+            memset(mst_out_r, 0, sizeof mst_out_r);
         }
     }
 }
@@ -682,7 +683,11 @@ static void mix_block(int32_t *out)
         shed(shed_req > 1u);
         shed_req = 0;
     }
-    memcpy(ebus_run, ebus_next, sizeof ebus_run);       /* (what the generators sent the block before: the effects' input) */
+    {   /* (what the generators sent the block before: the effects' input -- the two buffers swapped, build 32) */
+        int32_t (*t)[CTL] = ebus_run;
+        ebus_run = ebus_next;
+        ebus_next = t;
+    }
     ebus_fed_run = ebus_fed;
     memset(gbus, 0, sizeof gbus);
     {   /* (the effect slots' gate: open while a voice sounds; rack.c) */
@@ -717,7 +722,7 @@ static void mix_block(int32_t *out)
         fx_dsend[k] = n ? ds / n : 0;
     }
     blk_render();                                       /* the effects and the voices, on the two cores */
-    memset(ebus_next, 0, sizeof ebus_next);
+    memset(ebus_next, 0, EBUS_SIZE);
     ebus_fed = 0;
     for (i = 0; i < CTL; i++) {
         l_[i] = fx_l[i];                                /* (the effects' output) */
@@ -786,7 +791,13 @@ static void mix_block(int32_t *out)
                 ebus_fed |= 1u << e;
             }
     }
-    master_block(l_, r_, dlin, rvin);                   /* the master delay and reverb, last: their tails whole */
+    for (i = 0; i < CTL; i++) {                         /* the master delay and reverb (run in the rack's job, a block
+                                                         * late): their returns in, this block's sends kept for them */
+        l_[i] += mst_out_l[i];
+        r_[i] += mst_out_r[i];
+        mst_in_d[i] = dlin[i];
+        mst_in_r[i] = rvin[i];
+    }
     for (i = 0; i < CTL; i++) {
 #if defined(FELUCCA_UAC) && FELUCCA_UAC
         usb_blk[2u * i] = ceiling(l_[i]);

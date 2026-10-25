@@ -121,6 +121,7 @@ static volatile uint32_t mi_w, mi_r;
 #include "gfx.c"
 #include "wt.c"
 #include "fm6_core.c"
+#define MO_PROBE_CANVAS 1                                   /* (the probe voice in the screen's canvas) */
 #include "mol.c"
 /* usb.c's state, as the screen reads it (no host: on battery) */
 static struct { uint8_t config, suspended; } usb;
@@ -910,6 +911,8 @@ static int cmd_modules(int argc, char **argv)
     for (m = 0; m < NKIND; m++) {
         double dry = 0, wet = 0;
         int32_t pk = 0;
+        if (m == RM_DLY || m == RM_REV)                  /* (the master's: never in a slot, build 31) */
+            continue;
         for (rep = 0; rep < 3u; rep++) {
             gen_patch_t *p;
             fx_patch_t *f;
@@ -1973,6 +1976,14 @@ static int cmd_ends(void)
         }
         st_capture(&sb);
         rb = ends_loud();
+        {   /* (a frozen CLOUD holds the sound of the moment it froze -- the morph and the recall freeze it at different
+             * moments: there the state alone must match, build 32) */
+            uint32_t j;
+            for (k = 0; k < NFX; k++)
+                for (j = 0; j < B.x[k].f.n; j++)
+                    if (!B.x[k].mute && B.x[k].f.e[j].kind == RM_CLD && B.x[k].f.e[j].p[2] >= 50)
+                        rb = ra;
+        }
         if (!st_same(&sa, &B) || ra - rb > 3.0 || rb - ra > 3.0) {
             printf("FAIL ends: seed %u: after the morph %.1f dB, at once %.1f dB%s\n", seed, ra, rb,
                    st_same(&sa, &B) ? "" : ", the state is not the snapshot");
@@ -2148,6 +2159,8 @@ static int cmd_quiet(void)
             fx_patch_t *f;
             rnd_t r, nz;
             int32_t x[CTL], l[CTL], rr[CTL], pk = 0;
+            if (m == RM_DLY || m == RM_REV)              /* (the master's: never in a slot, build 31) */
+                break;
             double first = 0, last = 0;
             fw_init();
             f = &fbuf[0][f_use[0]];
@@ -2164,7 +2177,7 @@ static int cmd_quiet(void)
             for (b = 0; b < 1378u + 55120u; b++) {       /* 1 s of noise, then 40 s of nothing */
                 for (i = 0; i < CTL; i++)
                     x[i] = b < 1378u ? mulq15(rnd_bi(&nz), 12000) : 0, l[i] = rr[i] = 0;
-                rm_block(0, &f->e[0], x, l, rr, 1);
+                rm_block(0, &f->e[0], x);
                 for (i = 0; i < CTL; i++) {
                     int32_t a = maxi(absi(x[i]), maxi(absi(l[i]), absi(rr[i])));
                     if (b >= 1378u + 1378u * 2u && b < 1378u * 4u)

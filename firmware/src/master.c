@@ -12,7 +12,7 @@
  * scale; FEEDBACK up to 0.95, each echo through a one-pole low-pass (DAMP); MIX its return. NORILSK: a change of
  * TIME cross-fades the old head out and the new in over 23 ms (Tonitor's glides: a bend of pitch, which this
  * firmware never makes).
- * The reverb: the plate of reverb.c as an instance of its own (34 KiB, in RAM), SIZE 0.5 .. 1.0 (Tonitor's 1.25 is
+ * The reverb: the plate of reverb.c as an instance of its own (34 KiB, in the pool from build 32), SIZE 0.5 .. 1.0 (Tonitor's 1.25 is
  * more memory than there is), DECAY, DAMP, MIX. Both set on the DELAY and REVERB pages (SEQ).
  *
  * Their tails are kept (the owner's, build 26: 2 s after the last voice they used to fade out over 0.5 s): whatever
@@ -29,7 +29,7 @@ static struct {
     int32_t prev;                        /* the last echo, for the line drawn to the next */
 } mdl;
 static volatile int32_t mdl_t_want = 400 * 22 * 256, mdl_fb, mdl_damp = Q15, mdl_mix;
-static rv_t mrv;                         /* the master plate (RAM) */
+static rv_t mrv POOL;                    /* the master plate (the pool from build 32: RAM before) */
 
 static uint32_t m_quiet;                                    /* blocks with nothing in and nothing out */
 
@@ -88,6 +88,10 @@ static void master_init(void)
     mdl.t = mdl_t_want;
     rv_init(&mrv);
     memset(mrv.mem, 0, sizeof mrv.mem);
+    memset(mst_in_d, 0, sizeof mst_in_d);
+    memset(mst_in_r, 0, sizeof mst_in_r);
+    memset(mst_out_l, 0, sizeof mst_out_l);
+    memset(mst_out_r, 0, sizeof mst_out_r);
     m_quiet = 0;
 }
 
@@ -114,4 +118,13 @@ static void master_block(int32_t *l, int32_t *r, const int32_t *dlin, int32_t *r
         l[i] += ol[i];
         r[i] += or_[i];
     }
+}
+/* the rack's job (either core, build 32): the sends of the block before through the delay and the plate, the returns
+ * for mix_block to add */
+static void master_job(void)
+{
+    uint32_t i;
+    for (i = 0; i < CTL; i++)
+        mst_out_l[i] = mst_out_r[i] = 0;
+    master_block(mst_out_l, mst_out_r, mst_in_d, mst_in_r);
 }

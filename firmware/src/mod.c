@@ -40,7 +40,9 @@ static const char *const RM_PNAME[NKIND][4] = {
     {"WINDOW", "TONE", "FEEDBACK", "SPREAD"}, {"CHIRP", "TANK", "DECAY", "TONE"}, {"SIZE", "DECAY", "DAMP", "LEVEL"},
     {"BEND", "CLOCK", "STUTTER", "SPAN"},
     {"SIZE", "DENSITY", "FREEZE", "SPREAD"}, {"SIZE", "FEEDBACK", "TONE", "DRIVE"}, {"FREQ", "DIODE", "SELF", "TONE"},
-    {"GAIN", "GATE", "BIAS", "TONE"}, {"SHAPE", "ODD", "DRIVE", "TONE"}, {"PITCH", "Q", "SET", "BRIGHT"}};
+    {"GAIN", "GATE", "BIAS", "TONE"}, {"SHAPE", "ODD", "DRIVE", "TONE"}, {"PITCH", "Q", "SET", "BRIGHT"},
+    {"SPAN", "TAIL", "MIX", "TONE"}, {"SIZE", "DIFFUSE", "MIX", "TONE"}, {"RATE", "DRIVE", "MIX", "TONE"},
+    {"MOMENT", "OP", "BITS", "TONE"}, {"GRAIN", "AMOUNT", "TONE", "SOUND"}};
 
 typedef struct { uint8_t shape, rate, mode, fade; } mlfo_t;
 typedef struct { uint8_t src, dst; int8_t amt; } mslot_t;
@@ -71,6 +73,18 @@ static int32_t mod_rand(void)                    /* -Q15 .. Q15 */
 static uint32_t mod_inc(int32_t rate)            /* 0.01 Hz x 2000^(rate / 100), a block's phase step */
 {
     return (uint32_t)(((uint64_t)31166u * exp2_q16(clampi(rate, 0, 100) * 7189)) >> 16);
+}
+/* (build 32: each LFO's step kept with the rate it was worked out for -- worked out again only when the rate moves) */
+static struct { uint32_t inc; uint8_t rate, have; } mod_ic[NSLOT][2];
+static uint32_t mod_inc_at(uint32_t sl, uint32_t k, int32_t rate)
+{
+    uint8_t r = (uint8_t)clampi(rate, 0, 100);
+    if (!mod_ic[sl][k].have || mod_ic[sl][k].rate != r) {
+        mod_ic[sl][k].inc = mod_inc(r);
+        mod_ic[sl][k].rate = r;
+        mod_ic[sl][k].have = 1;
+    }
+    return mod_ic[sl][k].inc;
 }
 static uint32_t mod_ndst(uint32_t sl) { return sl < NGEN ? GMD_N : FMD_N; }
 static int32_t mod_span(uint32_t sl, uint32_t d)
@@ -126,7 +140,7 @@ static void mod_block(uint32_t sl)
         return;
     for (k = 0; k < 2u; k++) {
         const mlfo_t *f = &m->lfo[k];
-        uint32_t p0 = mst[sl].ph[k], inc = mod_inc((int32_t)f->rate + ro[k]), p1 = p0 + inc, t;
+        uint32_t p0 = mst[sl].ph[k], inc = mod_inc_at(sl, k, (int32_t)f->rate + ro[k]), p1 = p0 + inc, t;
         int wrap = p1 < p0;
         int32_t v;
         if (mst[sl].held[k])

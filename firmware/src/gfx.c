@@ -17,7 +17,7 @@ typedef struct {
 #define C_GREY RGB(110, 110, 110)
 
 #define CV_MAX (240u * 56u)     /* (a quarter of the screen: taller areas are drawn a band at a time, CV_AREA) */
-static uint16_t cv_px[CV_MAX] POOL;
+static uint16_t cv_px[CV_MAX] POOL __attribute__((aligned(8)));   /* (also mol.c's probe voice, build 32) */
 static uint32_t cv_w, cv_h;
 static int32_t cv_oy;            /* the band's top within the area being drawn (CV_AREA): drawing is placed by the area */
 static uint16_t cv_bg;

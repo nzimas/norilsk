@@ -1886,11 +1886,19 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
 
 /* the sound rendered offline (the main loop) for 2.5 s at middle C, its loudest 2048-sample window brought to
  * MO_TARGET_RMS (d->gain); returns a measure of its brightness, Hz (the spectral centroid of its difference, roughly).
- * (Tonitor's fm_measure.) The probe voice is in the pool: 12 KiB */
+ * (Tonitor's fm_measure.) The probe voice is in the pool: 12 KiB (NORILSK: the screen's canvas) */
+#if defined(MO_PROBE_CANVAS) && MO_PROBE_CANVAS
+/* (NORILSK, build 32: the probe borrows the screen's canvas, gfx.c -- both the main loop's, never at once: a page is
+ * drawn whole before a sound is measured, and the canvas is filled anew before every drawing. 13 KiB of the pool) */
+_Static_assert(sizeof(mo_voice_t) <= sizeof cv_px, "the probe voice fits the canvas");
+#define MO_PROBE() (lcd_sync(), (mo_voice_t *)(void *)cv_px)
+#else
 static mo_voice_t mo_probe POOL;
+#define MO_PROBE() (&mo_probe)
+#endif
 static int32_t mo_measure(mo_design_t *d)
 {
-    mo_voice_t *v = &mo_probe;
+    mo_voice_t *v = MO_PROBE();
     int32_t out[FM6_N], prev = 0;
     uint32_t b, i;
     int64_t acc = 0, e = 0, dd = 0;
