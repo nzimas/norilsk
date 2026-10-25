@@ -6,7 +6,7 @@
  * effects stand in it, in what order, with what values, and its cables out to the effects of the slots after it
  * (across: slot 4 into 5 or 6, 5 into 6, so no loop can form). Within a slot the sound runs through the effects in
  * turn and out of the last to the master, and now and then out of one before it too. The same effect may stand in
- * several slots: each is an instance of its own, in its slot's memory (60 KiB a slot: a recipe is drawn so that its
+ * several slots: each is an instance of its own, in its slot's memory (36 KiB a slot from build 31: a recipe is drawn so that its
  * effects fit). A generator's patch says which effects it is wired into (slots.c); an effect hears the sum of what
  * reaches it. The three slots sound at three places, left, middle, right (the plate is stereo of its own). Every
  * effect's output passes a guard (a level rider and a ceiling, as Vascular's every processor). Nothing bends a
@@ -836,8 +836,9 @@ static void m_spr(const uint8_t *p, m_spr_t *s, int32_t *x)
 #define NFX 3                    /* effect slots */
 #define FX_N 3                   /* effects in one: 2 or 3 */
 #define NINST (NFX * FX_N)       /* effect instances, slot by slot (inst = slot x FX_N + place) */
-#define FX_ARENA 48128u          /* a slot's memory (47 KiB from build 10: the master delay and the voices' hands took the rest) */
-#define FX_CLEAR 6144u           /* .. cleared this much a block when a new patch comes (10 blocks) */
+#define FX_ARENA 36864u          /* a slot's memory (47 KiB from build 10; 36 KiB from build 31, DELAY and REVERB the
+                                  * master's: the largest chain drawn, GLITCH + VOWEL + TAPE, is 36.5 KiB) */
+#define FX_CLEAR 6144u           /* .. cleared this much a block when a new patch comes (6 blocks) */
 #define FX_FADE 12u              /* blocks of a slot's fade out before a new patch (~9 ms) */
 #define RM_TAIL 2756u            /* an effect nothing reaches goes on until its output has been near silence 2 s */
 
@@ -1335,6 +1336,8 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
         for (m = 0; m < NKIND; m++)
             if (((can >> m) & 1u) && rm_size(m) <= room)
                 c[nc++] = (uint8_t)m;
+        if (!nc && (can & FX_OPT))                   /* (none fits a place that may be left out: left out) */
+            break;
         if (!nc)                                     /* (none fits: the lightest of all) */
             c[nc++] = RM_FLT;
         f->e[k].kind = c[rnd_below(r, (int32_t)nc)];
@@ -1445,6 +1448,18 @@ static int fx_revalue(uint32_t s, uint32_t seed)
 }
 /* a slot's patch as a session or a snapshot kept it, published as a draw is (each value checked; a patch too large for
  * the slot's memory as it is now loses its last effects, then FILTER stands in) */
+/* build 31: DELAY and REVERB are the master's; a patch saved with them in a slot (a session, a snapshot) takes TAPE
+ * for the delay, SPRING for the reverb, at their home values */
+static void fx_retire(fx_patch_t *f)
+{
+    uint32_t k, j;
+    for (k = 0; k < FX_N; k++)
+        if (f->e[k].kind == RM_DLY || f->e[k].kind == RM_REV) {
+            f->e[k].kind = f->e[k].kind == RM_DLY ? RM_TAP : RM_SPR;
+            for (j = 0; j < 4u; j++)
+                f->e[k].p[j] = RM_HOME[f->e[k].kind][j];
+        }
+}
 static int fx_set(uint32_t s, const fx_patch_t *src)
 {
     uint32_t b = f_use[s] ^ 1u, k, j, room = FX_ARENA, t0 = fm1_ms;
@@ -1459,9 +1474,12 @@ static int fx_set(uint32_t s, const fx_patch_t *src)
         fm1_wdt_feed();
     }
     *f = *src;
+    fx_retire(f);
     f->n = (uint8_t)clampi(f->n, 2, FX_N);
     f->recipe = (uint8_t)(f->recipe < FR_N ? f->recipe : 0);
     for (k = 0; k < FX_N; k++) {
+        if (k >= 2u && k < f->n && f->e[k].kind < NKIND && rm_size(f->e[k].kind) > room)
+            f->n = (uint8_t)k;                       /* (a third that no longer fits: left out, build 31) */
         if (k >= f->n) {
             memset(&f->e[k], 0, sizeof f->e[k]);
             f->xto[k] = 0;

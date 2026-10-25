@@ -144,8 +144,8 @@ repeaters; none of their code.)
 
 ## The effect slots
 
-Seventeen effects drawn, two or three to a slot (build 30: DELAY and REVERB are the master's; a session saved with
-them in a slot still plays them):
+Seventeen effects drawn, two or three to a slot (build 30: DELAY and REVERB are the master's; from build 31 a session
+saved with them in a slot loads them as TAPE and SPRING):
 
 | Effect | What it is |
 |---|---|

@@ -1120,6 +1120,11 @@ static int ses_load(uint32_t i)
     ses_fmt = SES_FORMAT;
     if (ss.err)
         return SES_FAIL;
+    for (l = 0; l < NFX; l++) {                         /* (build 31: DELAY and REVERB out of the slots, in every state) */
+        fx_retire(&ses_live.x[l].f);
+        for (k = 0; k < NSNAP; k++)
+            fx_retire(&snap.s[k].x[l].f);
+    }
     morph.on = 0;
     snap_pend.i = -1;
     gen_fine = fx_fine = 0;

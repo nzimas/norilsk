@@ -1010,6 +1010,46 @@ static int cmd_modules(int argc, char **argv)
         draw_path = DP_ANY;
         printf("recipes: the largest slot %u B of %u (no DELAY, no REVERB drawn)\n", worst, FX_ARENA);
     }
+    {   /* build 31: a saved patch with DELAY and REVERB in a slot takes TAPE and SPRING; a third that no longer fits
+         * the slot's memory is left out */
+        fx_patch_t t;
+        const fx_patch_t *f;
+        fw_init();
+        fw_run(30);
+        memset(&t, 0, sizeof t);
+        t.n = 2;
+        t.seed = 1;
+        t.e[0].kind = RM_DLY;
+        t.e[1].kind = RM_REV;
+        if (!fx_set(0, &t))
+            printf("FAIL fx_set busy\n"), fails++;
+        f = &fbuf[0][f_pub[0]];
+        if (f->n != 2u || f->e[0].kind != RM_TAP || f->e[1].kind != RM_SPR)
+            printf("FAIL old DELAY, REVERB: now %s, %s\n", RM_NAME[f->e[0].kind], RM_NAME[f->e[1].kind]), fails++;
+        fw_run(30);
+        t.n = 3;
+        t.seed = 2;
+        t.e[0].kind = RM_STR;
+        t.e[1].kind = RM_TAP;
+        t.e[2].kind = RM_SPR;
+        if (!fx_set(0, &t))
+            printf("FAIL fx_set busy\n"), fails++;
+        f = &fbuf[0][f_pub[0]];
+        if (f->n != 2u || f->e[0].kind != RM_STR || f->e[1].kind != RM_TAP)
+            printf("FAIL STRING TAPE SPRING: %u effects\n", f->n), fails++;
+        fw_run(30);                                     /* .. and in a saved session's snapshots */
+        snap.s[2].x[1].f = t;
+        snap.s[2].x[1].f.n = 2;
+        snap.s[2].x[1].f.e[0].kind = RM_REV;
+        snap.s[2].x[1].f.e[1].kind = RM_DLY;
+        snap.used |= 1u << 2;
+        if (ses_save(9) != SES_OK)
+            printf("FAIL retired: the session not saved\n"), fails++;
+        fw_init();
+        if (ses_load_slot(9) != SES_OK || snap.s[2].x[1].f.e[0].kind != RM_SPR || snap.s[2].x[1].f.e[1].kind != RM_TAP)
+            printf("FAIL retired: a snapshot's REVERB, DELAY not taken as SPRING, TAPE\n"), fails++;
+        printf("retired: DELAY -> TAPE, REVERB -> SPRING; a third past the slot's memory left out\n");
+    }
     printf("modules: %d failures\n", fails);
     return fails ? 1 : 0;
 }

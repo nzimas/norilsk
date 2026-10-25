@@ -2,6 +2,15 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 31 (2026-10-25): the effect slots' memory 47 KiB -> 36 KiB
+
+- **A session or snapshot saved with DELAY or REVERB in a slot loads them as TAPE and SPRING**, at their home values
+  (the slots no longer hold either). Nothing else in a saved patch changes.
+- **Each effect slot's memory is 36 KiB, not 47** (34 KiB of the pool freed): the largest chain still drawn, GLITCH +
+  VOWEL + TAPE, is 36.5 KiB. Two chains no longer fit with their third effect -- STRINGS as STRING + TAPE + SPRING,
+  RUST as SPRING + GLITCH + TAPE -- and are drawn, or load, as two (the third, which may be left out, is left out).
+- A new patch clears its slot in 6 blocks, not 8. Test: `host modules`.
+
 ## Build 30 (2026-10-25): DELAY and REVERB left to the master
 
 - **DELAY and REVERB are no longer drawn into the effect slots**: they are the master's (KNOB 3 / KNOB 4, SEQ), and a
