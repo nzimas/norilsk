@@ -1175,7 +1175,7 @@ static int gen_set(uint32_t l, const gen_keep_t *k) { return gen_set_x(l, k, 0);
 static void gens_init(uint32_t seed)
 {
     uint32_t l;
-    sig_mode = SM_MESH;                                  /* (at power-on: MESH; a session loaded says its own) */
+    sig_mode = SM_LANES;                                 /* (at power-on: LANES; a session loaded says its own) */
     memset(vox, 0, sizeof vox);
     memset(vmem, 0, sizeof vmem);
     memset(gbuf, 0, sizeof gbuf);

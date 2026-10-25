@@ -2650,6 +2650,7 @@ static int cmd_mtails(void)
     uint32_t b, quiet_at = 0, l;
     int32_t late = 0, out[2 * CTL], pk;
     fw_init();
+    sig_set(SM_MESH);                                    /* (build 29: LANES at power-on; the test was made in MESH) */
     ui.seed = 777u;
     for (l = 0; l < NSLOT; l++) {
         press(SLOT_BTN[l], 50);
@@ -2721,6 +2722,10 @@ static int cmd_lanes(void)
     uint32_t l, n, ser[NFX], sum0, cross = 0;
     memset(hflash, 0xFF, sizeof hflash);
     fw_init();
+    if (sig_mode != SM_LANES)
+        printf("FAIL lanes: the FM-1 does not start in LANES\n"), fails++;
+    lanes_ok("at power-on") ? fails++ : 0;
+    sig_set(SM_MESH);
     for (n = 0; n < 40u && !cross; n++) {                /* a MESH patch with cables across */
         for (l = 0; l < NSLOT; l++) {
             press(SLOT_BTN[l], 50);
@@ -2769,7 +2774,8 @@ static int cmd_lanes(void)
     fails += lanes_ok("after the draws");
     ses_save(5);                                          /* kept with the session */
     fw_init();
-    if (sig_mode != SM_MESH || ses_load_slot(5) != SES_OK || sig_mode != SM_LANES)
+    sig_set(SM_MESH);
+    if (ses_load_slot(5) != SES_OK || sig_mode != SM_LANES)
         printf("FAIL lanes: the session did not keep LANES\n"), fails++;
     gens_init(1u);
     printf("lanes: %d failures\n", fails);
@@ -3687,6 +3693,16 @@ static int cmd_screens(int argc, char **argv)
     fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;
     ui_input();
     SHOT("session-mode");
+    ui.ses_edit = 0;                                     /* (the questions and COPY, as they look) */
+    ui.ses_page = SP_ASK;
+    ui.ses_ask = AK_DEL;
+    ui.ses_new = 1;
+    ui.ses_yes = 0;
+    SHOT("session-ask");
+    ui.ses_page = SP_COPY;
+    ui.ses_tgt = 7;
+    SHOT("session-copy");
+    ui.ses_page = SP_PAGE;
     key(KEY_SHIFT, 1);                                   /* SHIFT + SAVE: left as it was; again: the list; again: out */
     press(B_SAVE, 50);
     press(B_SAVE, 50);

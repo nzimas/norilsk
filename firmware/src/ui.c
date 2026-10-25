@@ -144,13 +144,15 @@ static const uint16_t GEN_COL[NGEN] = {RGB(255, 72, 72), RGB(72, 150, 255), RGB(
 static const char *const RM_TILE[NKIND] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "DLY", "TAP", "RVS", "SPR", "REV",
                                            "GLT", "CLD", "SCR", "RNG", "STV", "CHB", "BNK"};
 
-/* the screen's layout */
-#define TOP_H 40
-#define GEN_Y 42
-#define GEN_H 48
-#define GEN_P 80                 /* a generator's block's pitch across */
-#define FXR_Y 92                 /* the first effect slot's row */
-#define FXR_H 49                 /* a row's height */
+/* the screen's layout (build 29): the smog, the three lanes, the three furnaces */
+#define TOP_H 48u                /* the smog, with the load and the battery */
+#define LANE_Y 48u               /* the first lane's band */
+#define LANE_H 46                /* a lane's band: the earth, the pipe across it */
+#define PIPE_Y0 5                /* the pipe within it */
+#define PIPE_Y1 41
+#define FURN_Y 186u              /* the furnaces */
+#define FURN_H 54
+#define GEN_P 80                 /* a furnace's width */
 
 static struct {
     uint8_t sel;                 /* the slot chosen: 0 .. 2 a generator, 3 .. 5 an effect slot */
@@ -1176,38 +1178,94 @@ static void draw_batt(int32_t xr, int32_t y)
         for (i = 0; i < (k ? k : 1); i++)
             cv_rect(x0 + 6 + i * 8, y + 6, 6, 8, c);
 }
-/* the top band: the load and the battery; or the message across */
+/* build 29: the main view as a place -- smog above the ground, the lanes as rusty pipes under it, the generators as
+ * furnaces at the foot. The textures are drawn from a hash of each pixel's place on the screen (no tables, no
+ * division per pixel), so a part drawn alone is the same pixel for pixel as the whole drawn at once */
+static uint32_t px_hash(uint32_t x, uint32_t y)
+{
+    uint32_t h = x * 0x9E3779B1u ^ (y + 0x51u) * 0x85EBCA77u;
+    h ^= h >> 15;
+    h *= 0x2C1B3C6Du;
+    return h ^ (h >> 12);
+}
+static uint16_t rgb_c(int32_t r, int32_t g, int32_t b)
+{
+    r = clampi(r, 0, 255), g = clampi(g, 0, 255), b = clampi(b, 0, 255);
+    return RGB(r, g, b);
+}
+/* the earth round the pipes and the furnaces: dark soil, a stone here and there */
+static uint16_t earth_px(uint32_t x, uint32_t y)
+{
+    uint32_t h = px_hash(x, y + 1000u);
+    int32_t e = 24 + (int32_t)(h >> 28);
+    if ((h & 0xFFu) < 5u)
+        e += 26;
+    return rgb_c(e, e * 200 >> 8, e * 150 >> 8);
+}
+/* smooth noise, 0 .. 255: the hash on a grid (2^gx by 2^gy cells), between its corners */
+static int32_t soft_noise(int32_t x, int32_t y, int32_t gx, int32_t gy, uint32_t seed)
+{
+    int32_t cx = x >> gx, cy = y >> gy, fx = x & ((1 << gx) - 1), fy = y & ((1 << gy) - 1);
+    int32_t a = (int32_t)(px_hash((uint32_t)cx, (uint32_t)cy + seed) >> 24);
+    int32_t b = (int32_t)(px_hash((uint32_t)cx + 1u, (uint32_t)cy + seed) >> 24);
+    int32_t c = (int32_t)(px_hash((uint32_t)cx, (uint32_t)cy + 1u + seed) >> 24);
+    int32_t d = (int32_t)(px_hash((uint32_t)cx + 1u, (uint32_t)cy + 1u + seed) >> 24);
+    int32_t t = a + ((b - a) * fx >> gx), u = c + ((d - c) * fx >> gx);
+    return t + ((u - t) * fy >> gy);
+}
+
+/* the top band: smog, drifting a few pixels every two seconds, the ground's crust under it; the load and the battery
+ * on black; or the message across, black on white */
+#define SMOG_STEP_MS 11          /* (the drift: a step each 2^11 ms) */
 static void draw_top(void)
 {
     int msg = (int32_t)(ui.msg_until - fm1_ms) > 0;
-    int32_t key;
+    int32_t key, drift = (int32_t)((fm1_ms >> SMOG_STEP_MS) & 0xFFFu);
     if ((uint32_t)(fm1_ms - ui.load_at) >= 500u) {   /* (the load, twice a second, in steps of 5 %) */
         ui.load_at = fm1_ms;
         ui.load_shown = (uint8_t)((load_pct + 2u) / 5u * 5u);
     }
-    key = msg ? -1 - (int32_t)(ui.msg_until & 0xFFFFFu) : ui.load_shown * 10 + batt_key() + 1;
+    key = msg ? -1 - (int32_t)(ui.msg_until & 0xFFFFFu) : (ui.load_shown * 10 + batt_key() + 1) | drift << 12;
     if (!ui.force && key == ui.shown_top)
         return;
     if (msg) {
         cv_begin(240, TOP_H, C_WHITE);
-        cv_text_fit(2, &FONT_M, ui.msg, C_BLACK);
+        cv_text_fit(6, &FONT_M, ui.msg, C_BLACK);
     } else {
         char b[8];
-        uint32_t n;
+        uint32_t n, x, y;
         cv_begin(240, TOP_H, C_BLACK);
+        for (y = 0; y < TOP_H; y++)
+            for (x = 0; x < 240u; x++) {
+                uint16_t c;
+                if (y >= TOP_H - 4u)             /* (the crust) */
+                    c = earth_px(x, y);
+                else {
+                    int32_t v = (soft_noise((int32_t)x + drift * 3, (int32_t)y, 5, 4, 7u) * 3 +
+                                 soft_noise((int32_t)x + drift * 7, (int32_t)y, 4, 3, 91u)) >> 2;
+                    int32_t r = 28 + (v * v >> 9) + (v >> 2) + (int32_t)(y >> 1) + (int32_t)(px_hash(x, y) >> 29);
+                    c = rgb_c(r, r * 222 >> 8, r * 170 >> 8);   /* (brown-grey, denser near the ground) */
+                }
+                cv_px[y * 240u + x] = swap16(c);
+            }
         fmt_int(b, ui.load_shown);
         n = str_len(b);
         b[n] = '%';
         b[n + 1] = 0;
-        cv_text(6, 7, &FONT_S, b, ui.load_shown >= 85 ? RGB(255, 60, 60) : C_GREY);
-        draw_batt(236, 10);
+        cv_rect(2, 6, text_w(&FONT_S, b) + 10, FONT_S.h + 6, C_BLACK);
+        cv_bg_set(C_BLACK);
+        cv_text(7, 9, &FONT_S, b, ui.load_shown >= 85 ? RGB(255, 60, 60) : RGB(200, 200, 200));
+        if (batt_key() >= 0) {
+            cv_rect(188, 4, 50, 32, C_BLACK);
+            draw_batt(236, 10);
+        }
     }
     cv_blit(0, 0);
     ui.shown_top = key;
 }
-/* a generator's block: filled in its colour when heard (brighter as it sounds), an outline when muted; framed in
- * white when chosen, in grey when an effect slot is chosen and the keys play it; its number; the colour of the
- * generator that modulates it, a band along its foot */
+/* a generator as a furnace: a brick body on the earth, its fire mouth filled in its colour when heard (brighter as it
+ * sounds), dark with a rim in its colour when muted; framed in white when chosen; its number in the fire; its looper's
+ * mark at the mouth's left; the colour of the generator that modulates it, a band along its foot */
 static int32_t gen_key(uint32_t l)
 {
     const gen_patch_t *p = &gbuf[l][g_use[l]];
@@ -1219,103 +1277,91 @@ static int32_t gen_key(uint32_t l)
     return level_step(gen_mute[l] ? 0 : gen_meter[l]) | gen_mute[l] << 2 | fr << 3 | xm << 5 | lr << 7 |
            (int32_t)(q->play && q->ntrk) << 9;
 }
+/* a box with its top corners rounded (radius r): the furnace's mouth */
+static void cv_arch(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint16_t c)
+{
+    int32_t dy;
+    for (dy = 0; dy < r; dy++) {
+        int32_t in = r - (int32_t)isqrt32((uint32_t)(r * r - (r - dy) * (r - dy)));
+        cv_rect(x + in, y + dy, w - 2 * in, 1, c);
+    }
+    cv_rect(x, y + r, w, h - r, c);
+}
+#define MOUTH_X 11               /* the fire mouth within the furnace (GEN_P x FURN_H) */
+#define MOUTH_Y 7
+#define MOUTH_W 58
+#define MOUTH_H 38
 static void draw_gen(uint32_t l, int32_t key)
 {
-    uint16_t c = GEN_COL[l], fg, bg = 0;
-    int32_t st = key & 3, fr = (key >> 3) & 3, xm = (key >> 5) & 3, w = GEN_P - 2;
+    uint16_t c = GEN_COL[l], fg, bg;
+    int32_t st = key & 3, fr = (key >> 3) & 3, xm = (key >> 5) & 3, x, y, x0 = (int32_t)(l * GEN_P);
     char d[2] = {(char)('1' + l), 0};
-    cv_begin((uint32_t)w, GEN_H, C_BLACK);
+    cv_begin(GEN_P, FURN_H, C_BLACK);
+    for (y = 0; y < FURN_H; y++)                 /* the earth, and the bricks: 15 x 7 and a line of mortar, a row in
+                                                  * two shifted by half a brick */
+        for (x = 0; x < GEN_P; x++) {
+            uint32_t ax = (uint32_t)(x0 + x), ay = (uint32_t)(FURN_Y + y);
+            uint16_t pc;
+            if (x < 4 || x >= GEN_P - 4 || y < 2)
+                pc = earth_px(ax, ay);
+            else {
+                int32_t bx = x + ((y >> 3) & 1) * 8, by = y;
+                if ((bx & 15) == 15 || (by & 7) == 7)
+                    pc = RGB(26, 21, 18);
+                else {
+                    uint32_t h = px_hash((uint32_t)((x0 + bx) >> 4), (uint32_t)(by >> 3) + 500u);
+                    int32_t r = 62 + (int32_t)(h >> 27) + (int32_t)(px_hash(ax, ay) >> 29);
+                    pc = rgb_c(r, r * 96 >> 8, r * 72 >> 8);
+                }
+            }
+            cv_px[(uint32_t)y * GEN_P + (uint32_t)x] = swap16(pc);
+        }
+    cv_arch(MOUTH_X - 4, MOUTH_Y - 4, MOUTH_W + 8, MOUTH_H + 7, 16, RGB(34, 30, 28));   /* (the iron round it) */
     if (!gen_mute[l]) {
         bg = col_scale(c, 184 + st * 24);
-        cv_rect(4, 4, w - 8, GEN_H - 8, bg);
+        cv_arch(MOUTH_X, MOUTH_Y, MOUTH_W, MOUTH_H, 12, bg);
+        cv_rect(MOUTH_X, MOUTH_Y + MOUTH_H - 3, MOUTH_W, 3, col_scale(c, 120));   /* (the grate) */
         fg = C_BLACK;
-        cv_bg_set(bg);
     } else {
-        cv_frame(6, 6, w - 12, GEN_H - 12, 4, c);
+        bg = RGB(8, 8, 8);
+        cv_arch(MOUTH_X, MOUTH_Y, MOUTH_W, MOUTH_H, 12, c);
+        cv_arch(MOUTH_X + 3, MOUTH_Y + 3, MOUTH_W - 6, MOUTH_H - 6, 9, bg);
         fg = c;
     }
-    if (fr == 2)
-        cv_frame(0, 0, w, GEN_H, 4, C_WHITE);
-    else if (fr == 1)
-        cv_frame(0, 0, w, GEN_H, 2, C_GREY);
-    cv_text((w - text_w(&FONT_M, d)) / 2 + ((key >> 7) & 7 ? 8 : 0), (GEN_H - FONT_M.h) / 2 - (xm ? 3 : 0), &FONT_M, d,
-            fg);                                 /* (moved right by the looper's mark, up by a link's band) */
-    {   /* its looper, at the left: recording, a red disc; armed, a red ring blinking; its loops playing, a ring */
-        int32_t lr = (key >> 7) & 3, cy = GEN_H / 2;   /* (white and black: seen on every generator's colour) */
+    cv_bg_set(bg);
+    cv_text(MOUTH_X + (MOUTH_W - text_w(&FONT_M, d)) / 2 + ((key >> 7) & 7 ? 9 : 0), MOUTH_Y + 1, &FONT_M, d, fg);
+    {   /* its looper, at the mouth's left: recording, a white disc; armed, a white ring blinking; its loops playing, a
+         * ring (white and black: seen on every generator's colour) */
+        int32_t lr = (key >> 7) & 3, cx = MOUTH_X + 12, cy = MOUTH_Y + MOUTH_H / 2 - 1;
         if (lr == 3) {
-            cv_disc(15, cy, 11, C_BLACK);
-            cv_disc(15, cy, 8, C_WHITE);
+            cv_disc(cx, cy, 10, C_BLACK);
+            cv_disc(cx, cy, 7, C_WHITE);
         } else if (lr == 1) {
-            cv_disc(15, cy, 11, C_BLACK);
-            cv_ring(15, cy, 8, 3, C_WHITE);
+            cv_disc(cx, cy, 10, C_BLACK);
+            cv_ring(cx, cy, 7, 3, C_WHITE);
         } else if ((key >> 9) & 1)
-            cv_ring(15, cy, 10, 4, fg);
+            cv_ring(cx, cy, 9, 4, fg);
     }
     if (xm) {                                    /* modulated by another generator: a band along its foot, in that
-                                                  * one's colour, edged in black (build 25: a corner square before) */
-        cv_rect(4, GEN_H - 12, w - 8, 8, C_BLACK);
-        cv_rect(6, GEN_H - 10, w - 12, 6, GEN_COL[xm - 1]);
+                                                  * one's colour, edged in black */
+        cv_rect(4, FURN_H - 8, GEN_P - 8, 8, C_BLACK);
+        cv_rect(6, FURN_H - 6, GEN_P - 12, 5, GEN_COL[xm - 1]);
     }
-    cv_blit(l * GEN_P + 1u, GEN_Y);
+    if (fr == 2)
+        cv_frame(0, 0, GEN_P, FURN_H, 4, C_WHITE);
+    cv_blit((uint32_t)x0, FURN_Y);
 }
-/* a border t pixels thick round a w x h box, shared out between n colours: the perimeter walked clockwise from the top
- * left, each colour its equal stretch of it */
-static void cv_border_shared(int32_t w, int32_t h, int32_t t, const uint16_t *col, int32_t n)
-{
-    int32_t per = 2 * (w + h), k;
-    for (k = 0; k < n; k++) {
-        int32_t a = per * k / n, b = per * (k + 1) / n, lo, hi;
-        uint16_t c = col[k];
-        lo = clampi(a, 0, w), hi = clampi(b, 0, w);                  /* the top, left to right */
-        if (hi > lo)
-            cv_rect(lo, 0, hi - lo, t, c);
-        lo = clampi(a - w, 0, h), hi = clampi(b - w, 0, h);          /* the right side, down */
-        if (hi > lo)
-            cv_rect(w - t, lo, t, hi - lo, c);
-        lo = clampi(a - w - h, 0, w), hi = clampi(b - w - h, 0, w);  /* the bottom, right to left */
-        if (hi > lo)
-            cv_rect(w - hi, h - t, hi - lo, t, c);
-        lo = clampi(a - 2 * w - h, 0, h), hi = clampi(b - 2 * w - h, 0, h);   /* the left side, up */
-        if (hi > lo)
-            cv_rect(0, h - hi, t, hi - lo, c);
-    }
-}
-/* an effect slot's row: framed in white when chosen; its tiles inside */
+/* an effect slot as a lane: a pipe across the earth, its effects in sections between flanges; framed in white when
+ * chosen; cold grey when muted */
 static int32_t row_key(uint32_t s)
 {
     const fx_patch_t *f = &fbuf[s][f_use[s]];
     return (int32_t)(ui.sel == NGEN + s) | fx_mute[s] << 1 | f->n << 2 | (int32_t)(f->serial & 0xFFFFu) << 4 |
            (fx_phase[s] == FS_CLEAR) << 20;
 }
-static void draw_row(uint32_t s, int32_t key)
-{
-    uint16_t c = (key & 1) ? C_WHITE : C_BLACK;
-    uint32_t y = FXR_Y + s * FXR_H;
-    lcd_fill(0, y, 240, 3, c);
-    lcd_fill(0, y + FXR_H - 3, 240, 3, c);
-    lcd_fill(0, y, 3, FXR_H, c);
-    lcd_fill(237, y, 3, FXR_H, c);
-}
-/* a row's inside blanked where its tiles do not cover it (the edge, the gaps between them, the line under them): the
- * tiles paint the rest, so each pixel goes to the panel once. A slot being cleared (no tiles): all of it */
-static void row_clear(uint32_t s)
-{
-    const fx_patch_t *f = &fbuf[s][f_use[s]];
-    uint32_t y = FXR_Y + s * FXR_H, n = f->n, k, pitch;
-    if (fx_phase[s] == FS_CLEAR || n < 1u || n > FX_N) {
-        lcd_fill(3, y + 3, 234, FXR_H - 6, C_BLACK);
-        return;
-    }
-    pitch = 234u / n;
-    lcd_fill(3, y + 3, 1, FXR_H - 7, C_BLACK);             /* (draw_tile: a tile k at 3 + k pitch + 1, pitch - 2 wide, */
-    for (k = 0; k < n; k++) {                               /* FXR_H - 7 high, from y + 3) */
-        uint32_t x1 = 3u + k * pitch + 1u + pitch - 2u;
-        lcd_fill(x1, y + 3, k + 1u < n ? 2u : 237u - x1, FXR_H - 7, C_BLACK);
-    }
-    lcd_fill(3, y + FXR_H - 4, 234, 1, C_BLACK);
-}
-/* an effect's tile: its name; round it, a border in the colours of the generators wired into it (shared out equally);
- * filled with the colour of the generator the keys play when that one is wired into it; brighter as sound passes */
+/* an effect's section: its name on a plate; under it a band in the colours of the generators wired into it (shared
+ * out equally); the plate filled with the colour of the generator the keys play when that one is wired into it; the
+ * pipe hotter as sound passes */
 static int32_t tile_key(uint32_t inst, const uint32_t *mods)
 {
     uint32_t s = inst / FX_N, k = inst % FX_N;
@@ -1329,34 +1375,99 @@ static int32_t tile_key(uint32_t inst, const uint32_t *mods)
     return level_step(fx_mute[s] ? 0 : rm_meter[inst]) | feed << 2 | (int32_t)(ui.sel < NGEN && !gen_mute[ui.gen] && ((mods[ui.gen] >> inst) & 1u)) << 5 |
            (int32_t)ui.gen << 6 | fx_mute[s] << 8 | f->e[k].kind << 9 | f->n << 14 | (int32_t)(f->serial & 0xFFu) << 16;
 }
-static void draw_tile(uint32_t inst, int32_t key)
+/* the pipe's light, top to bottom (Q8): a highlight a third of the way down, dark underneath */
+static const uint16_t PIPE_SH[PIPE_Y1 - PIPE_Y0] = {60,  150, 210, 250, 280, 300, 310, 315, 310, 300, 290, 280,
+                                                    268, 256, 244, 232, 220, 208, 196, 184, 172, 160, 148, 136,
+                                                    124, 112, 102, 92,  84,  76,  70,  64,  60,  56,  52,  60};
+static uint32_t lane_n(int32_t rkey)             /* the effects a lane shows (none while it is cleared) */
 {
-    uint32_t s = inst / FX_N, k = inst % FX_N, n = (uint32_t)(key >> 14) & 3u, kind = (uint32_t)(key >> 9) & 31u;
-    int32_t st = key & 3, feed = (key >> 2) & 7, hi = (key >> 5) & 1, muted = (key >> 8) & 1, g, nc = 0;
-    int32_t pitch = 234 / (int32_t)(n ? n : 1u), w = pitch - 2, h = FXR_H - 7;
-    static const uint8_t GREY[4] = {18, 40, 66, 96};
-    uint16_t col[NGEN], bg, fg;
-    if (key == -2)
-        return;
-    if (muted) {
-        bg = RGB(10, 10, 10);
-        fg = RGB(70, 70, 70);
-    } else if (hi) {
-        bg = col_scale(GEN_COL[ui.gen], 60 + st * 24);
-        fg = C_WHITE;
-    } else {
-        bg = RGB(GREY[st], GREY[st], GREY[st]);
-        fg = feed ? RGB(160, 160, 160) : RGB(90, 90, 90);
+    uint32_t n = (uint32_t)(rkey >> 2) & 3u;
+    return (rkey >> 20) & 1 || n > FX_N ? 0u : n;
+}
+/* the part (x0, y0, w, h) of lane s, from its key and its effects' keys; a section k alone is the part
+ * (3 + k pitch + 5, PIPE_Y0, pitch - 10, PIPE_Y1 - PIPE_Y0): nothing outside it depends on the effect's key */
+static void draw_lane(uint32_t s, int32_t x0, int32_t y0, int32_t w, int32_t h, int32_t rkey, const int32_t *tk)
+{
+    uint32_t n = lane_n(rkey), k;
+    int32_t pitch = n ? 234 / (int32_t)n : 234, muted = (rkey >> 1) & 1, x, y, heat[FX_N];
+    uint32_t ly = LANE_Y + s * LANE_H;
+    cv_begin((uint32_t)w, (uint32_t)h, C_BLACK);
+    for (k = 0; k < FX_N; k++)
+        heat[k] = k < n && tk[k] != -2 && !muted ? (tk[k] & 3) : 0;
+    for (x = 0; x < w; x++) {                    /* the earth and the pipe, a column at a time */
+        int32_t ax = x0 + x, sk = ax >= 3 ? (ax - 3) / pitch : -1, ht = 0;
+        if (n && sk >= 0 && sk < (int32_t)n && ax >= 3 + sk * pitch + 5 && ax < 3 + (sk + 1) * pitch - 5)
+            ht = heat[sk];
+        for (y = 0; y < h; y++) {
+            int32_t ay = y0 + y;
+            uint16_t c;
+            if (ay < PIPE_Y0 || ay >= PIPE_Y1) {
+                c = earth_px((uint32_t)ax, ly + (uint32_t)ay);
+                if (ay >= PIPE_Y1 && ay < PIPE_Y1 + 3)          /* (the pipe's shadow) */
+                    c = col_scale(c, 128);
+            } else {
+                int32_t t = ay - PIPE_Y0, sh = t == 0 || t == PIPE_Y1 - PIPE_Y0 - 1 ? 60 : PIPE_SH[t];
+                int32_t blot = soft_noise(ax, ay + (int32_t)s * 64, 3, 2, 300u);
+                int32_t r = 70 + (blot * 3 >> 3) + (int32_t)(px_hash((uint32_t)ax, ly + (uint32_t)ay) >> 28) - 8;
+                int32_t g = r * 112 >> 8, b = r * 56 >> 8;
+                if (muted) {
+                    int32_t m = (r + g + b) * 85 >> 8;
+                    r = m * 150 >> 8, g = m * 156 >> 8, b = m * 176 >> 8;
+                } else {
+                    r += ht * 30;
+                    g += ht * 14;
+                }
+                c = rgb_c(r * sh >> 8, g * sh >> 8, b * sh >> 8);
+            }
+            cv_px[(uint32_t)y * (uint32_t)w + (uint32_t)x] = swap16(c);
+        }
     }
-    cv_begin((uint32_t)w, (uint32_t)h, bg);
-    for (g = 0; g < NGEN; g++)
-        if ((feed >> g) & 1)
-            col[nc++] = muted ? col_scale(GEN_COL[g], 90) : GEN_COL[g];
-    if (nc)
-        cv_border_shared(w, h, 4, col, nc);
-    cv_bg_set(bg);
-    cv_text_fit((h - FONT_S.h) / 2 + 1, &FONT_S, RM_TILE[kind], fg);
-    cv_blit(3u + k * (uint32_t)pitch + 1u, FXR_Y + s * FXR_H + 3u);
+    x0 = -x0, y0 = -y0;                          /* (from here, drawing is placed by the lane's own coordinates) */
+    for (k = 0; n && k <= n; k++) {              /* the flanges, bolted */
+        int32_t fx = 3 + (int32_t)k * pitch;
+        cv_rect(x0 + fx - 4, y0 + PIPE_Y0 - 4, 8, PIPE_Y1 - PIPE_Y0 + 8, muted ? RGB(46, 48, 54) : RGB(76, 38, 22));
+        cv_rect(x0 + fx - 4, y0 + PIPE_Y0 - 4, 8, 2, muted ? RGB(70, 72, 78) : RGB(118, 64, 36));
+        cv_rect(x0 + fx - 1, y0 + PIPE_Y0 - 1, 3, 3, RGB(150, 128, 100));
+        cv_rect(x0 + fx - 1, y0 + PIPE_Y1 - 2, 3, 3, RGB(150, 128, 100));
+    }
+    for (k = 0; k < n; k++) {
+        int32_t key = tk[k], st = key & 3, feed = (key >> 2) & 7, hi = (key >> 5) & 1, g, nc = 0, i;
+        int32_t sx = 3 + (int32_t)k * pitch + 5, sw = pitch - 10, tw, pw, len, squeeze = 0;
+        const char *nm;
+        uint16_t col[NGEN], bg, fg;
+        if (key == -2)
+            continue;
+        nm = RM_TILE[(key >> 9) & 31];
+        if (muted) {
+            bg = RGB(10, 10, 10);
+            fg = RGB(80, 80, 80);
+        } else if (hi) {
+            bg = col_scale(GEN_COL[ui.gen], 60 + st * 24);
+            fg = C_WHITE;
+        } else {
+            bg = RGB(20, 16, 13);
+            fg = feed ? RGB(228, 216, 192) : RGB(140, 132, 120);
+        }
+        tw = text_w(&FONT_S, nm), len = (int32_t)str_len(nm);
+        if (tw > sw - 8 && len > 1)              /* (squeezed a little, as cv_text_fit does, if it is wider) */
+            squeeze = clampi((tw - sw + 8 + len - 2) / (len - 1), 0, 6);
+        tw -= squeeze * (len - 1);
+        pw = clampi(tw + 12, 0, sw);
+        cv_rect(x0 + sx + (sw - pw) / 2, y0 + PIPE_Y0 + 1, pw, FONT_S.h + 2, bg);
+        cv_bg_set(bg);
+        for (i = 0, x = x0 + sx + (sw - tw) / 2; nm[i]; i++) {
+            char one[2] = {nm[i], 0};
+            x = cv_text(x, y0 + PIPE_Y0 + 2, &FONT_S, one, fg) - squeeze;
+        }
+        for (g = 0; g < NGEN; g++)
+            if ((feed >> g) & 1)
+                col[nc++] = muted ? col_scale(GEN_COL[g], 90) : GEN_COL[g];
+        for (g = 0; g < nc; g++)                 /* (the band under the plate, shared out) */
+            cv_rect(x0 + sx + sw * g / nc, y0 + PIPE_Y1 - 5, sw * (g + 1) / nc - sw * g / nc, 4, col[g]);
+    }
+    if (rkey & 1)
+        cv_frame(x0, y0, 240, LANE_H, 3, C_WHITE);
+    cv_blit((uint32_t)-x0, ly + (uint32_t)-y0);
 }
 /* PLAY held: the loops of the generator the keys play, 1 .. 10 as the white keys have them -- in, its colour; out, a
  * grey frame (Tonitor's) */
@@ -1580,64 +1691,127 @@ static void draw_noyes(int yes)
 }
 /* the SESSIONS page (Tonitor's): the title; the slot's number very large (red: it holds a session; grey: empty);
  * LOADED, CHOSEN or EMPTY under it -- or, asked, NO / YES */
+/* the sessions' pages (build 29, Bigorna's): a title over a rule in the sessions' colour, then four rows of 46 px, the
+ * names in the pages' size (S). A slot's state is its colour: loaded green, saved white, empty grey */
+#define SES_ROW_H 46
+static uint16_t ses_col(uint32_t k) { return k == ses_current() && ses_has(k) ? C_OK : ses_has(k) ? C_WHITE : C_GREY; }
+static void ses_title(const char *t, uint16_t col)
+{
+    cv_begin(240, 55, C_BLACK);
+    cv_text_fit((50 - (int32_t)FONT_M.h) / 2, &FONT_M, t, col);
+    cv_rect(0, 52, 240, 3, C_SES);
+    cv_blit(0, 0);
+}
+static void ses_foot(void)                       /* (the pixel line under the four rows) */
+{
+    cv_begin(240, 240 - 55 - 4 * SES_ROW_H, C_BLACK);
+    cv_blit(0, 55 + 4 * SES_ROW_H);
+}
+/* the SESSIONS list: a row a slot, four shown, the one chosen black on white, the one loaded with a block at its right */
+static void draw_ses_list(void)
+{
+    uint32_t sel = ui.ses_ix, top = sel <= 2u ? 1u : sel > SES_SLOTS - 2u ? SES_SLOTS - 3u : sel - 1u, r;
+    ses_title("SESSIONS", C_SES);
+    for (r = 0; r < 4u; r++) {
+        uint32_t k = top + r;
+        char n[16] = "SESSION ";
+        uint16_t c = ses_col(k);
+        fmt_int(n + 8, (int32_t)k);
+        cv_begin(240, SES_ROW_H, k == sel ? C_WHITE : C_BLACK);
+        cv_text(10, (SES_ROW_H - (int32_t)FONT_S.h) / 2, &FONT_S, n, k == sel ? C_BLACK : c);
+        if (k == ses_current() && ses_has(k))
+            cv_rect(206, (SES_ROW_H - 24) / 2, 24, 24, k == sel ? C_BLACK : C_OK);
+        cv_rect(0, SES_ROW_H - 1, 240, 1, RGB(50, 50, 50));
+        cv_blit(0, 55 + SES_ROW_H * r);
+    }
+    ses_foot();
+}
+/* a session's page: BACK; the operations (LOAD or NEW, SAVE, COPY, DELETE in red); the session's settings (MODE, its
+ * value in a field at the right). A thin rule after BACK, a thick one after DELETE: three parts */
+static void draw_ses_rows(void)
+{
+    static const char *const ROW[SR_N] = {"BACK", "LOAD", "SAVE", "COPY", "DELETE", "MODE"};
+    uint32_t k = ui.ses_ix, top = ui.ses_row > 3u ? ui.ses_row - 3u : 0u, r;
+    int has = ses_has(k);
+    uint32_t mode = k == ses_current() || !ses_current() ? (ui.ses_edit ? ui.ses_val : sig_mode) : ses_mode_of(k);
+    char t[16] = "SESSION ";
+    fmt_int(t + 8, (int32_t)k);
+    ses_title(t, ses_col(k));
+    for (r = 0; r < 4u; r++) {
+        uint32_t i = top + r;
+        int chosen = i == ui.ses_row, focus = chosen && ui.ses_edit;
+        int ok = i == SR_BACK || i == SR_SAVE || i == SR_LOAD || (i == SR_MODE ? mode < SM_N : has);
+        const char *name = i == SR_LOAD && !has ? "NEW" : ROW[i];
+        uint16_t fg = !ok ? C_GREY : i == SR_DELETE ? C_FULL : C_WHITE, bg = chosen && !focus ? C_WHITE : C_BLACK;
+        int32_t y = (SES_ROW_H - (int32_t)FONT_S.h) / 2;
+        cv_begin(240, SES_ROW_H, bg);
+        if (i == SR_MODE) {                      /* (a setting: its value in its field, at the right) */
+            const char *v = mode == SM_LANES ? "LANES" : mode < SM_N ? "MESH" : "-";
+            if (focus)
+                cv_rect(116, 3, 122, SES_ROW_H - 7, C_WHITE);
+            cv_text(232 - text_w(&FONT_S, v), y, &FONT_S, v, focus || chosen ? C_BLACK : C_SES);
+        }
+        cv_text(10, y, &FONT_S, name, chosen && !focus ? (i == SR_DELETE ? C_FULL : C_BLACK) : fg);
+        cv_rect(0, SES_ROW_H - 1, 240, 1, RGB(50, 50, 50));
+        if (i == SR_BACK)                        /* (the parts: a thin rule after BACK, a thick one after DELETE) */
+            cv_rect(0, SES_ROW_H - 2, 240, 2, C_SES);
+        else if (i == SR_DELETE)
+            cv_rect(0, SES_ROW_H - 5, 240, 5, C_SES);
+        cv_blit(0, 55 + SES_ROW_H * r);
+    }
+    ses_foot();
+}
+/* asked (Bigorna's): the question in a row, NO | YES under it, the answer chosen in white */
+static void draw_ses_ask(void)
+{
+    const char *q = ui.ses_ask == AK_DEL ? "DELETE?" : ui.ses_ask == AK_COPY ? "COPY OVER?"
+                  : ui.ses_ask == AK_OVER ? "OVERWRITE?" : "SAVE NEW?";
+    uint16_t qc = ui.ses_ask == AK_SAVE_NEW ? C_SES : C_FULL;
+    char t[16] = "SESSION ";
+    uint32_t r;
+    fmt_int(t + 8, (int32_t)ui.ses_new);
+    ses_title(t, ses_col(ui.ses_new));
+    for (r = 0; r < 4u; r++) {
+        cv_begin(240, SES_ROW_H, C_BLACK);
+        if (r == 1u)
+            cv_text_c((SES_ROW_H - (int32_t)FONT_M.h) / 2, text_w(&FONT_M, q) <= 236 ? &FONT_M : &FONT_S, q, qc);
+        else if (r == 2u) {
+            cv_rect(10, 2, 100, SES_ROW_H - 4, ui.ses_yes ? C_BLACK : C_WHITE);
+            cv_rect(130, 2, 100, SES_ROW_H - 4, ui.ses_yes ? C_WHITE : C_BLACK);
+            cv_frame(10, 2, 100, SES_ROW_H - 4, 2, C_GREY);
+            cv_frame(130, 2, 100, SES_ROW_H - 4, 2, C_GREY);
+            cv_text(60 - text_w(&FONT_M, "NO") / 2, (SES_ROW_H - (int32_t)FONT_M.h) / 2, &FONT_M, "NO",
+                    ui.ses_yes ? C_GREY : C_BLACK);
+            cv_text(180 - text_w(&FONT_M, "YES") / 2, (SES_ROW_H - (int32_t)FONT_M.h) / 2, &FONT_M, "YES",
+                    ui.ses_yes ? C_BLACK : C_GREY);
+        }
+        cv_blit(0, 55 + SES_ROW_H * r);
+    }
+    ses_foot();
+}
 static void draw_ses_page(void)
 {
-    char n[8];
-    int has = ses_has(ui.ses_ix);
     int32_t key = ui.ses_page | ui.ses_ix << 3 | ui.ses_row << 10 | ui.ses_edit << 13 | ui.ses_val << 14 |
-                  ui.ses_yes << 15 | ui.ses_tgt << 16 | ui.ses_ask << 23 | (int32_t)sig_mode << 25 | has << 26;
+                  ui.ses_yes << 15 | ui.ses_tgt << 16 | ui.ses_ask << 23 | (int32_t)sig_mode << 25 |
+                  ses_has(ui.ses_ix) << 26 | (int32_t)(ses_current() & 63u) << 27;
     if (!ui.force && ui.shown_ses == key)
         return;
     ui.shown_ses = key;
-    if (ui.ses_page == SP_PAGE) {                /* a session's page (Bigorna's): SESSION n, then its rows, four at a
-                                                  * time, the one chosen black on white (being set: on yellow) */
-        static const char *const ROW[SR_N] = {"BACK", "LOAD", "SAVE", "COPY", "DELETE", ""};
-        uint32_t top = ui.ses_row > 3u ? ui.ses_row - 3u : 0u, r;
-        uint32_t mode = ui.ses_ix == ses_current() || !ses_current() ? (ui.ses_edit ? ui.ses_val : sig_mode)
-                                                                    : ses_mode_of(ui.ses_ix);
-        fmt_int(n, ui.ses_ix);
-        CV_AREA(0, 0, 240, 52, C_BLACK) {
-            int32_t w = text_w(&FONT_S, "SESSION") + 12 + text_w(&FONT_L, n), x = (240 - w) / 2;
-            x = cv_text(x, (52 - FONT_S.h) / 2 + 4, &FONT_S, "SESSION", C_SES);
-            cv_text(x + 12, (52 - FONT_L.h) / 2, &FONT_L, n, has ? C_FULL : C_GREY);
+    if (ui.ses_page == SP_PAGE)
+        draw_ses_rows();
+    else if (ui.ses_page == SP_ASK)
+        draw_ses_ask();
+    else if (ui.ses_page == SP_COPY) {           /* the slot to copy to, very large */
+        char t[16] = "SESSION ", n[8];
+        fmt_int(t + 8, (int32_t)ui.ses_ix);
+        fmt_int(n, (int32_t)ui.ses_tgt);
+        ses_title(t, ses_col(ui.ses_ix));
+        CV_AREA(0, 55, 240, 185, C_BLACK) {
+            cv_text_c(8, &FONT_S, "COPY TO", C_SES);
+            cv_text_c(48, &FONT_XL, n, ses_has(ui.ses_tgt) ? C_FULL : C_WHITE);
         }
-        for (r = 0; r < 4u; r++) {
-            uint32_t row = top + r;
-            int on = row == ui.ses_row, ok = row == SR_BACK || row == SR_SAVE || row == SR_LOAD ||
-                                                (row == SR_MODE ? mode < SM_N : has);
-            const char *t = row == SR_LOAD && !has ? "NEW" : row == SR_MODE ? (mode == SM_LANES ? "LANES" : mode < SM_N ? "MESH" : "-")
-                                                                            : ROW[row];
-            uint16_t bg = on ? (ui.ses_edit && row == SR_MODE ? C_SES : C_WHITE) : C_BLACK;
-            uint16_t fg = on ? C_BLACK : !ok ? C_GREY : row == SR_MODE ? C_SES : C_WHITE;
-            CV_AREA(0, 52 + 47 * r, 240, 47, bg)
-                cv_text_c((47 - FONT_L.h) / 2, &FONT_L, t, fg);
-        }
-        return;
-    }
-    {
-        const char *t = ui.ses_page == SP_COPY ? "COPY TO"
-                      : ui.ses_page != SP_ASK ? "SESSIONS"
-                      : ui.ses_ask == AK_DEL ? "DELETE?" : ui.ses_ask == AK_COPY ? "COPY OVER?"
-                      : ui.ses_over ? "OVERWRITE?" : "SAVE NEW";
-        int warn = ui.ses_page == SP_ASK && (ui.ses_over || ui.ses_ask == AK_DEL || ui.ses_ask == AK_COPY);
-        CV_AREA(0, 0, 240, 52, C_BLACK)
-            cv_text_c((52 - FONT_M.h) / 2, text_w(&FONT_M, t) <= 236 ? &FONT_M : &FONT_S, t, warn ? C_FULL : C_SES);
-    }
-    fmt_int(n, ui.ses_page == SP_ASK ? ui.ses_new : ui.ses_page == SP_COPY ? ui.ses_tgt : ui.ses_ix);
-    CV_AREA(0, 52, 240, 112, C_BLACK)
-        cv_text_c(8, &FONT_XL, n, ui.ses_page == SP_ASK ? (ui.ses_over || ui.ses_ask == AK_DEL ? C_FULL : C_WHITE)
-                                : ui.ses_page == SP_COPY ? (ses_has(ui.ses_tgt) ? C_FULL : C_WHITE)
-                                : has ? C_FULL : C_GREY);
-    CV_AREA(0, 164, 240, 76, C_BLACK) {
-        if (ui.ses_page == SP_ASK)
-            draw_noyes(ui.ses_yes);
-        else if (ui.ses_page == SP_COPY)
-            cv_text_c(20, &FONT_M, ses_has(ui.ses_tgt) ? "IN USE" : "EMPTY", ses_has(ui.ses_tgt) ? C_FULL : C_GREY);
-        else if (ui.ses_ix == ses_current())
-            cv_text_c(20, &FONT_M, has ? "LOADED" : "CHOSEN", C_OK);
-        else if (!has)
-            cv_text_c(20, &FONT_M, ses_room() ? "EMPTY" : "NO ROOM", C_GREY);
-    }
+    } else
+        draw_ses_list();
 }
 /* the SNAPSHOTS page: 1 .. 16 in four rows of four (as the white keys have them) -- holding a state, filled (the one
  * last stored or recalled in white); empty, a grey frame; the one framed in white (PRESETS, a key) */
@@ -1790,7 +1964,7 @@ static void draw_mod_page(void)
 
 static void ui_draw(void)
 {
-    uint32_t l, n = 0, mods[NGEN], all;
+    uint32_t l, n = 0, mods[NGEN];
     if (draw_flash())
         return;
     if (draw_link())
@@ -1846,21 +2020,10 @@ static void ui_draw(void)
         ui.force = 0;
         return;
     }
-    if (ui.shown_page != 0u) {                   /* back to playing: only the gaps between the parts painted (each
-                                                  * part paints itself whole: no clear first) */
+    if (ui.shown_page != 0u)                     /* back to playing: each part paints itself whole, the
+                                                  * screen covered by them (no clear first) */
         ui.force = 1;
-        lcd_fill(0, TOP_H, 240, GEN_Y - TOP_H, C_BLACK);
-        lcd_fill(0, GEN_Y + GEN_H, 240, FXR_Y - GEN_Y - GEN_H, C_BLACK);
-        lcd_fill(0, FXR_Y + NFX * FXR_H, 240, 240 - FXR_Y - NFX * FXR_H, C_BLACK);
-        for (l = 0; l <= NGEN; l++)              /* (between the generators' blocks, and at the edges) */
-            lcd_fill(l * GEN_P >= 1u ? l * GEN_P - 1u : 0u, GEN_Y, l * GEN_P >= 1u && l < NGEN ? 2u : 1u, GEN_H, C_BLACK);
-    }
     ui.shown_page = 0;
-    all = ui.force;                              /* (forced: every part owed, the tiles all in this frame; else the
-                                                  * tiles that changed, six a frame) */
-    if (ui.force)
-        for (l = 0; l < NINST; l++)
-            ui.shown_tile[l] = -1;
     draw_top();
     for (l = 0; l < NGEN; l++) {
         int32_t k = gen_key(l);
@@ -1871,24 +2034,27 @@ static void ui_draw(void)
         }
     }
     for (l = 0; l < NFX; l++) {
-        int32_t k = row_key(l);
-        if (ui.force || k != ui.shown_row[l]) {   /* (a row changed: its frame, its gaps, its tiles at once) */
-            uint32_t j;
-            row_clear(l);
-            draw_row(l, k);
-            all = 1;
+        int32_t k = row_key(l), tk[FX_N];
+        uint32_t j;
+        for (j = 0; j < FX_N; j++)
+            tk[j] = tile_key(l * FX_N + j, mods);
+        if (ui.force || k != ui.shown_row[l]) {   /* (a lane changed: all of it at once) */
+            draw_lane(l, 0, 0, 240, LANE_H, k, tk);
             ui.shown_row[l] = k;
             for (j = 0; j < FX_N; j++)
-                ui.shown_tile[l * FX_N + j] = -1;
+                ui.shown_tile[l * FX_N + j] = tk[j];
+            continue;
         }
-    }
-    for (l = 0; l < NINST; l++) {
-        int32_t k = tile_key(l, mods);
-        if (k != ui.shown_tile[l] && (all || n < 6u)) {   /* (a whole redraw: every tile at once) */
-            draw_tile(l, k);
-            ui.shown_tile[l] = k;
-            n++;
-        }
+        for (j = 0; j < FX_N; j++)               /* (else the sections that changed, six a frame) */
+            if (tk[j] != ui.shown_tile[l * FX_N + j] && n < 6u) {
+                uint32_t ln = lane_n(k);
+                if (j < ln) {
+                    int32_t pitch = 234 / (int32_t)ln;
+                    draw_lane(l, 3 + (int32_t)j * pitch + 5, PIPE_Y0, pitch - 10, PIPE_Y1 - PIPE_Y0, k, tk);
+                }
+                ui.shown_tile[l * FX_N + j] = tk[j];
+                n++;
+            }
     }
     ui.force = 0;
 }

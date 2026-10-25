@@ -17,7 +17,7 @@ build/host check
 build/host sustain
 build/host fxtails | tail -1
 build/host tails 24 | tail -1
-build/host mtails | tail -1
+build/host mtails > build/mtails.txt || { cat build/mtails.txt; exit 1; }; tail -1 build/mtails.txt
 build/host flows
 build/host looper
 build/host rewire

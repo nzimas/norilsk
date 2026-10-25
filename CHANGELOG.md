@@ -2,6 +2,21 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 29 (2026-10-25): LANES by default; the session pages redrawn; the main view as a place
+
+- **LANES is the default**: at power-on and in a new session. Sessions saved as MESH load as MESH.
+- **The session pages, redrawn as Bigorna's**: the list four to a page, SESSION n on each row, the chosen row white,
+  the loaded one marked at its right, the saved ones white, the empty grey. A session's page has a title and rules
+  between its parts: BACK; LOAD (NEW), SAVE, COPY, DELETE (in red); then the settings -- MODE, its value (LANES or
+  MESH) at the right of the row, in a white field while it is being set.
+- **The main view as a place**: smog across the top, drifting a few pixels every two seconds, the load and the battery
+  on black over it; the three effect slots as rusty pipes underground, each effect a section between bolted flanges,
+  its name on a dark plate, a band under it in the colours of the generators feeding it, the pipe glowing hotter as
+  sound passes, grey and cold when the slot is muted; the three generators as brick furnaces at the foot, the fire in
+  the mouth in the generator's colour, brighter as it sounds, dark with a rim when muted. The chosen slot framed in
+  white; the looper's marks and a link's band as before. The textures come from a hash of each pixel's place: a
+  section is redrawn alone, as before, and matches a whole repaint pixel for pixel (`host paint`).
+
 ## Build 28 (2026-10-25): MESH and LANES; Bigorna's session pages
 
 - **A session's MODE: MESH or LANES.** MESH is the signal flow there was: any generator into any effect, effects across
@@ -9,7 +24,7 @@ From build 5 the releases carry build numbers, not versions: build 5 follows 0.0
   its head with a small dry share, no cables between lanes, the lanes centre, left, right; HOME on a generator draws
   its lane's chain with it -- the chain is part of the patch -- and HOME on an effect slot or REWIRE stays within the
   lane. Turning a session to LANES rewires it and its snapshots into lanes, nothing redrawn. Kept with the session;
-  older sessions, and the FM-1 at power-on, are MESH. Test: `host lanes`.
+  older sessions, and the FM-1 at power-on, are MESH (build 29: LANES). Test: `host lanes`.
 - **The sessions are handled as Bigorna's**: SHIFT + SAVE, the list; SAVE, a session's page -- BACK, LOAD (NEW on an
   empty slot), SAVE, COPY, DELETE, MODE -- PRESETS through the rows, SAVE runs one, SHIFT + SAVE a level back; saving
   over another session, copying over one and deleting ask first. Test: `host sespage`.

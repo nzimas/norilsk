@@ -491,7 +491,6 @@ static void morph_poll(void)
  * lanes -- each generator into its own effect slot alone, no cables between slots, the slots centre, left, right --
  * nothing redrawn; and so are the session's snapshots (each recalled is segregated too). Turned to MESH: nothing
  * changes, what HOME draws from then on may go anywhere. Returns 0 if a slot was busy (the rest done; again to finish) */
-static const int8_t LANE_PAN[NFX] = {0, -14, 14};
 static void st_lanes(st_t *t)
 {
     uint32_t l, k;
@@ -1247,7 +1246,7 @@ static void ses_fresh(uint32_t num)
     }
     for (l = 0; l < NFX; l++) {
         fx_lvl[l] = 20 - 2;
-        fx_pan[l] = (int8_t)((int32_t)l * 10 - 10);
+        fx_pan[l] = LANE_PAN[l];                         /* (a clean slate is LANES) */
         fx_mute[l] = 0;
     }
     for (l = 0; l < 4u; l++) {
@@ -1270,7 +1269,7 @@ static void ses_fresh(uint32_t num)
     snap_pend.i = -1;
     morph.on = 0;
     gen_fine = fx_fine = 0;
-    sig_mode = SM_MESH;                                  /* (a clean slate: MESH, as at power-on) */
+    sig_mode = SM_LANES;                                 /* (a clean slate: LANES, as at power-on -- build 29) */
     ses.current = (uint16_t)num;
     ui.force = 1;
 }

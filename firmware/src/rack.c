@@ -1245,7 +1245,8 @@ static uint8_t draw_path;
  * into its head, no cables between lanes, the lanes centre, left, right; HOME on a generator draws its lane's chain
  * with it, so the chain is part of the patch. Within a lane the outs to the master are still drawn and rewired */
 enum { SM_MESH, SM_LANES, SM_N };
-static uint8_t sig_mode;
+static uint8_t sig_mode = SM_LANES;      /* (build 29: LANES the default -- at power-on and in a new session) */
+static const int8_t LANE_PAN[3] = {0, -14, 14};   /* (the lanes: centre, left, right) */
 /* what each effect's values do, for the paths' leaning (RM_PNAME, mod.c) */
 enum { VR_NONE, VR_DRIVE, VR_TONE, VR_SPACE, VR_DAMP, VR_BREAK, VR_BITS };
 static const uint8_t RM_ROLE[NKIND][4] = {
@@ -1490,7 +1491,8 @@ static void rack_init(uint32_t seed)
         fx_phase[s] = FS_ON;
         fx_mute[s] = 0;
         fx_lvl[s] = 20 - 2;
-        fx_pan[s] = (int8_t)((int32_t)s * 10 - 10);   /* left, middle, right */
+        fx_pan[s] = sig_mode == SM_LANES ? LANE_PAN[s] : (int8_t)((int32_t)s * 10 - 10);   /* (MESH: left, middle,
+                                                                                          * right) */
         fx_g[s] = fx_gl[s] = fx_gr[s] = 0;
         fx_gate[s] = Q15;
         fx_idle[s] = 0;

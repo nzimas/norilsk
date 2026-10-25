@@ -109,13 +109,15 @@ dark.
 
 ## The screen
 
-Made for low vision: few words, very large, high contrast. At the top, the audio's load at the left and the battery at
-the right. Under it the three generators as large numbered blocks in their colours (red, blue, green), the chosen one
-framed in white. Under them the three effect slots, a row each, their effects as named tiles: FLT filter, FLD fold, MU
-mulaw, SHF shift, MDL modal, STR string, VOX vowel, DLY delay, TAP tape, RVS reverse, SPR spring, REV reverb, GLT
-glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank. Each tile is bordered in the colours of the
-generators cabled into it; the tiles the chosen generator feeds are filled with its colour; a tile brightens as sound
-passes through it; a muted row is dark. No cables are drawn. KNOB 1 shows its value on a dial over the whole screen.
+Made for low vision: few words, very large, high contrast. The main view is a place. At the top, smog, drifting
+slowly, the audio's load at the left and the battery at the right on black. Under the ground, the three effect slots
+as rusty pipes, one above another, each effect a section between bolted flanges, its name on a dark plate: FLT filter,
+FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, DLY delay, TAP tape, RVS reverse, SPR spring, REV
+reverb, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank. Under each name a band in the
+colours of the generators feeding it; the plates the chosen generator feeds are filled with its colour; a section
+glows hotter as sound passes through it; a muted pipe is cold grey. At the foot, the three generators as brick
+furnaces, the fire in the mouth in their colours (red, blue, green), brighter as they sound, dark when muted. The chosen
+slot is framed in white. No cables are drawn. KNOB 1 shows its value on a dial over the whole screen.
 
 ## The generators
 
@@ -184,8 +186,8 @@ A session's MODE (its page, SHIFT + SAVE) sets how the signal runs:
   generator enters and which effects also go out to the master. HOME held draws the three generators and their lanes.
 
 Turned to LANES, a session is rewired, nothing redrawn: each generator into its own lane, the cables between lanes
-cut, its snapshots likewise. Turned back to MESH, nothing changes until something is drawn. Sessions saved before
-build 28 are MESH.
+cut, its snapshots likewise. Turned back to MESH, nothing changes until something is drawn. LANES is the default (build
+29): at power-on and in a new session. Sessions saved before build 28 are MESH.
 
 ## The paths
 
