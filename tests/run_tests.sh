@@ -28,6 +28,7 @@ build/host backup
 build/host morph
 build/host ends
 build/host hiss
+build/host recall
 build/host paint | tail -1
 build/host cores
 build/host modules build/sounds > build/sounds/modules.txt

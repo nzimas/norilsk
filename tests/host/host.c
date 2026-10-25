@@ -1226,6 +1226,11 @@ static void st_norm(st_t *t)                             /* (what may differ and
     uint32_t l;
     for (l = 0; l < NFX; l++)
         t->x[l].f.serial = 0;
+    for (l = 0; l < NGEN; l++) {
+        uint32_t k;
+        for (k = t->g[l].g.nent; k < NENT; k++)
+            t->g[l].g.ent[k] = 0;
+    }
 }
 static int st_same(const st_t *a, const st_t *b)
 {
@@ -2048,6 +2053,36 @@ static int cmd_trip(void)
     return fails ? 1 : 0;
 }
 
+/* a snapshot recalled at once while a slot is still taking the last change (SES_BUSY then): every part given in the
+ * frames that follow, none left at the snapshot before (build 15) */
+static int cmd_recall(void)
+{
+    int fails = 0;
+    uint32_t sd, l;
+    for (sd = 0; sd < 12u; sd++) {
+        st_t now;
+        ends_fresh(9100u + sd * 37u);
+        snap_store(0);                                   /* A */
+        for (l = 0; l < NSLOT; l++) {
+            press(SLOT_BTN[l], 50);
+            press(B_HOME, 50);
+        }
+        fw_run(60);
+        snap_store(1);                                   /* B: every slot anew */
+        ui.morph = 0;
+        snap_recall(0);                                  /* A, then B before the slots have taken A */
+        snap_recall(1);
+        trip_frames(100);
+        st_capture(&now);
+        if (!st_same(&now, &snap.s[1])) {
+            printf("FAIL recall seed %u: B recalled during A's change, not all of it taken\n", 9100u + sd * 37u);
+            fails++;
+        }
+    }
+    printf("recall: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 /* the backup (backup.c): the list, every record read back in pieces as the flash holds it, the writes refused */
 static uint8_t bk_got[4096];
 static uint32_t bk_gotn;
@@ -2208,6 +2243,49 @@ static int replay_load(const char *path)
         return printf("replay: %s (%u B) does not load\n", path, n), -1;
     return (int)num;
 }
+static void replay_dbg(const char *what, uint32_t i, int rc)
+{
+    uint32_t l, k;
+    st_t now;
+    st_capture(&now);
+    printf("  %s %u: rc %d; ms %u;", what, i + 1u, rc, fm1_ms);
+    for (l = 0; l < NGEN; l++)
+        printf(" gen %u %s (pub %u use %u)", l + 1u, memcmp(&now.g[l].g, &snap.s[i].g[l].g, sizeof now.g[l].g) ? "OTHER" : "ok",
+               g_pub[l], g_use[l]);
+    for (l = 0; l < NGEN; l++) {
+        const gen_keep_t *a = &now.g[l].g, *b = &snap.s[i].g[l].g;
+        if (!memcmp(a, b, sizeof *a))
+            continue;
+        printf("\n   gen %u now/snap: pseed %08X/%08X dseed %08X/%08X gain %d/%d send %d/%d dry %d/%d fam %u/%u path %u/%u"
+               " gen %u/%u scene %u/%u nent %u/%u ent %u.%u.%u/%u.%u.%u x %u,%u,%u/%u,%u,%u drawn %u/%u", l + 1u,
+               a->pseed, b->pseed, a->dseed, b->dseed, a->gain, b->gain, a->send, b->send, a->dry, b->dry, a->family,
+               b->family, a->path, b->path, a->gen, b->gen, a->scene, b->scene, a->nent, b->nent, a->ent[0], a->ent[1],
+               a->ent[2], b->ent[0], b->ent[1], b->ent[2], a->xsrc, a->xkind, a->xdepth, b->xsrc, b->xkind, b->xdepth,
+               a->drawn, b->drawn);
+    }
+    printf("\n   voices:");
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding)
+            printf(" [slot %u dsg %u gate %u fade %u pend %u latched %u xf %u]", vox[k].slot, vox[k].dsg, vox[k].gate,
+                   vox[k].fade, vox[k].pend, vox[k].latched, vox[k].xf);
+    printf("\n");
+}
+static void replay_latch(void)                       /* LATCH=all: a note latched on each generator with none */
+{
+    uint32_t l;
+    if (!getenv("LATCH"))
+        return;
+    for (l = 0; l < NGEN; l++)
+        if (!ui.latch[l]) {
+            press(SLOT_BTN[l], 50);
+            key(2u + 2u * l, 1);
+            key(KEY_SHIFT, 1);
+            ui_input();
+            key(KEY_SHIFT, 0);
+            key(2u + 2u * l, 0);
+        }
+    press(SLOT_BTN[0], 50);
+}
 static int cmd_replay(int argc, char **argv)
 {
     uint32_t from = argc > 3 ? (uint32_t)atoi(argv[3]) - 1u : 2u, to = argc > 4 ? (uint32_t)atoi(argv[4]) - 1u : 1u;
@@ -2219,7 +2297,7 @@ static int cmd_replay(int argc, char **argv)
         return printf("usage: host replay SESSION.bin [FROM TO [FRAMES]]  (snapshots 1..16; FRAMES at TO before going back)\n"), 1;
     if ((num = replay_load(argv[2])) < 0)
         return 1;
-    morph_t = ui.morph;
+    morph_t = getenv("MORPH") ? (uint32_t)atoi(getenv("MORPH")) : ui.morph;   /* (half seconds) */
     printf("replay: session %d, morph %u.%u s, snapshots used %04X, current %d\n", num, morph_t / 2u, morph_t % 2u * 5u,
            snap.used, snap.cur + 1);
     for (l = 0; l < NGEN; l++)
@@ -2236,15 +2314,52 @@ static int cmd_replay(int argc, char **argv)
         key(KEY_SHIFT, 0);
         key(0, 0);
     }
+    replay_latch();
+    if (getenv("RDBG")) {                                /* the two snapshots, byte by byte where they differ */
+        const uint8_t *a = (const uint8_t *)&snap.s[to], *b = (const uint8_t *)&snap.s[from];
+        uint32_t i;
+        printf("snapshots %u / %u differ at:", to + 1u, from + 1u);
+        for (i = 0; i < sizeof(st_t); i++)
+            if (a[i] != b[i])
+                printf(" %u(%u/%u)", i, a[i], b[i]);
+        printf("\n  offsets: g %u (each %u) x %u (each %u) rvp %u dlp %u mod %u (each %u) scale %u\n",
+               (uint32_t)__builtin_offsetof(st_t, g), (uint32_t)sizeof(st_gen_t), (uint32_t)__builtin_offsetof(st_t, x),
+               (uint32_t)sizeof(st_fx_t), (uint32_t)__builtin_offsetof(st_t, rvp), (uint32_t)__builtin_offsetof(st_t, dlp),
+               (uint32_t)__builtin_offsetof(st_t, mod), (uint32_t)sizeof(mod_t), (uint32_t)__builtin_offsetof(st_t, scale));
+        printf("  fx_patch_t %u, e at %u\n", (uint32_t)sizeof(fx_patch_t), (uint32_t)__builtin_offsetof(fx_patch_t, e));
+    }
     ui.morph = 0;
+    l = (uint32_t)snap_recall(to);
+    printf("recall %u: rc %d, cur %d, morph %d; fx6 pub %u use %u kinds %u %u\n", to + 1u, (int)l, snap.cur + 1, morph.on,
+           f_pub[2], f_use[2], fbuf[2][f_pub[2]].e[0].kind, snap.s[to].x[2].f.e[0].kind);
+    fw_run(3);
+    printf("snapshot %u:\n", to + 1u);
+    for (l = 0; l < NGEN; l++)
+        print_gen(l);
+    for (l = 0; l < NFX; l++)
+        printf("  (fx %u lvl %d pan %d)", l + 4u, fx_lvl[l], fx_pan[l]), print_fx(l);
     snap_recall(from);
+    fw_run(3);
+    printf("snapshot %u:\n", from + 1u);
+    for (l = 0; l < NGEN; l++)
+        print_gen(l);
+    for (l = 0; l < NFX; l++)
+        printf("  (fx %u lvl %d pan %d)", l + 4u, fx_lvl[l], fx_pan[l]), print_fx(l);
     trip_frames(600);
     fw_frames = 0;
     ui.morph = (uint8_t)morph_t;
-    snap_recall(to);
+    l = (uint32_t)snap_recall(to);
+    if (getenv("RDBG"))
+        replay_dbg("to", to, (int)l);
     trip_frames(settle ? settle : morph_t * 50u + 600u);
-    snap_recall(from);
-    trip_frames(morph_t * 50u + 600u);
+    if (getenv("RDBG"))
+        replay_dbg("at to", to, 0);
+    l = (uint32_t)snap_recall(from);
+    if (getenv("RDBG"))
+        replay_dbg("back", from, (int)l);
+    trip_frames(morph_t * 50u + 200u);
+    fw_frames = 0;                                       /* (the last 4 s) */
+    trip_frames(400);
     wav_write2("build/replay_trip.wav", wav2, fw_frames);
     st_capture(&sa);
     replay_loud(ma, pa);
@@ -2256,17 +2371,41 @@ static int cmd_replay(int argc, char **argv)
         key(KEY_SHIFT, 0);
         key(0, 0);
     }
+    replay_latch();
     ui.morph = 0;
     snap_recall(from);
+    trip_frames(200);
     fw_frames = 0;
-    trip_frames(600);
+    trip_frames(400);
     wav_write2("build/replay_direct.wav", wav2, fw_frames);
     replay_loud(mb, pb);
     printf("snapshot %u, after %u -> %u -> %u (dB):\n", from + 1u, from + 1u, to + 1u, from + 1u);
     replay_part("morphed", ma, pa);
     replay_part("direct", mb, pb);
-    if (!st_same(&sa, &snap.s[from]))
-        printf("  the state after the morphs is not snapshot %u's\n", from + 1u);
+    if (!st_same(&sa, &snap.s[from])) {
+        st_t x = sa, y = snap.s[from];
+        st_norm(&x);
+        st_norm(&y);
+        printf("  the state after the morphs is not snapshot %u's:", from + 1u);
+        for (l = 0; l < NGEN; l++)
+            if (memcmp(&x.g[l], &y.g[l], sizeof x.g[l]))
+                printf(" gen %u (sound %s, lvl %d/%d pan %d/%d mute %u/%u sends %u/%u %u/%u)", l + 1u,
+                       memcmp(&x.g[l].g, &y.g[l].g, sizeof x.g[l].g) ? "differs" : "same", x.g[l].lvl, y.g[l].lvl,
+                       x.g[l].pan, y.g[l].pan, x.g[l].mute, y.g[l].mute, x.g[l].rsend, y.g[l].rsend, x.g[l].dsend,
+                       y.g[l].dsend);
+        for (l = 0; l < NFX; l++)
+            if (memcmp(&x.x[l], &y.x[l], sizeof x.x[l]))
+                printf(" fx %u (effects %s, lvl %d/%d pan %d/%d mute %u/%u)", l + 4u,
+                       memcmp(&x.x[l].f, &y.x[l].f, sizeof x.x[l].f) ? "differ" : "same", x.x[l].lvl, y.x[l].lvl,
+                       x.x[l].pan, y.x[l].pan, x.x[l].mute, y.x[l].mute);
+        if (memcmp(x.rvp, y.rvp, 8))
+            printf(" master");
+        if (memcmp(x.mod, y.mod, sizeof x.mod))
+            printf(" lfos");
+        if (x.scale != y.scale || x.root != y.root)
+            printf(" scale");
+        printf("\n");
+    }
     return 0;
 }
 
@@ -2685,6 +2824,8 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "recall"))
+        return cmd_recall();
     if (!strcmp(argv[1], "backup"))
         return cmd_backup();
     if (!strcmp(argv[1], "replay"))

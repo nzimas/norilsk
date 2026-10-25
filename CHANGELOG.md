@@ -2,6 +2,19 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 16 (2026-10-25): a recall is never left half done
+
+- **A snapshot recalled while a slot is still taking the last change** (its fade and clearing, ~15 ms; or a voice
+  still on the sound about to be replaced) used to show BUSY and stop there: the slots that had not taken it kept the
+  snapshot before, sounding inside the new one. Now the rest is given in the frames that follow, until every part has
+  it (10 s at most). The same at a morph's end: after its 3 s of grace it went on as if done; now it keeps going until
+  it is. Test: `host recall` (twelve cases; all twelve failed before).
+- **A snapshot stored by build 14 held stale cable places** past a generator's last, so every recall took the
+  generator for changed and started its notes again (a break in the sound for nothing). They are ignored now.
+- Found with session 2 copied from the FM-1 (build 15): `host replay` of its 3 -> 2 -> 3 at morph times 0 .. 30 s,
+  back at once or while on its way, lands on snapshot 3 within 3 dB, each side and each band. Session 2 was saved with
+  MORPH OFF and a note latched only on generator 1.
+
 ## Build 15 (2026-10-25): the sessions read over USB
 
 - **The sessions can be copied to the computer**, to find what the morph leaves behind in session 2: Tonitor's backup

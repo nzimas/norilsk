@@ -230,11 +230,24 @@ static void morph_start(const st_t *to, uint32_t snap_i, uint32_t ms)
     gen_fine = (uint8_t)((1u << NGEN) - 1u);
     fx_fine = (uint8_t)((1u << NFX) - 1u);
 }
+/* A snapshot given at once that a slot could not take yet (its last change still under way, a voice still on the
+ * buffer to be written: SES_BUSY), or a morph's end that could not: given again every frame until every part has
+ * taken it (build 15: it was left half done, the slots not taken keeping the snapshot before) */
+static struct { int8_t i; uint32_t t0; } snap_pend = {-1, 0};
+#define SNAP_PEND_MS 10000u
+static void snap_pend_poll(void)
+{
+    if (snap_pend.i < 0)
+        return;
+    if (st_apply(&snap.s[snap_pend.i]) == SES_OK || (uint32_t)(fm1_ms - snap_pend.t0) > SNAP_PEND_MS)
+        snap_pend.i = -1;
+}
 /* the main loop, every frame: the morph a step on */
 static void morph_poll(void)
 {
     uint32_t el, l, k;
     int32_t u;
+    snap_pend_poll();
     if (!morph.on)
         return;
     el = fm1_ms - morph.t0;
@@ -334,8 +347,12 @@ static void morph_poll(void)
             ;
         if (k < morph.nw && el < morph.dur + 3000u)
             return;                              /* (a swap still on its way in: a moment more) */
-        if (st_apply(&morph.b) != SES_OK && el < morph.dur + 3000u)
-            return;
+        if (st_apply(&morph.b) != SES_OK) {
+            if (el < morph.dur + 3000u)
+                return;
+            snap_pend.i = (int8_t)morph.to;      /* (still not taken: given again until it is) */
+            snap_pend.t0 = fm1_ms;
+        }
         RING_PUBLISH();
         gen_fine = 0;
         fx_fine = 0;
@@ -350,6 +367,7 @@ static void snap_store(uint32_t i)
 {
     if (i >= NSNAP)
         return;
+    snap_pend.i = -1;
     st_capture(&snap.s[i]);
     snap.used |= (uint16_t)(1u << i);
     snap.cur = (int8_t)i;
@@ -358,6 +376,7 @@ static int snap_recall(uint32_t i)
 {
     if (i >= NSNAP || !((snap.used >> i) & 1u))
         return SES_FAIL;
+    snap_pend.i = -1;
     if (ui.morph) {                              /* (a morph time: it flows there) */
         morph_start(&snap.s[i], i, ui.morph * 500u);
         return SES_OK;
@@ -367,13 +386,19 @@ static int snap_recall(uint32_t i)
         gen_fine = fx_fine = 0;
     }
     snap.cur = (int8_t)i;
-    return st_apply(&snap.s[i]);
+    if (st_apply(&snap.s[i]) != SES_OK) {        /* (a slot not ready: the rest given in the frames to come) */
+        snap_pend.i = (int8_t)i;
+        snap_pend.t0 = fm1_ms;
+    }
+    return SES_OK;
 }
 static void snap_clear(uint32_t i)
 {
     if (i >= NSNAP)
         return;
     snap.used &= (uint16_t)~(1u << i);
+    if (snap_pend.i == (int8_t)i)
+        snap_pend.i = -1;
     if (snap.cur == (int8_t)i)
         snap.cur = -1;
 }
@@ -877,6 +902,7 @@ static int ses_load(uint32_t i)
     if (ss.err)
         return SES_FAIL;
     morph.on = 0;
+    snap_pend.i = -1;
     gen_fine = fx_fine = 0;
     ui.morph = (uint8_t)(g.morph <= MORPH_STEPS ? g.morph : 0);
     snap.used = g.snap_used;
@@ -952,6 +978,7 @@ static void ses_fresh(uint32_t num)
         new_patch(l, 0);
     memset(&snap, 0, sizeof snap);
     snap.cur = -1;
+    snap_pend.i = -1;
     morph.on = 0;
     gen_fine = fx_fine = 0;
     ses.current = (uint16_t)num;

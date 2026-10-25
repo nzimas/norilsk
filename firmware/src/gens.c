@@ -868,8 +868,8 @@ static void gen_keep(uint32_t l, gen_keep_t *k)
     k->path = p->gen.path;
     k->gen = p->gen.gen;
     k->scene = p->scene;
-    memcpy(k->ent, p->ent, sizeof k->ent);
     k->nent = p->nent;
+    memcpy(k->ent, p->ent, p->nent <= NENT ? p->nent : NENT);   /* (the places past nent: 0, whatever the patch held) */
     k->xsrc = p->xsrc;
     k->xkind = p->xkind;
     k->xdepth = p->xdepth;
@@ -885,10 +885,12 @@ static int gen_set_x(uint32_t l, const gen_keep_t *k, uint32_t xfade)
 {
     uint32_t b = g_use[l] ^ 1u, i, t0 = fm1_ms;
     gen_patch_t *p = &gbuf[l][b];
-    gen_keep_t now;
+    gen_keep_t now, want = *k;
     int same;
+    for (i = want.nent; i < NENT; i++)                   /* (a snapshot of build 14 may hold old places past nent) */
+        want.ent[i] = 0;
     gen_keep(l, &now);
-    if (!memcmp(&now, k, sizeof now))
+    if (!memcmp(&now, &want, sizeof now))
         return 1;
     same = gen_same_sound(&now, k);
     for (;;) {                                           /* (no voice may still play the buffer about to be written) */
