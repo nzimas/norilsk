@@ -30,23 +30,28 @@
  *   SPR  SPRING    a spring reverb: allpass chirps in a short tank, a resonance for its tone
  *   REV  REVERB    Tonitor's Dattorro plate, stereo */
 
-enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, RM_GLT, NKIND };
+enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, RM_GLT,
+       RM_CLD, RM_SCR, RM_RNG, RM_STV, RM_CHB, RM_BNK, NKIND };
 static const char *const RM_NAME[NKIND] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "DELAY",
-                                           "TAPE", "REVERSE", "SPRING", "REVERB", "GLITCH"};
+                                           "TAPE", "REVERSE", "SPRING", "REVERB", "GLITCH",
+                                           "CLOUD", "SCREAM", "RING", "STARVE", "CHEB", "BANK"};
 /* the values an effect comes back to (a draw moves them, as Vascular draws a processor's) */
 static const uint8_t RM_HOME[NKIND][4] = {
     {20, 55, 40, 30}, {45, 45, 20, 70}, {45, 60, 50, 30}, {40, 30, 70, 50}, {40, 55, 40, 50}, {35, 60, 40, 60},
     {50, 50, 50, 30}, {65, 40, 40, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55},
-    {50, 40, 35, 45}};
+    {50, 40, 35, 45},
+    {55, 45, 20, 50}, {50, 60, 45, 50}, {45, 50, 20, 60}, {60, 30, 35, 55}, {40, 50, 60, 60}, {40, 60, 30, 50}};
 /* .. and the bounds a draw keeps them in, so that every effect is heard: no band-pass at 15 kHz, no spring tuned where
  * the sound has nothing */
 static const uint8_t RM_LO[NKIND][4] = {
     {0, 35, 0, 0}, {10, 10, 0, 30}, {0, 30, 20, 0}, {0, 0, 0, 0}, {0, 15, 0, 20}, {0, 25, 0, 30},
-    {0, 0, 10, 0}, {20, 0, 0, 40}, {10, 0, 0, 0}, {0, 30, 0, 0}, {0, 0, 35, 10}, {20, 20, 0, 40}, {15, 0, 0, 0}};
+    {0, 0, 10, 0}, {20, 0, 0, 40}, {10, 0, 0, 0}, {0, 30, 0, 0}, {0, 0, 35, 10}, {20, 20, 0, 40}, {15, 0, 0, 0},
+    {10, 10, 0, 10}, {0, 25, 10, 10}, {0, 0, 0, 20}, {20, 0, 0, 20}, {0, 0, 20, 20}, {0, 25, 0, 10}};
 static const uint8_t RM_HI[NKIND][4] = {
     {100, 85, 80, 100}, {90, 90, 80, 100}, {100, 100, 100, 80}, {100, 90, 100, 100}, {100, 85, 100, 100}, {100, 95, 100, 100},
     {100, 100, 90, 80}, {100, 85, 100, 100}, {100, 100, 90, 85}, {100, 100, 80, 100}, {100, 100, 92, 60}, {100, 95, 100, 100},
-    {100, 90, 85, 100}};
+    {100, 90, 85, 100},
+    {100, 100, 100, 100}, {100, 92, 90, 100}, {100, 100, 90, 100}, {100, 70, 100, 100}, {100, 100, 100, 100}, {100, 95, 100, 100}};
 static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what MODAL and STRING are tuned to */
 
 /* AINL helpers the effects share; then the effects */
@@ -508,6 +513,237 @@ static void m_glt(const uint8_t *p, m_glt_t *s, int32_t *x)
     }
 }
 
+/* ---------------------------------------------- build 11: drastic ones --- */
+/* CLOUD -- a granular freezer (after Mutable Instruments' Clouds and Beads, MIT: the idea, not the code): the sound
+ * written into 0.74 s (8-bit mu-law at FS / 2) and read back as up to six Hann grains of SIZE (p0: 30 .. 250 ms),
+ * DENSITY a second (p1: 3 .. 60), each from a place drawn at random up to SPREAD back (p3: 0.05 .. 0.7 s), at the
+ * sound's own speed (never another pitch); FREEZE (p2 above its middle) stops the writing: the cloud turns over what it
+ * holds (and the slot's gate still closes it once no note sounds). The grains alone come out */
+#define CLD_N 16384u
+#define CLD_G 6u
+typedef struct {
+    uint8_t line[CLD_N];
+    uint32_t w, filled, gp[CLD_G], gw[CLD_G], gwinc[CLD_G];
+    int32_t next, prev;
+    uint8_t gon[CLD_G];
+    rnd_t r;
+} m_cld_t;
+static void m_cld(const uint8_t *p, m_cld_t *s, int32_t *x)
+{
+    uint32_t len = ms_samples2(30u + p[0] * 220u / 100u), rate = 3u + p[1] * 57u / 100u, iv = 22050u / rate;
+    uint32_t spread = ms_samples2(50u + p[3] * 650u / 100u), i, k, k2;
+    int frozen = p[2] >= 50;
+    int32_t norm, o0;
+    if (!s->r.s)
+        rnd_seed(&s->r, 0x434C44u ^ (uint32_t)(uintptr_t)s);
+    k2 = (iv << 15) / (3u * len);                        /* (as the voices' cloud: each grain at sqrt(8 / 3 O)) */
+    norm = clampi((int32_t)isqrt32((k2 > 65535u ? 65535u : k2) << 16) << 1, 4096, 2 * Q15);
+    for (i = 0; i + 1u < CTL; i += 2u) {
+        int32_t in = (x[i] + x[i + 1u]) >> 1, y = 0;
+        if (!frozen) {
+            s->line[s->w] = mu_enc8(clampi(in, -32767, 32767));
+            s->w = (s->w + 1u) & (CLD_N - 1u);
+            if (s->filled < CLD_N)
+                s->filled++;
+        }
+        if (--s->next <= 0 && s->filled > len + 64u) {   /* a grain: a free place, from somewhere behind */
+            for (k = 0; k < CLD_G && s->gon[k]; k++)
+                ;
+            if (k < CLD_G) {
+                uint32_t room = s->filled - len - 32u, back = len + 16u + (uint32_t)rnd_below(&s->r, (int32_t)(spread < room ? spread : room));
+                s->gp[k] = (s->w + CLD_N - back) & (CLD_N - 1u);
+                s->gw[k] = 0;
+                s->gwinc[k] = 0xFFFFFFFFu / len;
+                s->gon[k] = 1;
+            }
+            s->next = (int32_t)iv / 2 + rnd_below(&s->r, (int32_t)iv);
+        }
+        for (k = 0; k < CLD_G; k++)
+            if (s->gon[k]) {
+                uint32_t hi = s->gw[k] >> 24, was = s->gw[k];
+                int32_t hf = (int32_t)((s->gw[k] >> 9) & 0x7FFFu), w = HANN[hi] + (((HANN[hi + 1u] - HANN[hi]) * hf) >> 15);
+                y += mulq15(mu_dec8(s->line[s->gp[k]]), w);
+                s->gp[k] = (s->gp[k] + 1u) & (CLD_N - 1u);
+                s->gw[k] += s->gwinc[k];
+                if (s->gw[k] < was)
+                    s->gon[k] = 0;
+            }
+        y = mulq15(y, norm);
+        o0 = (s->prev + y) >> 1;
+        s->prev = y;
+        x[i] = o0;
+        x[i + 1u] = y;
+    }
+}
+
+/* SCREAM -- a saturated feedback network (a no-input mixer's howl, a feedback delay network after Jot and Stautner):
+ * four lines of prime lengths (SIZE, p0: 1 .. 23 ms, never gliding: a new size is a new length at once), mixed by a
+ * Hadamard matrix, each through a one-pole (TONE, p2) and a tanh, fed back by FEEDBACK (p1: up to 1.05 -- the tanh holds
+ * it) times the input's level followed (g x env / (env + k): silence lets it die). DRIVE (p3) into it. The lines out */
+#define SCR_N 1024u
+typedef struct { int16_t d[4][SCR_N]; uint32_t w; int32_t lp[4], env; } m_scr_t;
+static void m_scr(const uint8_t *p, m_scr_t *s, int32_t *x)
+{
+    static const uint16_t BASE[4] = {1013, 761, 557, 409};   /* (primes: no two lines in step) */
+    uint32_t i, k, len[4];
+    int32_t gmax = LV(0.6) + p[1] * (LV(0.45) / 100), tone = 2000 + p[2] * (30000 - 2000) / 100,
+            drive = 2048 + p[3] * (6 * 4096) / 100, g;
+    for (k = 0; k < 4u; k++)
+        len[k] = clampi((int32_t)(BASE[k] * (uint32_t)(4 + p[0] * 96 / 100) / 100u), 17, SCR_N - 1);
+    g = (int32_t)((uint32_t)gmax * (uint32_t)s->env / (uint32_t)(s->env + 600));   /* (once a block, 32 bits: the loop's
+                                                                                   * gain by the input's level) */
+    for (i = 0; i < CTL; i++) {
+        int32_t in = mulq12(x[i], drive), y[4], h[4], o;
+        s->env += (absi(x[i]) - s->env) >> 7;
+        for (k = 0; k < 4u; k++)
+            y[k] = s->d[k][(s->w + SCR_N - len[k]) & (SCR_N - 1u)];
+        h[0] = (y[0] + y[1] + y[2] + y[3]) >> 1;         /* (a 4 x 4 Hadamard, / 2: it keeps the energy) */
+        h[1] = (y[0] - y[1] + y[2] - y[3]) >> 1;
+        h[2] = (y[0] + y[1] - y[2] - y[3]) >> 1;
+        h[3] = (y[0] - y[1] - y[2] + y[3]) >> 1;
+        o = (y[0] + y[1] + y[2] + y[3]) >> 1;
+        for (k = 0; k < 4u; k++) {
+            s->lp[k] += mulz15(h[k] - s->lp[k], tone);
+            s->d[k][s->w] = (int16_t)clampi(tanh_q15(((k & 1u) ? -in : in) + mulz15(s->lp[k], g)), -32767, 32767);
+        }
+        s->w = (s->w + 1u) & (SCR_N - 1u);
+        x[i] = o;
+    }
+}
+
+/* RING -- a diode ring modulator (after Julian Parker's model, DAFx-11, as Mutable Instruments' Warps has it): a carrier
+ * fixed at FREQ (p0: 30 .. 1450 Hz), or (SELF, p2) the sound's own past (23 ms back) as its carrier; DIODE (p1) from the
+ * ideal product (clean sidebands) to the diodes' half-wave square law (leakage, grit); TONE (p3) a low-pass after */
+#define RNG_N 1024u
+typedef struct { uint8_t line[RNG_N]; uint32_t w, ph; int32_t lp; uint8_t odd; } m_rng_t;
+AINL int32_t rng_d(int32_t v) { return v > 0 ? (v * v) >> 15 : 0; }   /* a diode: square law above its knee, Q15 */
+static void m_rng(const uint8_t *p, m_rng_t *s, int32_t *x)
+{
+    int32_t hz8 = (int32_t)((30u * 256u * exp2_q16(p[0] * (558 * 65536 / 10000))) >> 16), dio = p[1] * (Q15 / 100),
+            self = p[2] * (Q15 / 100), tone = 3000 + p[3] * (31000 - 3000) / 100;
+    uint32_t inc = hz8_inc(hz8), i;
+    for (i = 0; i < CTL; i++) {
+        int32_t xv = clampi(x[i], -32767, 32767), c = sin_ph(s->ph), a, b, ideal, dd, y;
+        s->ph += inc;
+        if (self) {                                      /* (its own past as the carrier, 23 ms back, lifted) */
+            int32_t past = mu_dec8(s->line[(s->w + RNG_N - 507u) & (RNG_N - 1u)]);
+            c += mulq15(clampi(past * 4, -32767, 32767) - c, self);
+        }
+        if (s->odd ^= 1u) {
+            s->line[s->w] = mu_enc8(xv);
+            s->w = (s->w + 1u) & (RNG_N - 1u);
+        }
+        ideal = mulq15(xv, c) * 2;
+        a = (c + xv) >> 1;
+        b = (c - xv) >> 1;
+        dd = (rng_d(a) - rng_d(b) - rng_d(-b) + rng_d(-a)) * 4;
+        y = ideal + mulq15(dd - ideal, dio);
+        s->lp += mulz15(y - s->lp, tone);
+        x[i] = s->lp;
+    }
+}
+
+/* STARVE -- a starved, gated fuzz (after the Fuzz Factory's circuit): GAIN (p0: x 10 .. x 1000, 20 .. 60 dB) into an
+ * asymmetric clipper (soft above, hard below), its BIAS (p2) pulled down as the sound gets louder (a starved supply);
+ * a GATE (p1) on the sound's level with hysteresis, chopping it to nothing below -- the velcro sputter, the tearing;
+ * TONE (p3) a low-pass after. Its level brought back to the sound's */
+typedef struct { int32_t env, lp, open, dc; } m_stv_t;
+static void m_stv(const uint8_t *p, m_stv_t *s, int32_t *x)
+{
+    int32_t g = (int32_t)((10u * exp2_q16(p[0] * (664 * 65536 / 10000))) >> 6), thr = p[1] * 33,   /* (gain Q10; to ~-20 dB) */
+            bias = p[2] * (LV(0.5) / 100), tone = 1400 + p[3] * (30000 - 1400) / 100;
+    uint32_t i;
+    for (i = 0; i < CTL; i++) {
+        int32_t xv = x[i], v, y;
+        s->env += (absi(xv) - s->env) >> (absi(xv) > s->env ? 4 : 9);
+        if (s->open ? s->env < thr : s->env > thr + (thr >> 1) + 8)
+            s->open ^= 1;                                /* (hysteresis: it sputters at the threshold, not chatters) */
+        v = (int32_t)clampi(((int64_t)xv * g) >> 10, -4 * Q15, 4 * Q15) + bias - mulq15(s->env, LV(0.6));
+        y = v > 0 ? tanh_q15(v) : clampi(v, -LV(0.6), 0);
+        y = s->open ? mulq15(y, LV(0.22)) : 0;          /* (its level near the sound's) */
+        s->dc += (y - s->dc) >> 10;                      /* (the clipper's lean taken off) */
+        s->lp += mulz15(y - s->dc - s->lp, tone);
+        x[i] = s->lp;
+    }
+}
+
+/* CHEB -- a harmonic re-voicer (after Airwindows' Pafnuty, MIT: the idea): the sound brought to a level (DRIVE, p2:
+ * 0.3 .. 0.98 of full), through a sum of Chebyshev polynomials T1 .. T8 -- each makes its harmonic of a sine, and of a
+ * texture a dense, fixed intermodulation -- weighted by SHAPE (p0: four sets, crossed) and ODD (p1: the even ones down,
+ * or the odd), then brought back to the sound's level; TONE (p3) a low-pass after */
+typedef struct { int32_t env, lp; } m_chb_t;
+static const int16_t CHB_W[4][8] = {   /* Q15 weights of T1 .. T8 */
+    {16384, 9830, 6554, 4915, 3277, 3277, 1638, 1638},   /* rich: everything, falling */
+    {19661, 0, 11469, 0, 8192, 0, 4915, 0},              /* hollow: the odd ones */
+    {6554, 0, 0, 9830, 0, 9830, 0, 9830},                /* glass: high ones only */
+    {9830, 13107, 0, 9830, 0, 6554, 6554, 0}};           /* growl: the low even ones */
+static void m_chb(const uint8_t *p, m_chb_t *s, int32_t *x)
+{
+    int32_t w[8], a = p[0] * 3, set = a / 100, fr = (a % 100) * (Q15 / 100), odd = p[1] * (Q15 / 100), tgt, gain, inv;
+    int32_t tone = 3000 + p[3] * (31000 - 3000) / 100;
+    uint32_t i, k;
+    for (k = 0; k < 8u; k++) {
+        int32_t v = set >= 3 ? CHB_W[3][k] : CHB_W[set][k] + mulq15(CHB_W[set + 1][k] - CHB_W[set][k], fr);
+        w[k] = (k & 1u) ? mulq15(v, Q15 - odd) : mulq15(v, Q15 / 2 + odd / 2);   /* (k odd: T2, T4 ..: the even harmonics) */
+    }
+    tgt = LV(0.3) + p[2] * (LV(0.68) / 100);
+    gain = (int32_t)(((uint32_t)tgt << 12) / (uint32_t)(s->env > 64 ? s->env : 64));   /* (once a block: to the level, Q12) */
+    gain = clampi(gain, 4096 / 4, 4096 * 64);
+    inv = (int32_t)(((uint32_t)clampi(s->env, 64, 65535) << 15) / (uint32_t)tgt);   /* (and back) */
+    for (i = 0; i < CTL; i++) {
+        int32_t xn = clampi(mulq12(x[i], gain), -32767, 32767), t0 = Q15, t1 = xn, y = mulq15(w[0], t1), t2;
+        s->env += (absi(x[i]) - s->env) >> 8;
+        for (k = 1; k < 8u; k++) {                       /* T(k+1) = 2 x T(k) - T(k-1) */
+            t2 = clampi(2 * mulq15(xn, t1) - t0, -32767, 32767);
+            y += mulq15(w[k], t2);
+            t0 = t1;
+            t1 = t2;
+        }
+        y = mulq15(clampi(y, -2 * Q15, 2 * Q15), inv) * 3;   /* (x 3: the sum of weights under one is brought back up) */
+        s->lp += mulz15(y - s->lp, tone);
+        x[i] = s->lp;
+    }
+}
+
+/* BANK -- an inharmonic resonator bank (after Mutable Instruments' Rings and Elements, MIT: the idea): eight modes of a
+ * bar, a plate, a bell or a membrane (SET, p2), the lowest in an octave of the scale's root (PITCH, p0), ringing at Q
+ * (p1: 30 .. 400), the upper ones as bright as BRIGHT (p3) lets them. A texture into it comes out a struck, a bowed, a
+ * ringing body. Tuned once a block when a value moves */
+static const uint16_t BNK_R[4][8] = {   /* the modes' ratios to the lowest, x 100 */
+    {100, 276, 540, 893, 1334, 1863, 2481, 3188},       /* a free bar */
+    {100, 159, 214, 230, 292, 316, 365, 409},           /* a plate */
+    {100, 250, 300, 433, 500, 580, 667, 800},           /* a bell */
+    {100, 159, 214, 230, 265, 292, 316, 352}};          /* a membrane */
+typedef struct { res_c c[8]; res_s r[8]; int32_t key, lv[8], mk; uint8_t nm; } m_bnk_t;
+static void m_bnk(const uint8_t *p, m_bnk_t *s, int32_t *x)
+{
+    int32_t key = p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24 | (rack_root & 127) << 25;
+    uint32_t i, k;
+    if (key != s->key || !s->nm) {
+        int32_t note = 36 + (rack_root % 12) + 12 * (p[0] * 3 / 101), hz8 = note_hz8(note, 0), set = p[2] * 3 / 100;
+        int32_t q8 = (int32_t)((30u * 256u * exp2_q16(p[1] * (374 * 65536 / 10000))) >> 16);   /* 30 .. 400 */
+        s->nm = 0;
+        s->mk = 256 + q8 * 3 / 2;                        /* (make-up, Q8, with the Q: a narrower band passes less of a
+                                                          * texture -- x 46 at Q 30 .. x 600 at Q 400, then a tanh) */
+        for (k = 0; k < 8u; k++) {
+            int32_t f = (int32_t)((uint32_t)hz8 * BNK_R[set][k] / 100u);   /* (32 bits: < 9e8) */
+            if (f > (15000 << 8))
+                break;
+            res_coef(&s->c[k], f, q8);
+            s->lv[k] = k ? Q15 * 6 / 10 - mulq15(Q15 * 6 / 10, Q15 - p[3] * (Q15 / 100)) * (int32_t)k / 8 : Q15 * 7 / 10;
+            s->nm = (uint8_t)(k + 1u);
+        }
+        s->key = key;
+    }
+    for (i = 0; i < CTL; i++) {
+        int32_t in = x[i] >> 1, y = 0;
+        for (k = 0; k < s->nm; k++)
+            y += mulq15(res_run(&s->r[k], &s->c[k], in), s->lv[k]);
+        x[i] = mulq15(tanh_q15(clampi((int32_t)(((int64_t)y * s->mk) >> 8), -8 * Q15, 8 * Q15)), LV(0.6));   /* (a ringing
+                                                                                                              * peak held) */
+    }
+}
+
 /* ------------------------------------------------------------- SPRING --- */
 /* the input through a resonance (p3: 400 Hz .. 5.9 kHz, the spring's tone), into a tank of 30 .. 120 ms (p1) whose
  * loop carries a chain of six short allpasses (the chirps; p0: their gain, 0.3 .. 0.75) and a low-pass, its gain
@@ -576,6 +812,12 @@ static uint32_t rm_size(uint32_t k)
     case RM_RVS: n = sizeof(m_rvs_t); break;
     case RM_SPR: n = sizeof(m_spr_t); break;
     case RM_GLT: n = sizeof(m_glt_t); break;
+    case RM_CLD: n = sizeof(m_cld_t); break;
+    case RM_SCR: n = sizeof(m_scr_t); break;
+    case RM_RNG: n = sizeof(m_rng_t); break;
+    case RM_STV: n = sizeof(m_stv_t); break;
+    case RM_CHB: n = sizeof(m_chb_t); break;
+    case RM_BNK: n = sizeof(m_bnk_t); break;
     default: n = sizeof(rv_t); break;
     }
     return (n + 7u) & ~7u;
@@ -585,11 +827,13 @@ static uint32_t rm_size(uint32_t k)
  * there one time in two when the recipe has one (FX_OPT). After Vascular's abstract chains and scenes */
 #define K(x) (1u << RM_##x)
 enum { FR_SPACE, FR_ECHO, FR_METAL, FR_STRINGS, FR_EROSION, FR_GHOST, FR_SPECTRAL, FR_RESONANT, FR_FOLDS, FR_TELEPHONE,
-       FR_HELL, FR_FACTORY, FR_GLITCH, FR_BROADCAST, FR_ABYSS, FR_RUST, FR_N };
+       FR_HELL, FR_FACTORY, FR_GLITCH, FR_BROADCAST, FR_ABYSS, FR_RUST,
+       FR_FREEZER, FR_FEEDBACK, FR_FOUNDRY, FR_GONG, FR_SPECTRE, FR_SPUTTER, FR_N };
 static const char *const FR_NAME[FR_N] = {"SPACE", "ECHO", "METAL", "STRINGS", "EROSION", "GHOST", "SPECTRAL", "RESONANT",
-                                          "FOLDS", "TELEPHONE", "HELL", "FACTORY", "GLITCH", "BROADCAST", "ABYSS", "RUST"};
-#define FX_OPT 0x8000u           /* (a place that may be left out) */
-static const uint16_t FR_PLACE[FR_N][FX_N] = {
+                                          "FOLDS", "TELEPHONE", "HELL", "FACTORY", "GLITCH", "BROADCAST", "ABYSS", "RUST",
+                                          "FREEZER", "FEEDBACK", "FOUNDRY", "GONG", "SPECTRE", "SPUTTER"};
+#define FX_OPT 0x80000000u       /* (a place that may be left out) */
+static const uint32_t FR_PLACE[FR_N][FX_N] = {
     {K(FLT) | K(VOW), K(DLY) | K(TAP), K(REV) | K(SPR)},                        /* SPACE: a colour, an echo, a room */
     {K(TAP) | K(DLY), K(SPR) | K(REV), FX_OPT | K(FLT)},                        /* ECHO */
     {K(MDL) | K(SHF), K(FLD) | K(FLT), FX_OPT | K(REV) | K(SPR)},               /* METAL: struck, bent, a room */
@@ -601,14 +845,21 @@ static const uint16_t FR_PLACE[FR_N][FX_N] = {
     {K(FLD), K(FLT) | K(VOW), FX_OPT | K(SPR) | K(TAP)},                        /* FOLDS */
     {K(MU), K(SHF) | K(FLT), FX_OPT | K(REV) | K(DLY)},                         /* TELEPHONE */
     /* build 10: hellscapes, atmospheric industrial, abstract glitch */
-    {K(FLD) | K(MU), K(SPR) | K(MDL), K(REV)},                                 /* HELL: torn, rung, a vast room */
-    {K(MU), K(MDL) | K(STR), FX_OPT | K(DLY) | K(TAP)},                         /* FACTORY: crushed, metal resonance */
+    {K(FLD) | K(MU) | K(STV), K(SPR) | K(MDL) | K(SCR), K(REV) | K(CLD)},       /* HELL: torn, rung, a vast room */
+    {K(MU) | K(STV), K(MDL) | K(STR) | K(BNK) | K(RNG), FX_OPT | K(DLY) | K(TAP)},   /* FACTORY: crushed, metal resonance */
     {K(GLT), K(RVS) | K(MU), FX_OPT | K(DLY)},                                  /* GLITCH: bent buffers */
     {K(GLT) | K(MU), K(VOW) | K(FLT), FX_OPT | K(TAP)},                         /* BROADCAST: a broken transmission */
-    {K(SHF), K(STR) | K(MDL), K(REV)},                                          /* ABYSS: moved partials ringing, deep */
+    {K(SHF) | K(RNG), K(STR) | K(MDL) | K(BNK), K(REV) | K(CLD)},               /* ABYSS: moved partials ringing, deep */
     {K(SPR), K(FLD) | K(GLT), FX_OPT | K(REV)},                                 /* RUST: a spring, torn, glitched */
+    /* build 11: the drastic ones */
+    {K(CLD), K(BNK) | K(VOW) | K(SHF), FX_OPT | K(REV) | K(DLY)},               /* FREEZER: a cloud held, coloured */
+    {K(SCR), K(FLT) | K(BNK) | K(STV), FX_OPT | K(GLT) | K(REV)},               /* FEEDBACK: a howl, shaped, torn */
+    {K(RNG), K(STV) | K(FLD) | K(CHB), FX_OPT | K(SPR) | K(DLY)},               /* FOUNDRY: clangour through a fuzz */
+    {K(BNK), K(RNG) | K(SHF) | K(CLD), FX_OPT | K(REV)},                        /* GONG: a struck body, ringing */
+    {K(CHB), K(CLD) | K(RVS), FX_OPT | K(REV) | K(SCR)},                        /* SPECTRE: re-voiced, smeared */
+    {K(STV), K(GLT) | K(MU) | K(RNG), FX_OPT | K(SPR) | K(TAP)},                /* SPUTTER: torn and broken */
 };
-static const uint8_t FR_W[FR_N] = {5, 5, 4, 3, 4, 3, 4, 3, 3, 2, 4, 4, 4, 3, 4, 3};
+static const uint8_t FR_W[FR_N] = {4, 4, 4, 3, 4, 3, 3, 3, 3, 2, 4, 4, 4, 3, 4, 3, 5, 4, 5, 4, 4, 4};
 #undef K
 
 typedef struct { uint8_t kind, p[4]; } fx_eff_t;
@@ -704,6 +955,12 @@ static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, i
     case RM_RVS: m_rvs(p, (m_rvs_t *)st, x); break;
     case RM_SPR: m_spr(p, (m_spr_t *)st, x); break;
     case RM_GLT: m_glt(p, (m_glt_t *)st, x); break;
+    case RM_CLD: m_cld(p, (m_cld_t *)st, x); break;
+    case RM_SCR: m_scr(p, (m_scr_t *)st, x); break;
+    case RM_RNG: m_rng(p, (m_rng_t *)st, x); break;
+    case RM_STV: m_stv(p, (m_stv_t *)st, x); break;
+    case RM_CHB: m_chb(p, (m_chb_t *)st, x); break;
+    case RM_BNK: m_bnk(p, (m_bnk_t *)st, x); break;
     default: {                                       /* the plate: stereo */
         rv_t *R = (rv_t *)st;
         int32_t pl[CTL], pr[CTL], g = 8192 + p[3] * (24576 / 100);   /* (its level: 0.25 .. 1) */
@@ -937,6 +1194,7 @@ static void fx_values(fx_eff_t *e, rnd_t *r)
  * time in three a place has one, to the first or second effect of a later slot). Published to the ISR; 0 if the
  * ISR had not taken the last one yet */
 static uint32_t fx_serial;
+static void fx_wire(uint32_t s, fx_patch_t *f, rnd_t *r);
 static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
 {
     uint32_t b = f_use[s] ^ 1u, k, room = FX_ARENA, t0 = fm1_ms;
@@ -953,9 +1211,9 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
     f->serial = ++fx_serial;
     f->recipe = (uint8_t)(recipe >= 0 && recipe < FR_N ? recipe : (int32_t)rnd_weighted(r, FR_W, FR_N));
     for (k = 0; k < FX_N; k++) {
-        uint32_t can = FR_PLACE[f->recipe][k], m, nc = 0;
+        uint32_t can = FR_PLACE[f->recipe][k], m, nc = 0;   /* (a bit an effect, FX_OPT the top one) */
         uint8_t c[NKIND];
-        if (!(can & 0x1FFFu) || ((can & FX_OPT) && !rnd_chance(r, 55)))
+        if (!(can & ~FX_OPT) || ((can & FX_OPT) && !rnd_chance(r, 55)))
             break;
         for (m = 0; m < NKIND; m++)
             if (((can >> m) & 1u) && rm_size(m) <= room)
@@ -972,19 +1230,53 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
         fx_values(&f->e[1], r);
         f->n = 2;
     }
-    for (k = 0; k + 1u < f->n; k++)                  /* an earlier effect out to the master too, now and then */
-        if (rnd_chance(r, 20))
-            f->out |= (uint8_t)(1u << k);
-    for (k = 0; k < f->n; k++)                       /* the cables across */
-        if (s + 1u < NFX && rnd_chance(r, 33)) {
-            uint32_t ts = s + 1u + (uint32_t)rnd_below(r, (int32_t)(NFX - 1u - s));
-            f->xto[k] = (uint16_t)(1u << (ts * FX_N + (uint32_t)rnd_below(r, 2)));
-        }
+    fx_wire(s, f, r);                                /* the outs, the cables across */
     RING_PUBLISH();
     f_pub[s] = (uint8_t)b;
     return 1;
 }
 
+/* the outs and the cables across of slot s's patch p, drawn (fx_draw's rules): an earlier effect out to the master too,
+ * now and then; a place's cable to the first or second effect of a later slot, one time in three */
+static void fx_wire(uint32_t s, fx_patch_t *f, rnd_t *r)
+{
+    uint32_t k;
+    f->out = 0;
+    for (k = 0; k < FX_N; k++)
+        f->xto[k] = 0;
+    for (k = 0; k + 1u < f->n; k++)
+        if (rnd_chance(r, 20))
+            f->out |= (uint8_t)(1u << k);
+    for (k = 0; k < f->n; k++)
+        if (s + 1u < NFX && rnd_chance(r, 33)) {
+            uint32_t ts = s + 1u + (uint32_t)rnd_below(r, (int32_t)(NFX - 1u - s));
+            f->xto[k] = (uint16_t)(1u << (ts * FX_N + (uint32_t)rnd_below(r, 2)));
+        }
+}
+/* the first black key on effect slot s: its outs and cables across drawn anew, its effects and their values as they
+ * are -- changed in place (each a byte or two, taken by the next block: no fade, no clearing). 0 if a new patch is
+ * still on its way in */
+static int fx_rewire(uint32_t s, uint32_t seed)
+{
+    fx_patch_t *f, t;
+    rnd_t r;
+    uint32_t tries, k;
+    if (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON)
+        return 0;
+    f = &fbuf[s][f_use[s]];
+    rnd_seed(&r, seed ^ 0x46585257u);
+    t = *f;
+    for (tries = 0; tries < 8u; tries++) {       /* (anew, where anything can change: the last slot only its outs) */
+        fx_wire(s, &t, &r);
+        if (t.out != f->out || memcmp(t.xto, f->xto, sizeof t.xto))
+            break;
+    }
+    f->out = t.out;
+    for (k = 0; k < FX_N; k++)
+        f->xto[k] = t.xto[k];
+    RING_PUBLISH();
+    return 1;
+}
 /* a slot's patch as a session or a snapshot kept it, published as a draw is (each value checked; a patch too large for
  * the slot's memory as it is now loses its last effects, then FILTER stands in) */
 static int fx_set(uint32_t s, const fx_patch_t *src)

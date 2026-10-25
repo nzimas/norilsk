@@ -1592,6 +1592,60 @@ static int cmd_paint(void)
     return fails ? 1 : 0;
 }
 
+/* the first black key: a slot rewired -- a generator's sound byte for byte the same, its cables anew, its notes never
+ * cut (no voice faded or started again); an effect slot's effects and values the same, its memory not cleared, its outs
+ * or cables anew */
+static int cmd_rewire(void)
+{
+    int fails = 0;
+    uint32_t t, k, gchanged = 0, fchanged = 0, cut = 0;
+    fm1_in.notes = fm1_in.buttons = 0;
+    ui_init();
+    ui.seed = 31337u;
+    gens_init(ui.seed);
+    press(B_FX, 50);
+    key(0, 1);
+    key(4, 1);
+    fw_run(800);
+    for (t = 0; t < 20u; t++) {
+        mo_design_t d0 = gbuf[0][g_use[0]].gen;
+        gen_patch_t p0 = gbuf[0][g_use[0]];
+        key(KEY_REWIRE, 1);
+        for (k = 0; k < 80u; k++) {
+            uint32_t v;
+            fw_run(1);
+            for (v = 0; v < NVOICE; v++)
+                cut += vox[v].sounding && vox[v].slot == 0 && (vox[v].fade || vox[v].pend);
+        }
+        key(KEY_REWIRE, 0);
+        if (memcmp(&d0, &gbuf[0][g_use[0]].gen, sizeof d0))
+            printf("FAIL rewire: generator 1's sound changed\n"), fails++;
+        gchanged += p0.nent != gbuf[0][g_use[0]].nent || memcmp(p0.ent, gbuf[0][g_use[0]].ent, p0.nent) ||
+                    p0.xsrc != gbuf[0][g_use[0]].xsrc;
+    }
+    if (cut)
+        printf("FAIL rewire: notes cut or started again (%u voice blocks)\n", cut), fails++;
+    if (gchanged < 18u)
+        printf("FAIL rewire: generator 1's cables changed only %u times of 20\n", gchanged), fails++;
+    press(B_LFO, 50);                                    /* effect slot 4 */
+    for (t = 0; t < 20u; t++) {
+        fx_patch_t f0 = fbuf[0][f_use[0]];
+        uint8_t ph0 = fx_phase[0];
+        key(KEY_REWIRE, 1);
+        fw_run(20);
+        key(KEY_REWIRE, 0);
+        if (memcmp(f0.e, fbuf[0][f_use[0]].e, sizeof f0.e) || f0.n != fbuf[0][f_use[0]].n || f0.seed != fbuf[0][f_use[0]].seed)
+            printf("FAIL rewire: slot 4's effects changed\n"), fails++;
+        if (ph0 != FS_ON || fx_phase[0] != FS_ON)
+            printf("FAIL rewire: slot 4 faded or cleared\n"), fails++;
+        fchanged += f0.out != fbuf[0][f_use[0]].out || memcmp(f0.xto, fbuf[0][f_use[0]].xto, sizeof f0.xto);
+    }
+    if (fchanged < 18u)
+        printf("FAIL rewire: slot 4's cables changed only %u times of 20\n", fchanged), fails++;
+    printf("rewire: generator cables new %u of 20, slot cables new %u of 20, %d failures\n", gchanged, fchanged, fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -1979,6 +2033,8 @@ int main(int argc, char **argv)
         return cmd_mod();
     if (!strcmp(argv[1], "paint"))
         return cmd_paint();
+    if (!strcmp(argv[1], "rewire"))
+        return cmd_rewire();
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

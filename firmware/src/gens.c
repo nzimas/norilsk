@@ -43,6 +43,7 @@ typedef struct {
     int32_t send, dry;           /* into them; heard directly (Q15) */
     uint8_t xsrc, xkind, xdepth; /* modulated by generator xsrc (XM_NONE: none), how, how deep (0 .. 100) */
     uint8_t scene;
+    uint8_t rewired;             /* the same sound, new cables (the first black key): taken without a fade */
     uint32_t seed, serial;
 } gen_patch_t;
 static gen_patch_t gbuf[NGEN][2];
@@ -252,7 +253,13 @@ static void gens_take(void)
 {
     uint32_t l, k;
     for (l = 0; l < NGEN; l++)
-        if (g_pub[l] != g_use[l]) {
+        if (g_pub[l] != g_use[l] && gbuf[l][g_pub[l]].rewired) {   /* rewired: the voices go on, on the new cables (the
+                                                                     * sound is the same, byte for byte) */
+            for (k = 0; k < NVOICE; k++)
+                if (vox[k].sounding && vox[k].slot == l && vox[k].dsg == g_use[l])
+                    vox[k].dsg = g_pub[l];
+            g_use[l] = g_pub[l];
+        } else if (g_pub[l] != g_use[l]) {
             for (k = 0; k < NVOICE; k++) {
                 voice_t *v = &vox[k];
                 if (!v->sounding || v->slot != l)
@@ -668,6 +675,43 @@ static const uint8_t SC_FAM[SC_N][MF_N] = {   /* (generation 3's families after 
 static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 2, 0, 1, 1, 0, 0};
 static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4, 3, 5, 4, 4, 4};
 
+/* generator l's cables, drawn into p (HOME's rules, after Vascular's abstract path): the effects it is wired into --
+ * none one time in twenty, else one (0.55), two (0.35) or three (0.1), each in an effect slot of its own if it can,
+ * at the head of its chain mostly; the dry share; now and then a modulation by another generator. fresh: HOME's draw
+ * (the send and the modulation's depth drawn too, in HOME's order); else a rewiring (the send kept; the depth kept if
+ * it had a modulation; the dry share kept unless cables appear where there were none, or all go) */
+static void gen_wire(uint32_t l, gen_patch_t *p, rnd_t *r, int fresh)
+{
+    static const uint8_t NE[3] = {55, 35, 10};
+    static const uint8_t PL[3] = {70, 20, 10};
+    uint32_t used = 0, k, n = rnd_chance(r, 5) ? 0u : 1u + rnd_weighted(r, NE, 3), had = p->nent;
+    uint8_t odepth = p->xdepth, osrc = p->xsrc;
+    p->nent = 0;
+    for (k = 0; k < n; k++) {
+        uint32_t s = (uint32_t)rnd_below(r, NFX), tries;
+        for (tries = 0; tries < 6u && ((used >> s) & 1u); tries++)
+            s = (uint32_t)rnd_below(r, NFX);
+        used |= 1u << s;
+        p->ent[p->nent++] = (uint8_t)(s * FX_N + rnd_weighted(r, PL, 3));
+    }
+    if (fresh) {
+        p->send = rnd_in(r, LV(0.6), LV(1.0));
+        p->dry = p->nent ? rnd_in(r, LV(0.15), LV(0.6)) : Q15;
+    } else if (!p->nent)
+        p->dry = Q15;                            /* (no cable left: all of it heard dry) */
+    else if (!had)
+        p->dry = rnd_in(r, LV(0.15), LV(0.6));   /* (cables where there were none: a share for them) */
+    p->xsrc = XM_NONE;
+    if (rnd_chance(r, SC_CROSS[p->scene])) {     /* a modulation by another generator, now and then */
+        static const uint8_t XW[XM_N] = {22, 26, 26};
+        uint32_t o = (l + 1u + (uint32_t)rnd_below(r, NGEN - 1)) % NGEN;
+        p->xsrc = (uint8_t)o;
+        p->xkind = (uint8_t)rnd_weighted(r, XW, XM_N);
+        p->xdepth = (uint8_t)(fresh || osrc == XM_NONE ? rnd_in(r, 35, 95) : odepth);
+    }
+    p->rewired = 0;
+}
+
 /* HOME on generator l: a new patch from a seed (family -1: any; else that family, on the scene it had: SHIFT + HOME).
  * Published to the ISR. Returns 0 if the buffer was not free in time */
 static uint32_t gen_serial;
@@ -707,32 +751,46 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
     }
     mo_design(&p->gen, f, rnd_next(r), path, GEN_NOW);
     mo_measure(&p->gen);
-    {   /* the effects it is wired into */
-        static const uint8_t NE[3] = {55, 35, 10};
-        static const uint8_t PL[3] = {70, 20, 10};
-        uint32_t used = 0, n = rnd_chance(r, 5) ? 0u : 1u + rnd_weighted(r, NE, 3);
-        p->nent = 0;
-        for (k = 0; k < n; k++) {
-            uint32_t s = (uint32_t)rnd_below(r, NFX), tries;
-            for (tries = 0; tries < 6u && ((used >> s) & 1u); tries++)
-                s = (uint32_t)rnd_below(r, NFX);
-            used |= 1u << s;
-            p->ent[p->nent++] = (uint8_t)(s * FX_N + rnd_weighted(r, PL, 3));
-        }
-    }
-    p->send = rnd_in(r, LV(0.6), LV(1.0));
-    p->dry = p->nent ? rnd_in(r, LV(0.15), LV(0.6)) : Q15;
-    p->xsrc = XM_NONE;
-    if (rnd_chance(r, SC_CROSS[p->scene])) {             /* a modulation by another generator, now and then */
-        static const uint8_t XW[XM_N] = {22, 26, 26};
-        uint32_t o = (l + 1u + (uint32_t)rnd_below(r, NGEN - 1)) % NGEN;
-        p->xsrc = (uint8_t)o;
-        p->xkind = (uint8_t)rnd_weighted(r, XW, XM_N);
-        p->xdepth = (uint8_t)rnd_in(r, 35, 95);
-    }
+    gen_wire(l, p, r, 1);
     RING_PUBLISH();
     g_pub[l] = (uint8_t)b;
     gen_drawn[l] = 1;
+    return 1;
+}
+
+/* the first black key on generator l: its cables drawn anew -- the effects it is wired into, and whether another
+ * generator modulates it and how -- its sound, its send and dry share, levels and sends as they are (the dry share
+ * only where cables appear or all go). Published as a draw is, taken without a fade (gens_take). 0 if busy */
+static int gen_rewire(uint32_t l, uint32_t seed)
+{
+    uint32_t b = g_use[l] ^ 1u, k, tries, t0 = fm1_ms;
+    gen_patch_t *p = &gbuf[l][b];
+    const gen_patch_t *now;
+    rnd_t rr;
+    for (;;) {
+        int busy = g_pub[l] != g_use[l];
+        for (k = 0; k < NVOICE; k++)
+            if (vox[k].sounding && vox[k].slot == l && vox[k].dsg == b)
+                busy = 1;
+        if (!busy)
+            break;
+        if ((uint32_t)(fm1_ms - t0) > 40u)
+            return 0;
+        fm1_wdt_feed();
+    }
+    now = &gbuf[l][g_use[l]];
+    rnd_seed(&rr, seed ^ 0x52455749u);
+    for (tries = 0; tries < 8u; tries++) {       /* (anew: not the cables it had) */
+        *p = *now;
+        gen_wire(l, p, &rr, 0);
+        if (p->nent != now->nent || memcmp(p->ent, now->ent, p->nent) || p->xsrc != now->xsrc ||
+            (p->xsrc != XM_NONE && p->xkind != now->xkind))
+            break;
+    }
+    p->rewired = 1;
+    p->serial = ++gen_serial;
+    RING_PUBLISH();
+    g_pub[l] = (uint8_t)b;
     return 1;
 }
 

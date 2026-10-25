@@ -2,6 +2,24 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 11 (2026-10-25): rewiring; six drastic effects
+
+- **The first black key rewires the chosen slot**: a generator's cables into the effect slots and its modulation by
+  another generator drawn anew (HOME's rules), its sound, send and levels as they are -- taken without a fade, the
+  notes going on; an effect slot's outs to the master and cables across to the slots after it drawn anew, its effects
+  and values as they are, changed in place (no fade, nothing cleared). The top band says REWIRED and the slot.
+- **Six new effects**, more drastic, after open sources (ideas, not code):
+  CLOUD (a granular freezer, after Mutable Instruments' Clouds and Beads: SIZE, DENSITY, FREEZE, SPREAD; frozen above
+  the middle of FREEZE), SCREAM (a saturated feedback network, a no-input mixer's howl, ducked by the input so it dies
+  with it: SIZE, FEEDBACK, TONE, DRIVE), RING (a diode ring modulator after Parker's model, a fixed carrier or the
+  sound's own past: FREQ, DIODE, SELF, TONE), STARVE (a starved, gated fuzz after the Fuzz Factory: it sputters and
+  tears: GAIN, GATE, BIAS, TONE), CHEB (a Chebyshev re-voicer after Airwindows' Pafnuty: SHAPE, ODD, DRIVE, TONE),
+  BANK (an inharmonic resonator bank after Rings and Elements -- a bar, a plate, a bell, a membrane: PITCH, Q, SET,
+  BRIGHT). None bends a pitch; none rings on by itself (`host fxtails`).
+- **Six new recipes**: FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE, SPUTTER; HELL, FACTORY and ABYSS may draw the new
+  effects too.
+- A test, `host rewire`: the sound byte for byte the same, no note cut, the cables new every time.
+
 ## Build 10 (2026-10-25): invisible hands, grit, new families and recipes
 
 Engine generation 3 (dsp.h `GEN_NOW` 3). Generations 0 .. 2 draw and sound as before, bit for bit (tests/golden).

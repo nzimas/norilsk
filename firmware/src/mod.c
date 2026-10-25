@@ -38,7 +38,9 @@ static const char *const RM_PNAME[NKIND][4] = {
     {"SHIFT", "FEEDBACK", "DIRECTION", "TONE"}, {"PITCH", "Q", "SPREAD", "UPPER"}, {"PITCH", "RING", "DETUNE", "TONE"},
     {"VOWEL", "MOVE", "Q", "DRIVE"}, {"TIME", "FEEDBACK", "DAMP", "LEVEL"}, {"TIME", "WOW", "FEEDBACK", "AGE"},
     {"WINDOW", "TONE", "FEEDBACK", "SPREAD"}, {"CHIRP", "TANK", "DECAY", "TONE"}, {"SIZE", "DECAY", "DAMP", "LEVEL"},
-    {"BEND", "CLOCK", "STUTTER", "SPAN"}};
+    {"BEND", "CLOCK", "STUTTER", "SPAN"},
+    {"SIZE", "DENSITY", "FREEZE", "SPREAD"}, {"SIZE", "FEEDBACK", "TONE", "DRIVE"}, {"FREQ", "DIODE", "SELF", "TONE"},
+    {"GAIN", "GATE", "BIAS", "TONE"}, {"SHAPE", "ODD", "DRIVE", "TONE"}, {"PITCH", "Q", "SET", "BRIGHT"}};
 
 typedef struct { uint8_t shape, rate, mode, fade; } mlfo_t;
 typedef struct { uint8_t src, dst; int8_t amt; } mslot_t;

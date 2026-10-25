@@ -23,6 +23,9 @@
  *   PLAY                      pressed: its loops stopped, or played again from their starts. Held: its loops on the
  *                             white keys (and the screen), each brought in or taken out. SHIFT + PLAY: every
  *                             generator's loops stopped, or all started together
+ *   the 1st black key         the chosen slot REWIRED: a generator's cables into the effect slots and its modulation by
+ *                             another generator drawn anew; an effect slot's outs and cables across to the slots
+ *                             after it. Nothing else changes, and nothing is cut off: its sound and values stay
  *   the 4th .. 8th black keys its loops REVERSE, PENDULUM, RANDOM; HALF, DOUBLE speed (pressed again: as recorded)
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
@@ -64,6 +67,7 @@ static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO
 #define KEY_SHIFT 25u            /* the rightmost black key */
 #define KEY_NONE 0xFFu
 #define HOLD_MS 800u             /* a long press */
+#define KEY_REWIRE 1u            /* the 1st black key: the chosen slot rewired (its cables anew, its sound as it is) */
 #define KEY_REV 8u               /* the 4th black key: the loops backwards (again: forwards) */
 #define KEY_PEND 10u             /* the 5th: PENDULUM, forwards and backwards in turn */
 #define KEY_RAND 13u             /* the 6th: RANDOM, forwards from a note drawn at random each time the next is due */
@@ -112,7 +116,7 @@ static const uint16_t GEN_COL[NGEN] = {RGB(255, 72, 72), RGB(72, 150, 255), RGB(
 #define C_SCALE RGB(255, 196, 90)
 #define C_OK RGB(60, 220, 90)
 static const char *const RM_TILE[NKIND] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "DLY", "TAP", "RVS", "SPR", "REV",
-                                           "GLT"};
+                                           "GLT", "CLD", "SCR", "RNG", "STV", "CHB", "BNK"};
 
 /* the screen's layout */
 #define TOP_H 40
@@ -771,6 +775,10 @@ static void ui_input(void)
         midi_take();
         return;
     }
+    if ((ch & keys) >> KEY_REWIRE & 1u) {        /* the first black key: the chosen slot rewired */
+        int ok = ui.sel < NGEN ? gen_rewire(ui.sel, next_seed()) : fx_rewire(ui.sel - NGEN, next_seed());
+        say_n(ok ? "REWIRED " : "BUSY ", (int32_t)ui.sel + 1, "", 1000);
+    }
     {   /* the loops' direction (REVERSE, PENDULUM, RANDOM) and speed (HALF, DOUBLE); pressed again, as recorded */
         const looper_t *p = &loop[ui.gen];
         uint32_t dn = ch & keys;
@@ -1080,11 +1088,11 @@ static int32_t tile_key(uint32_t inst, const uint32_t *mods)
         if (!gen_mute[g] && ((mods[g] >> inst) & 1u))
             feed |= 1 << g;
     return level_step(fx_mute[s] ? 0 : rm_meter[inst]) | feed << 2 | (int32_t)(!gen_mute[ui.gen] && ((mods[ui.gen] >> inst) & 1u)) << 5 |
-           (int32_t)ui.gen << 6 | fx_mute[s] << 8 | f->e[k].kind << 9 | f->n << 13 | (int32_t)(f->serial & 0xFFu) << 16;
+           (int32_t)ui.gen << 6 | fx_mute[s] << 8 | f->e[k].kind << 9 | f->n << 14 | (int32_t)(f->serial & 0xFFu) << 16;
 }
 static void draw_tile(uint32_t inst, int32_t key)
 {
-    uint32_t s = inst / FX_N, k = inst % FX_N, n = (uint32_t)(key >> 13) & 3u, kind = (uint32_t)(key >> 9) & 15u;
+    uint32_t s = inst / FX_N, k = inst % FX_N, n = (uint32_t)(key >> 14) & 3u, kind = (uint32_t)(key >> 9) & 31u;
     int32_t st = key & 3, feed = (key >> 2) & 7, hi = (key >> 5) & 1, muted = (key >> 8) & 1, g, nc = 0;
     int32_t pitch = 234 / (int32_t)(n ? n : 1u), w = pitch - 2, h = FXR_H - 7;
     static const uint8_t GREY[4] = {18, 40, 66, 96};
