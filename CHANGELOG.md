@@ -2,6 +2,14 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 20 (2026-10-25): PLAY is the loops'
+
+- **PLAY is for the loops only.** With an effect slot chosen it does nothing -- pressed, held, with SHIFT -- and stays
+  dark (before, it worked the loops of the generator chosen last). With a generator chosen, its light glows dimly when
+  the generator has loops, lit while they play, dark when it has none. Muting stays where it was: a slot button held
+  0.8 s. Test: `host looper`.
+- Both kinds of mute are in a snapshot: each slot's (build 18) and each loop's held out or in (build 19, `host whole`).
+
 ## Build 19 (2026-10-25): a snapshot is the whole machine
 
 - **A snapshot holds the whole machine now**: besides every slot (sounds, effects, values, cables, levels, pans,

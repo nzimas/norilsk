@@ -4,7 +4,7 @@ A firmware for the M-VAVE FM-1 (Molecular until build 17), named after the Arcti
 polar night: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: build 19.** Textures and drones only: every sound swells in, holds and keeps moving, and nothing sounds on once no note is held, latched or looped. Each generator has Tonitor's looper; Tonitor's master delay and reverb close the chain. Sessions (64) with 16 snapshots each, and two LFOs and eight modulation slots on every slot. KNOB 1 is each generator's DISINTEGRATOR; two draw paths, ABRASIVE and DARK. Each voice is played by an invisible hand (Anima's); Russolo's grit and twenty families of sustained sound: ilbient, atmospheric industrial, hellscapes, abstract glitch. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
+**State: build 20.** Textures and drones only: every sound swells in, holds and keeps moving, and nothing sounds on once no note is held, latched or looped. Each generator has Tonitor's looper; Tonitor's master delay and reverb close the chain. Sessions (64) with 16 snapshots each, and two LFOs and eight modulation slots on every slot. KNOB 1 is each generator's DISINTEGRATOR; two draw paths, ABRASIVE and DARK. Each voice is played by an invisible hand (Anima's); Russolo's grit and twenty families of sustained sound: ilbient, atmospheric industrial, hellscapes, abstract glitch. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
 share a pedalboard. HOME on a generator draws its sound and its cables into the effects; HOME on an effect slot draws
 its chain of two or three effects from a recipe, their values and its cables across to the other effect slots. The
 white keys play the generator chosen last, in the scale chosen. The second core runs the effects. No sessions, no
@@ -34,7 +34,7 @@ patterns, no internal clocks yet. `CHANGELOG.md` says what each build does.
 | **REC** | the looper of the generator the keys play: arm a loop (the first note starts it), end it (it plays at once), again to overdub; up to 10 loops |
 | **REC** held 1 s | empty that generator's loops |
 | **SHIFT + REC** | VARY: each loop note drawn anew (level, length, now and then changed or joined) |
-| **PLAY** | stop that generator's loops, or start them again from their starts |
+| **PLAY** | the loops only: stop the chosen generator's loops, or start them again from their starts. Dim when it has loops, lit while they play, dark with none. With an effect slot chosen: nothing (muting is the slot button held) |
 | **PLAY** held | its loops on the white keys: press one to take it out or bring it in |
 | **SHIFT + PLAY** | every generator's loops stopped, or all started together |
 | 1st black key | rewire the chosen slot: a generator's cables and modulation, or an effect slot's outs and cables, drawn anew -- its sound and values stay |

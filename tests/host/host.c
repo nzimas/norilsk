@@ -1114,6 +1114,21 @@ static int cmd_looper(void)
         LFAIL("PLAY held and the 7th black key did not halve the speed");
     if (!loop[0].play || ui.ovd)
         LFAIL("letting go of PLAY after the modes stopped the loops");
+    press(B_LFO, 50);                                    /* an effect slot chosen: PLAY does nothing (build 20) */
+    press(B_PLAY, 50);
+    hold_btn(B_PLAY, 1);
+    fw_run(700);
+    ui_input();
+    if (ui.ovd)
+        LFAIL("PLAY held with an effect slot chosen brought the loops up");
+    hold_btn(B_PLAY, 0);
+    key(KEY_SHIFT, 1);
+    press(B_PLAY, 50);
+    key(KEY_SHIFT, 0);
+    fw_run(20);
+    if (!loop[0].play || loop[0].rate != LS_HALF)
+        LFAIL("PLAY with an effect slot chosen changed the loops");
+    press(B_FX, 50);
     key(KEY_SHIFT, 1);                                   /* SHIFT + OCT+: every loop a step up */
     press(B_OCTUP, 50);
     if (ui.lx != 1 || lx_steps != 1)

@@ -20,9 +20,11 @@
  *   REC                       the looper of the generator the keys play (Tonitor's, loop.c): pressed, a new loop
  *                             armed (the first note starts it); again, ended (it plays at once); again while they
  *                             play, an overdub. Held 1 s: its loops emptied. SHIFT + REC: VARY on or off
- *   PLAY                      pressed: its loops stopped, or played again from their starts. Held: its loops on the
- *                             white keys (and the screen), each brought in or taken out. SHIFT + PLAY: every
- *                             generator's loops stopped, or all started together
+ *   PLAY                      the loops only, of the generator chosen: pressed, its loops stopped, or played again
+ *                             from their starts. Held: its loops on the white keys (and the screen), each brought in or
+ *                             taken out. SHIFT + PLAY: every generator's loops stopped, or all started together. Its
+ *                             light glows dimly when the generator has loops, lit while they play, dark when it has
+ *                             none. An effect slot chosen: PLAY does nothing, dark (muting is the slot button held)
  *   the 1st black key         the chosen slot REWIRED: a generator's cables into the effect slots and its modulation by
  *                             another generator drawn anew; an effect slot's outs and cables across to the slots
  *                             after it. Nothing else changes, and nothing is cut off: its sound and values stay
@@ -656,7 +658,9 @@ static void ui_input(void)
         ui.rec_done = 1;
         say_n("LOOPS ", (int32_t)ui.gen + 1, " EMPTY", 1500);
     }
-    if (btn_bit(press, B_PLAY)) {
+    if (btn_bit(press, B_PLAY) && ui.sel >= NGEN) {
+        /* (an effect slot chosen: PLAY is the loops', and effect slots have none -- it does nothing) */
+    } else if (btn_bit(press, B_PLAY)) {
         if (shift_held()) {                      /* SHIFT and PLAY: every loop stops if one plays, else all start */
             uint32_t playing = 0, kept = 0;
             for (l = 0; l < NGEN; l++) {
@@ -669,6 +673,13 @@ static void ui_input(void)
         } else {                                 /* PLAY: let go soon, the loops; held, the overdubs */
             ui.play_down = 1;
             ui.play_t0 = fm1_ms;
+        }
+    }
+    if (ui.play_down && ui.sel >= NGEN) {        /* (an effect slot chosen while PLAY was down: nothing done) */
+        ui.play_down = 0;
+        if (ui.ovd) {
+            ui.ovd = 0;
+            ui.force = 1;
         }
     }
     if (ui.play_down) {
@@ -922,7 +933,10 @@ static void ui_leds(void)
     {
         const looper_t *p = &loop[ui.gen];
         fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
-        fm1_led_key(PANEL_BTN[B_PLAY], p->play && p->ntrk);
+        int gen = ui.sel < NGEN;                 /* PLAY: dim when the generator chosen has loops, lit while they play,
+                                                  * dark with none, and with an effect slot chosen (build 20) */
+        led_dim_key(PANEL_BTN[B_PLAY], gen && p->ntrk);
+        fm1_led_key(PANEL_BTN[B_PLAY], gen && p->play && p->ntrk);
     }
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct > 0);
