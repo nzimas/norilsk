@@ -1183,6 +1183,12 @@ static volatile int16_t fx_lvl_q8[NFX];           /* a snapshot's morph: each sl
 static volatile uint8_t fx_fine;                  /* .. a bit a slot when in force (the mute folded in) */
 static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was sent into) */
 static uint32_t rack_ticks;                    /* what the last block of the rack took */
+/* KNOB 2 (build 33): the effects' mix, 0 (each effect passes its input) .. 100 (its own output alone, as before):
+ * every effect of every slot at once, each its own input and output crossed by it; 50 at power-on. Glided over a
+ * block when it moves */
+#define FX_WET_DEF 50
+static volatile uint8_t fx_wet = FX_WET_DEF;
+static int32_t fx_wq = FX_WET_DEF * Q15 / 100;   /* (the mix the last block ended at, Q15) */
 
 /* the guard: a peak rider (Tonitor's limiter: instant attack, ~200 ms release) to 0.5 */
 #define RM_CEIL 16384
@@ -1307,6 +1313,14 @@ static void rack_job(void)
 {
     uint32_t s, k, i, j, has = ebus_fed_run;
     uint32_t t0 = fm1_ticks();
+    int32_t wq1 = clampi(fx_wet, 0, 100) * Q15 / 100, wr[CTL], mixing = wq1 < Q15 || fx_wq < Q15;
+    if (mixing) {                                    /* (this block's mix, sample by sample, from where it was) */
+        int32_t dw = (wq1 - fx_wq) / (int32_t)CTL, w = fx_wq;
+        for (i = 0; i < CTL; i++)
+            wr[i] = w += dw;
+        wr[CTL - 1u] = wq1;
+    }
+    fx_wq = wq1;
     fx_take();
     for (i = 0; i < CTL; i++)
         fx_l[i] = fx_r[i] = fx_mdl[i] = fx_mrv[i] = 0;
@@ -1334,6 +1348,9 @@ static void rack_job(void)
             int32_t *x = ebus_run[inst];
             if (!((has >> inst) & 1u) && rm_quiet[inst] >= RM_TAIL)
                 continue;
+            int32_t dry[CTL], lvl;
+            if (mixing)
+                memcpy(dry, x, sizeof dry);
             if (fx_mod_on[s]) {                      /* (moved by the slot's modulation: within the effect's bounds) */
                 fx_eff_t ee = f->e[k];
                 uint32_t j;
@@ -1343,7 +1360,14 @@ static void rack_job(void)
                 rm_block(inst, &ee, x);
             } else
                 rm_block(inst, &f->e[k], x);
-            if (rm_meter[inst] < 32) {               /* (-60 dB: build 17, 8 before -- small values some effects
+            lvl = rm_meter[inst];
+            if (mixing)                              /* (KNOB 2: its input and its output crossed; what comes out
+                                                      * keeps it running, not its own output alone) */
+                for (i = 0; i < CTL; i++) {
+                    x[i] = dry[i] + mulq15(x[i] - dry[i], wr[i]);
+                    lvl = maxi(lvl, absi(x[i]));
+                }
+            if (lvl < 32) {               /* (-60 dB: build 17, 8 before -- small values some effects
                                                       * hold for ever kept them running, nothing reaching them) */
                 if (rm_quiet[inst] < 0xFFFFu)
                     rm_quiet[inst]++;
@@ -1699,6 +1723,8 @@ static void rack_init(uint32_t seed)
     memset(fx_arena, 0, sizeof fx_arena);
     memset(fbuf, 0, sizeof fbuf);
     memset(ebus_mem, 0, sizeof ebus_mem);
+    fx_wet = FX_WET_DEF;                             /* (KNOB 2's mix, at power-on) */
+    fx_wq = FX_WET_DEF * Q15 / 100;
     for (s = 0; s < NFX; s++) {
         f_pub[s] = f_use[s] = 0;
         fx_phase[s] = FS_ON;

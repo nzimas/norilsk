@@ -81,6 +81,7 @@ SHIFT is the rightmost black key.
 | **OCT− / OCT+** | the octave, −3 to +3 |
 | **ARP** | the SCALE page: SELECT the root, ALGORITHM the scale (23) |
 | **KNOB 1** | playing: the DISINTEGRATOR of the generator the keys play, 0 to 100. On the SNAPSHOTS page: the morph time, 0 to 30 s |
+| **KNOB 2** | playing: FX MIX, every effect of every lane at once, 0 (dry) to 100 (wet); 50 at power-on |
 | **KNOB 3 / KNOB 4** | the delay send / reverb send of the generator the keys play |
 | **SEQ** | the DELAY page, again the REVERB page, again the MOD page, again back: KNOB 1 to 4 set the four rows |
 | **SHIFT + SEQ** | the chosen slot's modulation thrown anew |

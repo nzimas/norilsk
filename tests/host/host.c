@@ -1053,6 +1053,56 @@ static int cmd_modules(int argc, char **argv)
             printf("FAIL retired: a snapshot's REVERB, DELAY not taken as SPRING, TAPE\n"), fails++;
         printf("retired: DELAY -> TAPE, REVERB -> SPRING; a third past the slot's memory left out\n");
     }
+    {   /* KNOB 2 (build 33): at 0 every effect passes its input -- two very different slots sound alike; at 100 not */
+        static const uint8_t KA[2] = {RM_FLD, RM_SCR}, KB[2] = {RM_XOR, RM_SMR};
+        static int32_t mixref[1378u * 2u * CTL];
+        uint32_t w, m2;
+        for (w = 0; w < 2u; w++) {
+            double e[2] = {0, 0}, d = 0;
+            for (m2 = 0; m2 < 2u; m2++) {
+                fx_patch_t *f;
+                uint32_t b2, i2;
+                int32_t o[2 * CTL];
+                fw_init();
+                ui.seed = 4242u;                         /* (the same generators each time) */
+                gens_init(ui.seed);
+                fx_wet = w ? 100u : 0u;
+                fx_wq = fx_wet * Q15 / 100;             /* (there from the start, not glided to) */
+                f = &fbuf[0][f_use[0]];
+                memset(f, 0, sizeof *f);
+                f->n = 2;
+                f->e[0].kind = m2 ? KB[0] : KA[0];
+                f->e[1].kind = m2 ? KB[1] : KA[1];
+                memcpy(f->e[0].p, RM_HOME[f->e[0].kind], 4);
+                memcpy(f->e[1].p, RM_HOME[f->e[1].kind], 4);
+                memset(fx_arena[0], 0, FX_ARENA);
+                fx_start(0);
+                press(B_FX, 50);
+                key(0, 1);
+                for (b2 = 0; b2 < 1378u; b2++) {
+                    mix_block(o);
+                    for (i2 = 0; i2 < 2u * CTL; i2++) {
+                        uint32_t at = b2 * 2u * CTL + i2;
+                        double v = o[i2];
+                        e[m2] += v * v;
+                        if (m2 == 0)
+                            mixref[at] = o[i2];
+                        else
+                            d += (v - mixref[at]) * (v - mixref[at]);
+                    }
+                }
+                key(0, 0);
+            }
+            d = 10.0 * __builtin_log10((d + 1) / (e[0] + 1));
+            printf("fx mix %s: FOLD SCREAM against XOR SMEAR, their difference %.1f dB under the sound\n",
+                   w ? "100" : "0", -d);
+            if (w == 0 && d > -40.0)
+                printf("FAIL fx mix 0: the effects still heard\n"), fails++;
+            if (w == 1 && d < -10.0)
+                printf("FAIL fx mix 100: two different slots alike\n"), fails++;
+        }
+        fx_wet = FX_WET_DEF;
+    }
     printf("modules: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -2471,6 +2521,7 @@ static int cmd_whole(void)
         ui.oct = 1;
         draw_path = DP_ROUGH;
         gen_dis[2] = 40;
+        fx_wet = 20;                                     /* (KNOB 2, build 33) */
         fw_run(200);
         snap_store(0);
         A = snap.s[0];
@@ -2506,6 +2557,7 @@ static int cmd_whole(void)
         ui.oct = -2;
         draw_path = DP_DARK;
         gen_dis[2] = 0;
+        fx_wet = 90;
         fw_run(300);
         snap_store(1);
         if (loop[0].play || loop[0].dmode != LD_FWD || ((ui.latch[1] >> 4) & 1u))
@@ -2517,11 +2569,12 @@ static int cmd_whole(void)
             ui_input();
         }
         fails += whole_check(pass ? "(morph)" : "(at once)", &A, 1, LD_REV, LS_HALF, 4, note);
-        if (ui.oct != 1 || draw_path != DP_ROUGH || gen_dis[2] != 40)
-            printf("FAIL whole: octave %d, path %u, DISINTEGRATOR %d\n", ui.oct, draw_path, gen_dis[2]), fails++;
+        if (ui.oct != 1 || draw_path != DP_ROUGH || gen_dis[2] != 40 || fx_wet != 20)
+            printf("FAIL whole: octave %d, path %u, DISINTEGRATOR %d, FX MIX %u\n", ui.oct, draw_path, gen_dis[2], fx_wet), fails++;
     }
     ui.morph = 0;
     draw_path = DP_ANY;
+    fx_wet = FX_WET_DEF;
     printf("whole: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -2711,6 +2764,7 @@ static int cmd_mtails(void)
     int32_t late = 0, out[2 * CTL], pk;
     fw_init();
     sig_set(SM_MESH);                                    /* (build 29: LANES at power-on; the test was made in MESH) */
+    fx_wet = 100;                                        /* (.. and with the effects alone: KNOB 2 at 100, build 33) */
     ui.seed = 777u;
     for (l = 0; l < NSLOT; l++) {
         press(SLOT_BTN[l], 50);
@@ -2750,6 +2804,7 @@ static int cmd_mtails(void)
         printf("FAIL mtails: the master's tails never end\n"), fails++;
     fx_mute[0] = 0;
     gen_mute[0] = 0;
+    fx_wet = FX_WET_DEF;
     printf("mtails: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -3803,16 +3858,27 @@ static int cmd_screens(int argc, char **argv)
     ui_draw();
     snprintf(name, sizeof name, "%s/screen-morph-dial.ppm", dir);
     screen_save(name);
-    press(B_SAVE, 50);                                   /* back to playing: KNOB 1 the DISINTEGRATOR, on its dial */
+    pages_off();                                         /* back to playing: KNOB 1 the DISINTEGRATOR, on its dial */
     ui.dial_until = 0;
     fm1_in.enc[PANEL_ENC[EN_K1]] = 23;
     ui_input();
     ui.load_at = fm1_ms - 1000u;
     ui.msg_until = 0;
+    ui.fl_until = fm1_ms;                                /* (no message over it) */
     ui_draw();
     snprintf(name, sizeof name, "%s/screen-dis-dial.ppm", dir);
     screen_save(name);
     gen_dis[ui.gen] = 0;
+    ui.dial_until = 0;                                   /* KNOB 2: the effects' mix, laid out as KNOB 1's (build 33) */
+    fm1_in.enc[PANEL_ENC[EN_K2]] = -8;
+    ui_input();
+    ui.load_at = fm1_ms - 1000u;
+    ui.msg_until = 0;
+    ui.fl_until = fm1_ms;                                /* (no message over it) */
+    ui_draw();
+    snprintf(name, sizeof name, "%s/screen-fxmix.ppm", dir);
+    screen_save(name);
+    fx_wet = FX_WET_DEF;
     ui.dial_until = fm1_ms;
     ui_draw();
     morph_start(&snap.s[2], 2, 4000);                    /* a morph into snapshot 3: its square blinking */

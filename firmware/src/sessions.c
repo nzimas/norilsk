@@ -93,7 +93,7 @@ typedef struct {
     st_fx_t x[NFX];
     int8_t rvp[4], dlp[4];
     mod_t mod[NSLOT];
-    uint8_t scale, root, rsv[2];
+    uint8_t scale, root, fxmix, rsv;   /* fxmix: KNOB 2's effects' mix + 1 (build 33; 0 before: kept at 100, as it was) */
     /* (build 19: the rest of the machine; a state of an older session has kept 0 and leaves it as it is) */
     st_play_t p[NGEN];
     int8_t oct, lx;              /* the octave; every loop's move along the scale */
@@ -159,6 +159,7 @@ static void st_capture(st_t *t)
     memcpy(t->mod, slot_mod, sizeof t->mod);
     t->scale = ui.scale;
     t->root = ui.root;
+    t->fxmix = (uint8_t)(fx_wet + 1u);
     for (l = 0; l < NGEN; l++) {
         st_play_t *q = &t->p[l];
         const looper_t *lp = &loop[l];
@@ -231,6 +232,8 @@ static void st_apply_play(const st_t *t)
     }
     ui.force = 1;
 }
+/* a state's effects' mix (KNOB 2): as kept, or 100 for a state from before build 33 (its effects alone, as it sounded) */
+static uint8_t st_fxmix(const st_t *t) { return (uint8_t)(t->fxmix ? clampi(t->fxmix - 1, 0, 100) : 100); }
 /* the state given back: each part checked; returns SES_OK, or SES_BUSY if a slot could not take its patch in time */
 static int st_apply(const st_t *t)
 {
@@ -266,6 +269,7 @@ static int st_apply(const st_t *t)
     ui.scale = (uint8_t)(t->scale < NSCALE ? t->scale : 1u);
     ui.root = (uint8_t)(t->root % 12u);
     rack_root = SCALE_BASE + ui.root;
+    fx_wet = st_fxmix(t);
     lx_post();
     ui.force = 1;
     return ok ? SES_OK : SES_BUSY;
@@ -416,6 +420,7 @@ static void morph_poll(void)
                     f->e[k].p[j] = (uint8_t)mlerp(morph.a.x[l].f.e[k].p[j], morph.b.x[l].f.e[k].p[j], u);
         }
     }
+    fx_wet = (uint8_t)mlerp(st_fxmix(&morph.a), st_fxmix(&morph.b), u);   /* (KNOB 2's mix, glided) */
     /* the master: all but SIZE and TIME glided */
     for (k = 1; k < 4u; k++) {
         ui.rvp[k] = (int8_t)mlerp(morph.a.rvp[k], morph.b.rvp[k], u);
@@ -1264,6 +1269,7 @@ static void ses_fresh(uint32_t num)
     ui.scale = 1;
     ui.root = 0;
     rack_root = SCALE_BASE;
+    fx_wet = FX_WET_DEF;
     ui.lx = 0;
     ui.oct = 0;
     lx_post();

@@ -2,6 +2,18 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 33 (2026-10-25): KNOB 2, the effects' mix
+
+- **KNOB 2, playing: FX MIX**, 0 .. 100, every effect of every lane at once -- each effect's input and output crossed:
+  0 every effect passes what reaches it (dry), 100 its own output alone (as every build before). 50 at power-on and in
+  a new session. Shown over the screen as KNOB 1's DISINTEGRATOR is: FX MIX, the value very large, ALL LANES (DRY at 0,
+  WET at 100), a bar. Glided over a block when it moves. Kept in snapshots and sessions, glided by a morph; a session
+  saved before build 33 loads at 100, as it sounded. Test: `host modules` (at 0 two very different slots sound alike,
+  bit for bit; at 100 not), `host whole`.
+- An effect keeps running as long as what comes out of it is heard (with the mix, its own output alone could be quiet
+  while its input passes).
+- The screens test's DISINTEGRATOR shot showed the SNAPSHOTS page; it shows KNOB 1 again, and KNOB 2 beside it.
+
 ## Build 32 (2026-10-25): lighter effects and master; five new effects
 
 - **Five new effects** (names provisional): SMEAR (twenty random taps over 12 .. 46 ms, each + or -: a grainy haze, a

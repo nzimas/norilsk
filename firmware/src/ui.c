@@ -45,6 +45,8 @@
  *                             black keys do what the view they are in gives them
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
+ *   KNOB 2                    playing: every effect's mix at once, 0 (dry) .. 100 (wet), 50 at power-on (build 33);
+ *                             laid out over the screen as KNOB 1's
  *   KNOB 3, KNOB 4            the delay send and the reverb send of the generator the keys play, 0 .. 100 (Tonitor's
  *                             KNOB 4 and SHIFT + KNOB 4): to the master delay and reverb, at the end of the chain
  *   SEQ                       the DELAY page, again the REVERB page, again MOD, again back (Tonitor's): KNOB 1 .. 4
@@ -140,6 +142,7 @@ static const char *const NOTE_NAME[12] = {"C", "C#", "D", "D#", "E", "F", "F#", 
 /* the generators' colours (not Tonitor's: a set of their own) */
 static const uint16_t GEN_COL[NGEN] = {RGB(255, 72, 72), RGB(72, 150, 255), RGB(170, 255, 60)};
 #define C_SCALE RGB(255, 196, 90)
+#define C_FXMIX RGB(235, 130, 60)        /* (KNOB 2's: the pipes' rust, lit) */
 #define C_OK RGB(60, 220, 90)
 static const char *const RM_TILE[NKIND] = {"FLT", "FLD", "MU", "SHF", "MDL", "STR", "VOX", "DLY", "TAP", "RVS", "SPR", "REV",
                                            "GLT", "CLD", "SCR", "RNG", "STV", "CHB", "BNK", "SMR", "DIF", "SLW", "XOR", "DST"};
@@ -220,7 +223,7 @@ static struct {
     int32_t shown_ses, shown_snap;
     uint8_t morph;               /* KNOB 1: a snapshot's morph time, half seconds (0: at once) */
     uint32_t dial_until;         /* KNOB 1's dial over the screen, until (KNOB 1 turned) */
-    uint8_t dial_shown, dial_kind;   /* dial_kind: 0 MORPH, 1 DISINTEGRATOR */
+    uint8_t dial_shown, dial_kind;   /* dial_kind: 0 MORPH, 1 DISINTEGRATOR, 2 FX MIX (KNOB 2, build 33) */
     uint32_t lk_until;           /* (build 25) two generators linked or unlinked: the message over the screen, until */
     uint8_t lk_from, lk_to, lk_kind, lk_shown;   /* .. which to which; XM_* the kind made, XM_N undone */
     int32_t shown_dial;
@@ -912,6 +915,12 @@ static void ui_input(void)
             ui.dial_kind = 1;
             ui.dial_until = fm1_ms + 1500u;
         }
+        s = fm1_enc_take(PANEL_ENC[EN_K2]);    /* KNOB 2: every effect's mix at once (build 33) */
+        if (s && !ui.ses_page && !ui.snap_page) {
+            fx_wet = (uint8_t)clampi((int32_t)fx_wet + 2 * s, 0, 100);
+            ui.dial_kind = 2;
+            ui.dial_until = fm1_ms + 1500u;
+        }
         s = fm1_enc_take(PANEL_ENC[EN_K3]);
         if (s) {
             ui.dsend[ui.gen] = (int8_t)clampi(ui.dsend[ui.gen] + 2 * s, 0, 100);
@@ -1563,7 +1572,7 @@ static void draw_fx_page(void)
  * or OFF), a bar of its reach (0 .. 30 s). Then the page that was up comes back */
 static int draw_dial(void)
 {
-    int32_t key = ui.dial_kind ? 1000 + (int32_t)ui.gen * 200 + gen_dis[ui.gen] : ui.morph;
+    int32_t key = ui.dial_kind == 2u ? 3000 + fx_wet : ui.dial_kind ? 1000 + (int32_t)ui.gen * 200 + gen_dis[ui.gen] : ui.morph;
     char v[12];
     if ((int32_t)(ui.dial_until - fm1_ms) <= 0) {
         if (ui.dial_shown) {
@@ -1575,6 +1584,23 @@ static int draw_dial(void)
     }
     if (ui.dial_shown && ui.shown_dial == key)
         return 1;
+    if (ui.dial_kind == 2u) {                    /* FX MIX (KNOB 2): every effect's, 0 .. 100, laid out as KNOB 1's */
+        int32_t a = fx_wet;
+        fmt_int(v, a);
+        CV_AREA(0, 0, 240, 50, C_BLACK)
+            cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "FX MIX", C_FXMIX);
+        CV_AREA(0, 50, 240, 112, C_BLACK)
+            cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+        CV_AREA(0, 162, 240, 40, C_BLACK)
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, a == 0 ? "DRY" : a == 100 ? "WET" : "ALL LANES", C_FXMIX);
+        CV_AREA(0, 202, 240, 38, C_BLACK) {
+            cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
+            cv_rect(12, 8, a * 216 / 100, 22, C_FXMIX);
+        }
+        ui.dial_shown = 1;
+        ui.shown_dial = key;
+        return 1;
+    }
     if (ui.dial_kind) {                          /* DISINTEGRATOR: the generator's own, in its colour, 0 .. 100 */
         int32_t a = gen_dis[ui.gen];
         uint16_t col = GEN_COL[ui.gen];
