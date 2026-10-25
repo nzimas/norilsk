@@ -2,6 +2,37 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 10 (2026-10-25): invisible hands, grit, new families and recipes
+
+Engine generation 3 (dsp.h `GEN_NOW` 3). Generations 0 .. 2 draw and sound as before, bit for bit (tests/golden).
+- **The invisible hand** (Anima's, Tonitor's anima.c after Vascular's AnimaCore.h), a hand on each voice: one finger
+  on the sound dragging figures (orbits, figures of eight, scribbles, slow glides, now and then a flick), pressing in
+  slow swells, landing elsewhere every ~18 s; a ghost finger on a clock that will not keep time. Each sound's design maps
+  the hand's controllers (where it is, how hard it presses, how fast it moves, its angle, distance, age; the whole
+  hand; how many fingers) to two to four of: the modulators' brightness (never the carriers' level), the cloud, the
+  level (a harder press never quieter), the grit, the glitches, the cloud's darkness. Never the pitch. 85 % of the
+  sounds of generation 3 have one; AMBIENT's slower, EXPERIMENTAL's quicker.
+- **Grit** (Russolo's, Tonitor's russolo.c after Robert Heel's Noisferatu), after the operators: a small DAC (bits
+  kept, the sample held), bitwise logic (the sound XOR'd with a triangle at a ratio to the note, as loud as the sound),
+  stutters (the moment just before looped a few rounds, from the voice's own buffer), and bent grains (the cloud read
+  with an address bit flipped). The older families on EXPERIMENTAL get a little of it now and then.
+- **Eight new families**: FURNACE (a low roaring feedback body, crushed, under a dark cloud), HUM (carriers nailed near
+  50 and 100 Hz, beating, XOR'd: a machine room), STATIC (noise from feedback, crushed hard, stuttering, shattered and
+  bent), HOWL (formants an octave down under long dark grains), SCRAPE (high inharmonic metal, bent grains, held
+  samples), DATA (glass through bitwise logic, crushed, stuttering pulsars), ASH (a dark drone under a sparse dusty
+  crackle), TUNNEL (one or two octaves down, a huge dark fed-back cloud, sometimes frozen). All held and moving
+  (generation 2's rules after them; `host sustain`: 1200 sounds, none struck, none fading).
+- **A new effect, GLITCH** (Russolo's bent buffers): the sound through a 0.74 s line read at its own speed (never
+  another pitch), its address bent, jumped, or stuttering on a clock; changes cross-faded. Values BEND, CLOCK,
+  STUTTER, SPAN. Tile GLT.
+- **Six new recipes**: HELL (torn, rung, a vast room), FACTORY (crushed, metal resonance, echoes), GLITCH (bent
+  buffers, reversed or crushed), BROADCAST (a broken transmission), ABYSS (moved partials ringing, deep), RUST (a spring,
+  torn, glitched).
+- Fixed for generation 3: a grain read backwards no longer reaches into an earlier note's leftovers in its buffer (an
+  old flaw, kept as it was for generations 0 .. 2); a voice let go and silent a quarter second ends.
+- Memory: each effect slot 47 KiB (the largest recipe drawn needs 46.5); the build prints what is truly free in the
+  pool after CPU1's stacks (9.2 KiB).
+
 ## Build 9 (2026-10-25): pages paint in one pass
 
 - Every page used to be painted twice on the way in: the whole screen filled with black first (Tonitor never does),

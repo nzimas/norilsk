@@ -660,13 +660,13 @@ enum { SC_FIELD, SC_MATERIAL, SC_FEEDBACK, SC_EROSION, SC_N };
 static const char *const SC_NAME[SC_N] = {"FIELD", "MATERIAL", "FEEDBACK", "EROSION"};
 static const uint8_t SC_PATH[SC_N] = {PATH_AMBIENT, PATH_OPEN, PATH_EXP, PATH_EXP};
 static const uint8_t SC_CROSS[SC_N] = {12, 18, 30, 12};    /* the chance of a modulation by another generator */
-static const uint8_t SC_FAM[SC_N][MF_N] = {
-    {0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0},
-    {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0},
-    {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0},
-    {0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1}};
-static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0};
-static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4};
+static const uint8_t SC_FAM[SC_N][MF_N] = {   /* (generation 3's families after the twelve) */
+    {0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1},
+    {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
+    {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0},
+    {0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0}};
+static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 2, 0, 1, 1, 0, 0};
+static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4, 3, 5, 4, 4, 4};
 
 /* HOME on generator l: a new patch from a seed (family -1: any; else that family, on the scene it had: SHIFT + HOME).
  * Published to the ISR. Returns 0 if the buffer was not free in time */

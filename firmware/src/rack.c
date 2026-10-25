@@ -30,21 +30,23 @@
  *   SPR  SPRING    a spring reverb: allpass chirps in a short tank, a resonance for its tone
  *   REV  REVERB    Tonitor's Dattorro plate, stereo */
 
-enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, NKIND };
+enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, RM_GLT, NKIND };
 static const char *const RM_NAME[NKIND] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "DELAY",
-                                           "TAPE", "REVERSE", "SPRING", "REVERB"};
+                                           "TAPE", "REVERSE", "SPRING", "REVERB", "GLITCH"};
 /* the values an effect comes back to (a draw moves them, as Vascular draws a processor's) */
 static const uint8_t RM_HOME[NKIND][4] = {
     {20, 55, 40, 30}, {45, 45, 20, 70}, {45, 60, 50, 30}, {40, 30, 70, 50}, {40, 55, 40, 50}, {35, 60, 40, 60},
-    {50, 50, 50, 30}, {65, 40, 40, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55}};
+    {50, 50, 50, 30}, {65, 40, 40, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55},
+    {50, 40, 35, 45}};
 /* .. and the bounds a draw keeps them in, so that every effect is heard: no band-pass at 15 kHz, no spring tuned where
  * the sound has nothing */
 static const uint8_t RM_LO[NKIND][4] = {
     {0, 35, 0, 0}, {10, 10, 0, 30}, {0, 30, 20, 0}, {0, 0, 0, 0}, {0, 15, 0, 20}, {0, 25, 0, 30},
-    {0, 0, 10, 0}, {20, 0, 0, 40}, {10, 0, 0, 0}, {0, 30, 0, 0}, {0, 0, 35, 10}, {20, 20, 0, 40}};
+    {0, 0, 10, 0}, {20, 0, 0, 40}, {10, 0, 0, 0}, {0, 30, 0, 0}, {0, 0, 35, 10}, {20, 20, 0, 40}, {15, 0, 0, 0}};
 static const uint8_t RM_HI[NKIND][4] = {
     {100, 85, 80, 100}, {90, 90, 80, 100}, {100, 100, 100, 80}, {100, 90, 100, 100}, {100, 85, 100, 100}, {100, 95, 100, 100},
-    {100, 100, 90, 80}, {100, 85, 100, 100}, {100, 100, 90, 85}, {100, 100, 80, 100}, {100, 100, 92, 60}, {100, 95, 100, 100}};
+    {100, 100, 90, 80}, {100, 85, 100, 100}, {100, 100, 90, 85}, {100, 100, 80, 100}, {100, 100, 92, 60}, {100, 95, 100, 100},
+    {100, 90, 85, 100}};
 static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what MODAL and STRING are tuned to */
 
 /* AINL helpers the effects share; then the effects */
@@ -436,6 +438,76 @@ static void m_rvs(const uint8_t *p, m_rvs_t *s, int32_t *x)
     }
 }
 
+/* ------------------------------------------------------------- GLITCH --- */
+/* Russolo's bent buffers (Tonitor's russolo.c BEND, JUMP, after Noisferatu) as an effect: the sound written into a
+ * line of 0.74 s (8-bit mu-law at FS / 2) and read back at its own speed -- never another pitch -- from SPAN behind
+ * (p3: 20 .. 700 ms), its address now and then bent (p0: how often and how far -- a bit of it flipped, a higher one the
+ * further), on a clock (p1: 0.5 .. 16 Hz) that at each tick bends, straightens, jumps the read elsewhere in the span,
+ * or (p2: the chance) stutters: a few rounds of a short loop where it is (10 .. 120 ms). Each change cross-faded over
+ * 2 ms, so it glitches without clicking. The read alone comes out */
+#define GLT_N 16384u             /* 0.74 s at FS / 2 */
+typedef struct {
+    uint8_t line[GLT_N];
+    uint32_t w, clk, ph;
+    uint32_t mask, omask;        /* the address's bent bits now, before the change */
+    int32_t back, oback;         /* how far behind the read is (samples at FS / 2), now and before */
+    uint32_t loop, loop_at, loop_left;   /* a stutter: its length, its start, samples to go */
+    int32_t xf, prev;
+    rnd_t r;
+} m_glt_t;
+AINL int32_t glt_read(const m_glt_t *s, int32_t back, uint32_t mask)
+{
+    uint32_t i = (s->w + GLT_N - (uint32_t)back) & (GLT_N - 1u);
+    return mu_dec8(s->line[(i ^ mask) & (GLT_N - 1u)]);
+}
+static void m_glt(const uint8_t *p, m_glt_t *s, int32_t *x)
+{
+    int32_t span = ms_samples2(20u + p[3] * 680u / 100u), o0;
+    uint32_t i, tick = 97391u * 2u * (50u + p[1] * 1550u / 100u) / 100u;   /* 0.5 .. 16 Hz at FS / 2 (2^32 / 22050 a Hz:
+                                                                             * in 32 bits, at most 3.1e8 before / 100) */
+    if (!s->r.s)
+        rnd_seed(&s->r, 0x474C54u ^ (uint32_t)(uintptr_t)s);
+    if (!s->back)
+        s->back = s->oback = span;
+    for (i = 0; i + 1u < CTL; i += 2u) {
+        int32_t in = (x[i] + x[i + 1u]) >> 1, y;
+        s->line[s->w] = mu_enc8(clampi(in, -32767, 32767));
+        s->w = (s->w + 1u) & (GLT_N - 1u);
+        s->ph += tick;
+        if (s->ph < tick) {                      /* the clock: a change */
+            s->omask = s->mask;
+            s->oback = s->back;
+            s->xf = 44;                          /* (2 ms at FS / 2) */
+            if (rnd_below(&s->r, 100) < p[2] && !s->loop_left) {   /* a stutter where it is */
+                s->loop = ms_samples2((uint32_t)rnd_in(&s->r, 10, 120));
+                s->loop_at = (s->w + GLT_N - (uint32_t)s->back) & (GLT_N - 1u);
+                s->loop_left = s->loop * (uint32_t)rnd_in(&s->r, 2, 6);
+            } else if (rnd_below(&s->r, 100) < p[0]) {   /* bent: a bit flipped, the higher the further */
+                s->mask = 1u << rnd_in(&s->r, 4, 4 + p[0] * 9 / 100);
+            } else if (rnd_chance(&s->r, 35)) {  /* a jump in the span */
+                s->mask = 0;
+                s->back = rnd_in(&s->r, 64, span);
+            } else
+                s->mask = 0;
+        }
+        if (s->loop_left) {                      /* stuttering: round the loop */
+            uint32_t k = s->loop - s->loop_left % s->loop;
+            y = mu_dec8(s->line[(s->loop_at + k) & (GLT_N - 1u)]);
+            s->loop_left--;
+        } else
+            y = glt_read(s, s->back, s->mask);
+        if (s->xf) {                             /* (the change cross-faded) */
+            int32_t yo = glt_read(s, s->oback, s->omask);
+            y = yo + (((y - yo) * (44 - s->xf) * 745) >> 15);   /* (/ 44 as x 745 / 2^15: no divide a sample) */
+            s->xf--;
+        }
+        o0 = (s->prev + y) >> 1;
+        s->prev = y;
+        x[i] = o0;
+        x[i + 1u] = y;
+    }
+}
+
 /* ------------------------------------------------------------- SPRING --- */
 /* the input through a resonance (p3: 400 Hz .. 5.9 kHz, the spring's tone), into a tank of 30 .. 120 ms (p1) whose
  * loop carries a chain of six short allpasses (the chirps; p0: their gain, 0.3 .. 0.75) and a low-pass, its gain
@@ -482,7 +554,7 @@ static void m_spr(const uint8_t *p, m_spr_t *s, int32_t *x)
 #define NFX 3                    /* effect slots */
 #define FX_N 3                   /* effects in one: 2 or 3 */
 #define NINST (NFX * FX_N)       /* effect instances, slot by slot (inst = slot x FX_N + place) */
-#define FX_ARENA 51200u          /* a slot's memory (50 KiB from build 7: the master delay took the rest) */
+#define FX_ARENA 48128u          /* a slot's memory (47 KiB from build 10: the master delay and the voices' hands took the rest) */
 #define FX_CLEAR 6144u           /* .. cleared this much a block when a new patch comes (10 blocks) */
 #define FX_FADE 12u              /* blocks of a slot's fade out before a new patch (~9 ms) */
 #define RM_TAIL 2756u            /* an effect nothing reaches goes on until its output has been near silence 2 s */
@@ -503,6 +575,7 @@ static uint32_t rm_size(uint32_t k)
     case RM_TAP: n = sizeof(m_tap_t); break;
     case RM_RVS: n = sizeof(m_rvs_t); break;
     case RM_SPR: n = sizeof(m_spr_t); break;
+    case RM_GLT: n = sizeof(m_glt_t); break;
     default: n = sizeof(rv_t); break;
     }
     return (n + 7u) & ~7u;
@@ -511,9 +584,10 @@ static uint32_t rm_size(uint32_t k)
 /* The recipes: a slot's chain, place by place, each place a choice among a few effects (a bit each); the third place
  * there one time in two when the recipe has one (FX_OPT). After Vascular's abstract chains and scenes */
 #define K(x) (1u << RM_##x)
-enum { FR_SPACE, FR_ECHO, FR_METAL, FR_STRINGS, FR_EROSION, FR_GHOST, FR_SPECTRAL, FR_RESONANT, FR_FOLDS, FR_TELEPHONE, FR_N };
+enum { FR_SPACE, FR_ECHO, FR_METAL, FR_STRINGS, FR_EROSION, FR_GHOST, FR_SPECTRAL, FR_RESONANT, FR_FOLDS, FR_TELEPHONE,
+       FR_HELL, FR_FACTORY, FR_GLITCH, FR_BROADCAST, FR_ABYSS, FR_RUST, FR_N };
 static const char *const FR_NAME[FR_N] = {"SPACE", "ECHO", "METAL", "STRINGS", "EROSION", "GHOST", "SPECTRAL", "RESONANT",
-                                          "FOLDS", "TELEPHONE"};
+                                          "FOLDS", "TELEPHONE", "HELL", "FACTORY", "GLITCH", "BROADCAST", "ABYSS", "RUST"};
 #define FX_OPT 0x8000u           /* (a place that may be left out) */
 static const uint16_t FR_PLACE[FR_N][FX_N] = {
     {K(FLT) | K(VOW), K(DLY) | K(TAP), K(REV) | K(SPR)},                        /* SPACE: a colour, an echo, a room */
@@ -526,8 +600,15 @@ static const uint16_t FR_PLACE[FR_N][FX_N] = {
     {K(VOW) | K(MDL), K(STR) | K(SPR), FX_OPT | K(DLY)},                        /* RESONANT */
     {K(FLD), K(FLT) | K(VOW), FX_OPT | K(SPR) | K(TAP)},                        /* FOLDS */
     {K(MU), K(SHF) | K(FLT), FX_OPT | K(REV) | K(DLY)},                         /* TELEPHONE */
+    /* build 10: hellscapes, atmospheric industrial, abstract glitch */
+    {K(FLD) | K(MU), K(SPR) | K(MDL), K(REV)},                                 /* HELL: torn, rung, a vast room */
+    {K(MU), K(MDL) | K(STR), FX_OPT | K(DLY) | K(TAP)},                         /* FACTORY: crushed, metal resonance */
+    {K(GLT), K(RVS) | K(MU), FX_OPT | K(DLY)},                                  /* GLITCH: bent buffers */
+    {K(GLT) | K(MU), K(VOW) | K(FLT), FX_OPT | K(TAP)},                         /* BROADCAST: a broken transmission */
+    {K(SHF), K(STR) | K(MDL), K(REV)},                                          /* ABYSS: moved partials ringing, deep */
+    {K(SPR), K(FLD) | K(GLT), FX_OPT | K(REV)},                                 /* RUST: a spring, torn, glitched */
 };
-static const uint8_t FR_W[FR_N] = {5, 5, 4, 3, 4, 3, 4, 3, 3, 2};
+static const uint8_t FR_W[FR_N] = {5, 5, 4, 3, 4, 3, 4, 3, 3, 2, 4, 4, 4, 3, 4, 3};
 #undef K
 
 typedef struct { uint8_t kind, p[4]; } fx_eff_t;
@@ -622,6 +703,7 @@ static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, i
     case RM_TAP: m_tap(p, (m_tap_t *)st, x); break;
     case RM_RVS: m_rvs(p, (m_rvs_t *)st, x); break;
     case RM_SPR: m_spr(p, (m_spr_t *)st, x); break;
+    case RM_GLT: m_glt(p, (m_glt_t *)st, x); break;
     default: {                                       /* the plate: stereo */
         rv_t *R = (rv_t *)st;
         int32_t pl[CTL], pr[CTL], g = 8192 + p[3] * (24576 / 100);   /* (its level: 0.25 .. 1) */
@@ -873,7 +955,7 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
     for (k = 0; k < FX_N; k++) {
         uint32_t can = FR_PLACE[f->recipe][k], m, nc = 0;
         uint8_t c[NKIND];
-        if (!(can & 0x0FFFu) || ((can & FX_OPT) && !rnd_chance(r, 55)))
+        if (!(can & 0x1FFFu) || ((can & FX_OPT) && !rnd_chance(r, 55)))
             break;
         for (m = 0; m < NKIND; m++)
             if (((can >> m) & 1u) && rm_size(m) <= room)

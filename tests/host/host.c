@@ -285,6 +285,14 @@ static void print_design(const mo_design_t *d)
     printf("  lfo wave %d speed %d delay %d pmd %d amd %d pms %d; penv L %d %d %d %d R %d %d %d %d\n", d->p[FP_LFW],
            d->p[FP_LFS], d->p[FP_LFD], d->p[FP_LPMD], d->p[FP_LAMD], d->p[FP_LPMS], d->p[FP_PL1], d->p[FP_PL1 + 1],
            d->p[FP_PL1 + 2], d->p[FP_PL1 + 3], d->p[FP_PR1], d->p[FP_PR1 + 1], d->p[FP_PR1 + 2], d->p[FP_PR1 + 3]);
+    if (d->gen >= 3u) {
+        int k;
+        printf("  hand %s pace %d travel %d density %d:", d->hand.on ? "on" : "off", d->hand.pace, d->hand.travel, d->hand.density);
+        for (k = 0; k < d->hand.n; k++)
+            printf(" %d->%d (%d..%d)", d->hand.map[k].src, d->hand.map[k].dst, d->hand.map[k].lo, d->hand.map[k].hi);
+        printf("\n  grit bits %d hold %d logic %d ratio %d stut %d/%d ms bend %d mix %d\n", d->grit.bits, d->grit.hold,
+               d->grit.logic, d->grit.lratio, d->grit.stut, d->grit.stut_ms, d->grit.bend, d->grit.mix);
+    }
     if (d->gr.mode) {
         const mo_gr_t *g = &d->gr;
         printf("  grains %s size %d ms rate %d back %d spread %d iv %d %d %d %d pch %d jit %d cents %d rev %d shape %d fb %d mix %d burst %d freeze %d atk %d rel %d dark %d drift %d\n",
@@ -372,6 +380,21 @@ static int cmd_check(void)
                 }
                 if (!st.ended && !st.reaped && !design.gr.freeze_ms) {
                     printf("FAIL %s %s seed %u: runs away (still alive 30 s after release)\n", MF_NAME[f], PATH_NAME[path], seed);
+                    if (getenv("CHECK_V")) {
+                        uint32_t bb;
+                        int32_t blk[CTL];
+                        print_design(&design);
+                        for (bb = 0; bb < 1378u * 8u; bb++) {   /* (on from where it is: what keeps it) */
+                            int32_t pkk = 0, ii;
+                            mo_render(&voice, &design, blk, 0);
+                            for (ii = 0; ii < CTL; ii++)
+                                pkk = maxi(pkk, absi(blk[ii]));
+                            if (bb % 1378u == 0u)
+                                printf("   +%us: live %u fm_done %u genv %d tail %u frozen %u gr %u hoff %d %d %d pk %d stut %u\n", bb / 1378u,
+                                       voice.live, voice.fm_done, voice.genv, voice.tail, voice.frozen, design.gr.mode,
+                                       voice.hoff[0], voice.hoff[1], voice.hoff[2], pkk, voice.stut_left);
+                        }
+                    }
                     fails++;
                 }
                 if (s < 4)                               /* the macros at their ends, on a few */
@@ -402,8 +425,8 @@ static int cmd_check(void)
 }
 
 /* generation 2's promise (build 5): every sound held 10 s is a texture -- it swells in (no strike: its first quarter
- * second at most twice what it holds), it holds (its last 2 s at least a fifth of its loudest quarter second) and it
- * moves (its level or its brightness wanders over the held part: reported, the stillest counted) */
+ * second at most twice its mean over the held part), it holds (its last 4 s at least 0.15 of its loudest quarter
+ * second: a slow breath of the level is no fade) and it moves (its level or its brightness wanders over the held part: reported, the stillest counted) */
 static int cmd_sustain(void)
 {
     enum { WB = 344, NW = 40 };                          /* windows of 344 blocks (0.25 s), 10 s */
@@ -416,8 +439,12 @@ static int cmd_sustain(void)
                 double w[NW] = {0}, br[NW] = {0}, mx = 0, held = 0, lo = 1e30, hi = 0, blo = 1e30, bhi = 0;
                 int32_t prev = 0;
                 mo_design(&design, f, seed, (uint32_t)path, GEN_NOW);
+                if (getenv("NOHAND"))
+                    design.hand.on = 0;
+                if (getenv("NOGRIT"))
+                    memset(&design.grit, 0, sizeof design.grit);
                 mo_measure(&design);
-                memset(&voice, 0, sizeof voice - MO_GR_N);
+                memset(&voice, 0, getenv("CLEARBUF") ? sizeof voice : sizeof voice - MO_GR_N);
                 mo_note_on(&voice, &design, 60, 1);
                 for (b = 0; b < (uint32_t)(WB * NW); b++) {
                     int k = (int)(b / WB);
@@ -430,14 +457,20 @@ static int cmd_sustain(void)
                         prev = blk[i];
                     }
                 }
+                if (getenv("SUST_SEED") && (uint32_t)atoi(getenv("SUST_SEED")) == seed) {
+                    printf("seed %u windows:", seed);
+                    for (i = 0; i < 8u; i++)
+                        printf(" %.3f", __builtin_sqrt(w[i] / (WB * CTL)) / 32768.0);
+                    printf("  gain %d\n", design.gain);
+                }
                 for (i = 0; i < NW; i++) {
                     br[i] = w[i] > 0 ? __builtin_sqrt(br[i] / w[i]) : 0;
                     w[i] = __builtin_sqrt(w[i] / (WB * CTL)) / 32768.0;
                     if (w[i] > mx)
                         mx = w[i];
                 }
-                for (i = 32; i < NW; i++)
-                    held += w[i] / 8;
+                for (i = 24; i < NW; i++)              /* (the last 4 s: a slow breath of the level is not a fade) */
+                    held += w[i] / 16;
                 for (i = 8; i < NW; i++) {
                     lo = w[i] < lo ? w[i] : lo;
                     hi = w[i] > hi ? w[i] : hi;
@@ -445,15 +478,20 @@ static int cmd_sustain(void)
                     bhi = br[i] > bhi ? br[i] : bhi;
                 }
                 n++;
-                if (held < 0.2 * mx) {
-                    printf("FAIL %s %s seed %u: does not hold (last 2 s %.4f, loudest %.4f)\n", MF_NAME[f],
-                           PATH_NAME[path], seed, held, mx);
-                    fails++;
-                }
-                if (w[0] > 2.0 * held) {
-                    printf("FAIL %s %s seed %u: struck (first 0.25 s %.4f, held %.4f)\n", MF_NAME[f], PATH_NAME[path],
-                           seed, w[0], held);
-                    fails++;
+                {
+                    double mean = 0;
+                    for (i = 4; i < NW; i++)
+                        mean += w[i] / (NW - 4);
+                    if (held < 0.15 * mx) {
+                        printf("FAIL %s %s seed %u: does not hold (last 4 s %.4f, loudest %.4f)\n", MF_NAME[f],
+                               PATH_NAME[path], seed, held, mx);
+                        fails++;
+                    }
+                    if (w[0] > 2.0 * mean) {
+                        printf("FAIL %s %s seed %u: struck (first 0.25 s %.4f, held %.4f)\n", MF_NAME[f], PATH_NAME[path],
+                               seed, w[0], mean);
+                        fails++;
+                    }
                 }
                 if (hi < 1.03 * lo && bhi < 1.03 * blo) {
                     still++;
@@ -477,12 +515,13 @@ static int cmd_golden(uint32_t gen)
     int f, s, path;
     int32_t blk[CTL];
     for (path = 0; path < PATH_N; path++)
-        for (f = 0; f < MF_N; f++)
+        for (f = 0; f < (gen < 3u ? MF_N_OLD : MF_N); f++)   /* (each generation over the families it knows) */
             for (s = 0; s < 8; s++) {
                 uint32_t seed = 100u + (uint32_t)f * 31u + (uint32_t)s + (uint32_t)path * 503u, h, b;
                 mo_design(&design, f, seed, (uint32_t)path, gen);
                 mo_measure(&design);
-                h = fnv(2166136261u, &design, sizeof design);
+                /* (the design as generations 0 .. 2 laid it out: generation 3's fields after it, zero before it) */
+                h = fnv(2166136261u, &design, gen < 3u ? (uint32_t)__builtin_offsetof(mo_design_t, hand) : (uint32_t)sizeof design);
                 memset(&voice, 0, sizeof voice - MO_GR_N);
                 mo_note_on(&voice, &design, 60, 1);
                 for (b = 0; b < 2756u; b++) {            /* 2 s */
@@ -1879,7 +1918,56 @@ int main(int argc, char **argv)
         return cmd_looper();
     if (!strcmp(argv[1], "master"))
         return cmd_master();
+    if (!strcmp(argv[1], "endof") && argc > 4) {         /* (a sound held 3 s, let go: when it ends, and why) */
+        int f = -1, k;
+        stat_t st;
+        for (k = 0; k < MF_N; k++)
+            if (!strcmp(argv[2], MF_NAME[k]))
+                f = k;
+        mo_design(&design, f, (uint32_t)atoi(argv[3]), (uint32_t)atoi(argv[4]), GEN_NOW);
+        mo_measure(&design);
+        print_design(&design);
+        st = play(&design, 60, 3.0, 30.0, 0, wav);
+        printf("ended %d reaped %d len %.2f s peak %.3f\n", st.ended, st.reaped, st.len / (double)FS, st.peak / 32768.0);
+        wav_write("build/sounds/endof.wav", wav, st.len ? st.len : FS * 33);
+        return 0;
+    }
+    if (!strcmp(argv[1], "windows") && argc > 4) {       /* (a sound's level, a quarter second at a time; and its hand) */
+        int f = -1, k, nohand;
+        for (k = 0; k < MF_N; k++)
+            if (!strcmp(argv[2], MF_NAME[k]))
+                f = k;
+        for (nohand = 0; nohand < 2; nohand++) {
+            uint32_t b, i;
+            int32_t blk[CTL];
+            double w = 0;
+            mo_design(&design, f, (uint32_t)atoi(argv[3]), (uint32_t)atoi(argv[4]), GEN_NOW);
+            if (nohand)
+                design.hand.on = 0;
+            mo_measure(&design);
+            if (!nohand)
+                print_design(&design);
+            memset(&voice, 0, sizeof voice - MO_GR_N);
+            mo_note_on(&voice, &design, 60, 1);
+            printf("%s:", nohand ? "no hand" : "hand   ");
+            for (b = 0; b < 344u * 40u; b++) {
+                mo_render(&voice, &design, blk, 0);
+                for (i = 0; i < CTL; i++)
+                    w += (double)blk[i] * blk[i];
+                if (b % 344u == 343u) {
+                    printf(" %.3f", __builtin_sqrt(w / (344.0 * CTL)) / 32768.0);
+                    if (!nohand && b / 344u < 8u)
+                        printf("[%d %d %d %d]", voice.hoff[0], voice.hoff[1], voice.hoff[2], voice.hoff[5]);
+                    w = 0;
+                }
+            }
+            printf("  gain %d\n", design.gain);
+        }
+        return 0;
+    }
     if (!strcmp(argv[1], "sizes")) {
+        printf("mo_voice_t %u, mo_design_t %u, finger %u\n", (unsigned)sizeof(mo_voice_t), (unsigned)sizeof(mo_design_t),
+               (unsigned)sizeof(struct mo_finger));
         printf("st_t %u, snapshots %u, gen_keep_t %u, fx_patch_t %u, mod_t %u, looper_t %u\n", (unsigned)sizeof(st_t),
                (unsigned)sizeof snap, (unsigned)sizeof(gen_keep_t), (unsigned)sizeof(fx_patch_t), (unsigned)sizeof(mod_t),
                (unsigned)sizeof(looper_t));

@@ -36,9 +36,10 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
  * sample-and-hold on the level more than the pitch, PULSE's pitch still, DRONE's vibrato faint), the tonal bodies
  * (FORMANT, REED) given an inharmonic modulator one time in two; a freeze never before the body's attack is over;
  * 2 from build 5: textures and drones only -- every sound swells in, holds and keeps moving (mol.c mo_gen2); IMPACT
- * and PULSE are not drawn */
-#define GEN_NOW 2u
-#define GEN_N 3u
+ * and PULSE are not drawn; 3 from build 10: Anima's invisible hand on each voice, Russolo's grit (the small DAC, XOR
+ * logic, stutters, bent grains), eight new families (FURNACE HUM STATIC HOWL SCRAPE DATA ASH TUNNEL) */
+#define GEN_NOW 3u
+#define GEN_N 4u
 /* EDIT's four macros on a sound: -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
 #define NMAC 4u

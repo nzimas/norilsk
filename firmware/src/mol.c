@@ -50,9 +50,12 @@
 
 enum { MF_METAL, MF_DRONE, MF_BRUIT, MF_IMPACT, MF_PULSE, MF_GLASS, MF_FORMANT, MF_REED,
        MF_BODY_N,
-       MF_CLOUD = MF_BODY_N, MF_SHATTER, MF_PULSAR, MF_FREEZE, MF_N };
+       MF_CLOUD = MF_BODY_N, MF_SHATTER, MF_PULSAR, MF_FREEZE,
+       MF_G3, MF_FURNACE = MF_G3, MF_HUM, MF_STATIC, MF_HOWL, MF_SCRAPE, MF_DATA, MF_ASH, MF_TUNNEL, MF_N };
+#define MF_N_OLD MF_G3           /* the families generations 0 .. 2 know */
 static const char *const MF_NAME[MF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "PULSE", "GLASS", "FORMANT", "REED",
-                                          "CLOUD", "SHATTER", "PULSAR", "FREEZE"};
+                                          "CLOUD", "SHATTER", "PULSAR", "FREEZE",
+                                          "FURNACE", "HUM", "STATIC", "HOWL", "SCRAPE", "DATA", "ASH", "TUNNEL"};
 /* the families' weights on each path (generation 0) */
 static const uint8_t MF_W[PATH_N][MF_N] = {
     {2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3},
@@ -74,10 +77,16 @@ static const uint8_t MF_W2[PATH_N][MF_N] = {
 };
 static const uint8_t MF_BODY_G2[PATH_N][MF_BODY_N] = {
     {3, 3, 2, 0, 0, 3, 2, 1}, {3, 5, 1, 0, 0, 5, 2, 1}, {3, 2, 4, 0, 0, 2, 2, 2}};
+/* generation 3: the new families (FURNACE .. TUNNEL) as likely as the old ones together, leaning by path */
+static const uint8_t MF_W3[PATH_N][MF_N] = {
+    {2, 3, 2, 0, 0, 2, 1, 1, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3},
+    {2, 4, 1, 0, 0, 4, 2, 1, 4, 1, 2, 3, 2, 3, 1, 4, 1, 1, 5, 6},
+    {2, 1, 4, 0, 0, 1, 2, 1, 2, 3, 3, 2, 5, 3, 6, 3, 5, 6, 2, 1},
+};
 static const uint8_t *mo_fam_w(uint32_t path, uint32_t gen)
 {
     path = path >= PATH_N ? PATH_OPEN : path;
-    return gen >= 2u ? MF_W2[path] : MF_W[path];
+    return gen >= 3u ? MF_W3[path] : gen >= 2u ? MF_W2[path] : MF_W[path];
 }
 
 /* the grain recipe */
@@ -111,7 +120,28 @@ typedef struct {
     uint8_t path, gen;           /* what it was drawn on: PATH_*, the generators' generation */
     int32_t gain;                /* Q12: the measured level brought to the target */
     uint32_t seed;               /* what made it: mo_design(-1, seed, path, gen) + mo_measure gives it again */
+    /* generation 3 (zero before it, and nothing below runs then) */
+    struct {                     /* the invisible hand (Anima's): what moves what */
+        uint8_t on, n;           /* on; maps in use */
+        uint8_t travel, density; /* the finger's speed, the ghost's frequency: 0 .. 100 */
+        uint16_t pace;           /* the hand's time, Q8 (256: as Anima's) */
+        uint8_t rsv[2];
+        struct { uint8_t src, dst; int8_t lo, hi; } map[5];   /* a controller to a destination, lo .. hi % of its swing */
+    } hand;
+    struct {                     /* the grit (Russolo's): after the operators, before the grains */
+        uint8_t bits;            /* 0 off; else the bits kept, 3 .. 10 */
+        uint8_t hold;            /* samples held more: 0 .. 7 (a lower rate, a small DAC's) */
+        uint8_t logic;           /* XOR with a triangle: its depth 0 .. 100 */
+        uint8_t lratio;          /* .. the triangle's ratio to the note, x 8 */
+        uint8_t stut;            /* stutters: chance a second x 10, 0 none */
+        uint8_t stut_ms;         /* .. a loop's length, 5 .. 120 ms */
+        uint8_t bend;            /* grains read with an address bit bent, % */
+        uint8_t mix;             /* the crushed and logical share, 0 .. 100 */
+    } grit;
 } mo_design_t;
+/* the hand's controllers (Anima's) and its destinations here */
+enum { HS_X, HS_Y, HS_SIZE, HS_SPEED, HS_ANGLE, HS_DIST, HS_AGE, HS_GX, HS_GY, HS_COUNT, HS_N };
+enum { HD_BRIGHT, HD_GRAIN, HD_LEVEL, HD_GRIT, HD_GLITCH, HD_DARK, HD_N };
 
 #define MO_GR_N 12288u           /* the grain buffer: samples at FS / 2 (0.557 s), mu-law */
 #define MO_GR_MAXG 4u            /* grains at once */
@@ -123,6 +153,7 @@ typedef struct {
     uint32_t wph, winc;          /* the window's phase (a grain = 2^32) and step */
     int32_t gain;                /* Q15 */
     uint8_t on, shape;
+    uint16_t bmask;              /* (generation 3) an address bit bent as it reads: Russolo's BEND */
 } mo_grain_t;
 
 typedef struct {
@@ -148,10 +179,29 @@ typedef struct {
     uint32_t drift;              /* the drift's phase */
     svf_t dark;
     rnd_t r;
+    /* generation 3: the hand (two fingers: the one on the sound, a ghost), its offsets this block; the grit */
+    struct mo_finger {
+        int16_t x, y, px, py, size, speed, pressure;   /* Q15 */
+        int16_t ax, ay, tx, ty, r, dx1, dy1, glide, gx, gy;
+        int32_t nseed, t, dur, figureAt, figureFor, invFor, w, w2, phase, phase2;   /* Q16 */
+        uint8_t down, path, flick, rsv;
+    } f, ghost;
+    int32_t ghostClock, handover, countSmooth;   /* Q16 s; Q15 */
+    int16_t hoff[HD_N];          /* the hand's offsets: macro units (BRIGHT, GRAIN, DARK), Q15 (LEVEL), % (GRIT, GLITCH) */
+    rnd_t motion;
+    int32_t gheld, gstep;        /* the grit's held sample, samples to the next */
+    uint32_t lph;                /* the logic triangle's phase */
+    uint32_t stut_left, stut_len, stut_pos, stut_ph;   /* a stutter: samples to go, its loop (buffer samples), where it
+                                                          * starts in the buffer, how far round (at the full rate) */
+    uint8_t gbend;               /* this block's share of bent grains, % */
+    uint16_t hquiet;             /* blocks let go and silent (generation 3: the hand may keep the operators from settling) */
+    uint8_t g3;                  /* the sound is of generation 3 or later (the grains' fix) */
+    int32_t lenv;                /* the grit's follower of the sound's level */
     uint8_t buf[MO_GR_N];
 } mo_voice_t;
 
 /* ------------------------------------------------------------ the voice --- */
+static void mo_hand_start(mo_voice_t *v, const mo_design_t *d);   /* (generation 3: below) */
 static void mo_note_on(mo_voice_t *v, const mo_design_t *d, int32_t note, int fresh)
 {
     const uint8_t *p = d->p;
@@ -183,6 +233,22 @@ static void mo_note_on(mo_voice_t *v, const mo_design_t *d, int32_t note, int fr
     fm6_note_init(&v->n, p, v->note, MO_VEL, fresh);
     fm6_lfo_key(&v->lfo);
     v->live = 1;
+    v->g3 = (uint8_t)(d->gen >= 3u);
+    if (d->gen >= 3u) {                          /* (generation 3: the hand put down, the grit from silence) */
+        if (fresh && d->hand.on)
+            mo_hand_start(v, d);
+        v->hquiet = 0;
+        if (fresh) {
+            v->lenv = 0;
+            v->gheld = 0;
+            v->gstep = 0;
+            v->lph = 0;
+            v->stut_left = 0;
+        }
+    } else {
+        v->gbend = 0;
+        memset(v->hoff, 0, sizeof v->hoff);
+    }
 }
 /* the carriers to full and held there: the track's own envelope shapes the voice instead */
 static void mo_hold(mo_voice_t *v, const mo_design_t *d)
@@ -309,6 +375,12 @@ static FAST void mo_spawn(mo_voice_t *v, const mo_gr_t *gr, uint32_t len, int32_
     dmax = MO_GR_N - 64u - (rev ? bk + len / 2u : inc < Q16 / 2 ? (uint32_t)(((uint64_t)len * (uint32_t)(Q16 / 2 - inc)) >> 16) : 0u);
     if (v->filled < MO_GR_N && dmax > v->filled)
         dmax = v->filled;
+    if (v->g3 && rev && v->filled < MO_GR_N) {         /* (generation 3: a grain read backwards stays inside what this
+                                                        * note has written -- before it, an earlier note's leftovers) */
+        uint32_t lim = v->filled > bk + 24u ? v->filled - bk - 8u : 0u;
+        if (dmax > lim)
+            dmax = lim;
+    }
     if (need + 16u > dmax)
         return;
     delay = back + (spread ? (uint32_t)rnd_below(&v->r, (int32_t)spread + 1) : 0u);
@@ -324,6 +396,9 @@ static FAST void mo_spawn(mo_voice_t *v, const mo_gr_t *gr, uint32_t len, int32_
     g->wph = 0;
     g->winc = 0xFFFFFFFFu / (len ? len : 1u);
     g->shape = gr->shape;
+    g->bmask = 0;
+    if (v->gbend && rnd_below(&v->r, 100) < v->gbend)   /* (generation 3 only: no draw otherwise) */
+        g->bmask = (uint16_t)(1u << rnd_in(&v->r, 5, 12));
     g->gain = gr->mode == GM_CLOUD && gr->jit ? mulq15(norm, Q15 - mulq15(rnd_q15(&v->r), gr->jit * (Q15 / 200))) : norm;
     g->on = 1;
 }
@@ -444,6 +519,11 @@ static FAST void mo_grains(mo_voice_t *v, const mo_gr_t *gr, const int32_t *y, i
                 continue;
             p = g->pos;
             i0 = (uint32_t)p >> 16;
+            if (g->bmask) {                                /* (bent: the address with a bit flipped) */
+                i0 ^= g->bmask;
+                if (i0 >= MO_GR_N)
+                    i0 -= MO_GR_N;
+            }
             i1 = i0 + 1u >= MO_GR_N ? 0u : i0 + 1u;
             f = (p & 0xFFFF) >> 1;
             s0 = gr_dec(v->buf[i0]);
@@ -478,6 +558,278 @@ static FAST void mo_grains(mo_voice_t *v, const mo_gr_t *gr, const int32_t *y, i
 }
 static __typeof__(&mo_grains) volatile mo_grains_fp = mo_grains;   /* (the flash's way into the RAM code) */
 
+/* -------------------------------------------------------------- the hand --- */
+/* Generation 3: the invisible hand of Anima (Tonitor's anima.c, after Vascular's AnimaCore.h, the same author), a
+ * hand on each voice: one finger on the sound while the note lasts, dragging one figure after another -- orbits,
+ * figures of eight, scribbles, slow glides, now and then a flick -- pressing in slow swells, and now and then lifting
+ * to land somewhere else; a ghost finger that comes and goes on a clock that will not keep time. Its controllers
+ * (where the finger is, how hard it presses, how fast it moves, its angle and distance from the middle, its age;
+ * where the whole hand is, how many fingers are down) move what the sound's design maps them to: its brightness, its
+ * cloud, its level, its grit, its glitches, the cloud's darkness. Never its pitch. Worked out once a block. */
+#define HR16(x) ((int32_t)((x) * 65536.0))
+#define HLV(x) ((int32_t)((x) * 32768.0))
+AINL int32_t ha_sinr(int32_t a) { return sin_ph((uint32_t)((int64_t)a * 10430)); }   /* a: Q16 radians */
+AINL int32_t ha_cosr(int32_t a) { return sin_ph((uint32_t)((int64_t)a * 10430) + 0x40000000u); }
+AINL int32_t ha_smooth(int32_t u) { return mulq15(mulq15(u, u), 3 * Q15 - 2 * u); }   /* smoothstep, Q15 */
+AINL int32_t ha_noise1(int32_t t, int32_t seed)
+{
+    return mulq15(ha_sinr(mulq16(t, HR16(1.3)) + seed), HLV(0.6)) +
+           mulq15(ha_sinr(mulq16(t, HR16(2.9)) + mulq16(seed, HR16(1.7))), HLV(0.3)) +
+           mulq15(ha_sinr(mulq16(t, HR16(6.1)) + mulq16(seed, HR16(0.3))), HLV(0.1));
+}
+static FAST int32_t ha_angle(int32_t dx, int32_t dy)   /* (atan2 + pi) / 2 pi, Q15 (Anima's) */
+{
+    int32_t ax = absi(dx), ay = absi(dy), z, a;
+    if (!ax && !ay)
+        return Q15 / 2;
+    z = ax > ay ? (int32_t)(((uint32_t)ay << 15) / (uint32_t)ax) : (int32_t)(((uint32_t)ax << 15) / (uint32_t)ay);
+    a = mulq15(z, HLV(0.125) - mulq15(z - Q15, HLV(0.0389) + mulq15(z, HLV(0.0105))));
+    if (ay > ax)
+        a = Q15 / 4 - a;
+    if (dx < 0)
+        a = Q15 / 2 - a;
+    if (dy < 0)
+        a = -a;
+    return clampi(a + Q15 / 2, 0, Q15);
+}
+/* the next figure a finger drags, from where it is (it never jumps) */
+static FAST void ha_figure(mo_voice_t *v, const mo_design_t *d, struct mo_finger *f)
+{
+    rnd_t *r = &v->motion;
+    int32_t speed, a, tr = HR16(0.05) + d->hand.travel * (HR16(0.35) / 100);
+    f->ax = f->x;
+    f->ay = f->y;
+    f->figureAt = f->t;
+    f->path = (uint8_t)rnd_below(r, 4);    /* orbit, figure, scribble, glide */
+    f->flick = (uint8_t)rnd_chance(r, 20);
+    f->figureFor = f->flick ? rnd_in(r, HR16(1.5), HR16(4.0)) : rnd_in(r, HR16(6.0), HR16(18.0));
+    f->invFor = (int32_t)(0xFFFFFFFFu / (uint32_t)f->figureFor);
+    f->r = (int16_t)(f->flick ? rnd_in(r, HLV(0.08), HLV(0.18)) : rnd_in(r, HLV(0.16), HLV(0.4)));
+    speed = mulq16(tr, f->flick ? rnd_in(r, HR16(5.0), HR16(9.0)) : rnd_in(r, HR16(1.6), HR16(3.2)));
+    f->w = (int32_t)(((int64_t)speed * (0xFFFFFFFFu / (uint32_t)(f->r > 64 ? f->r : 64))) >> 17);   /* speed / r */
+    if (rnd_chance(r, 50))
+        f->w = -f->w;
+    f->w2 = rnd_chance(r, 50) ? f->w * 2 : f->w + (f->w >> 1);
+    f->phase = rnd_in(r, 0, HR16(6.2831853));
+    f->phase2 = rnd_in(r, 0, HR16(6.2831853));
+    a = rnd_in(r, 0, HR16(6.2831853));
+    f->dx1 = (int16_t)clampi(ha_cosr(a), -32767, 32767);
+    f->dy1 = (int16_t)clampi(ha_sinr(a), -32767, 32767);
+    f->tx = (int16_t)(f->flick ? 0 : rnd_in(r, HLV(0.15), HLV(0.85)) - f->ax);   /* (the figure carries its anchor) */
+    f->ty = (int16_t)(f->flick ? 0 : rnd_in(r, HLV(0.15), HLV(0.85)) - f->ay);
+}
+static FAST void ha_land(mo_voice_t *v, const mo_design_t *d, struct mo_finger *f, int ghost)
+{
+    rnd_t *r = &v->motion;
+    int was = f->down;
+    int16_t ox = f->x, oy = f->y, os = f->size;
+    f->down = 1;
+    f->t = 0;
+    f->dur = ghost ? rnd_in(r, HR16(3.0), HR16(15.0)) : 0x7FFFFFFF;
+    f->x = f->px = (int16_t)rnd_in(r, HLV(0.1), HLV(0.9));
+    f->y = f->py = (int16_t)rnd_in(r, HLV(0.1), HLV(0.9));
+    f->pressure = (int16_t)rnd_in(r, HLV(0.55), HLV(0.9));
+    f->nseed = rnd_in(r, 0, HR16(100.0));
+    f->speed = 0;
+    f->glide = 0;
+    f->size = 0;
+    if (!ghost && was) {                    /* a handover: the hand slides over from where it was (~90 ms) */
+        f->glide = 32767;
+        f->gx = ox;
+        f->gy = oy;
+        f->size = os;
+    }
+    ha_figure(v, d, f);
+}
+static FAST void ha_move(mo_voice_t *v, const mo_design_t *d, struct mo_finger *f, int ghost, int32_t dt)
+{
+    int32_t u, ox = 0, oy = 0, ease, carry, fade, x, y, dx, dy, sp;
+    f->t += dt;
+    u = f->t - f->figureAt;
+    switch (f->path) {
+    case 0:                                 /* an orbit */
+        ox = mulq15(f->r, ha_cosr(f->phase + mulq16(f->w, u)) - ha_cosr(f->phase));
+        oy = mulq15(f->r, ha_sinr(f->phase + mulq16(f->w, u)) - ha_sinr(f->phase));
+        break;
+    case 1:                                 /* a figure of eight */
+        ox = mulq15(f->r, ha_sinr(mulq16(f->w, u) + f->phase) - ha_sinr(f->phase));
+        oy = mulq15(mulq15(f->r, HLV(0.7)), ha_sinr(mulq16(f->w2, u) + f->phase2) - ha_sinr(f->phase2));
+        break;
+    case 2: {                               /* a scribble */
+        int32_t k = (HR16(0.05) + d->hand.travel * (HR16(0.35) / 100)) * 5;
+        ox = mulq15(ha_noise1(mulq16(u, k), f->nseed) - ha_noise1(0, f->nseed), HLV(0.25));
+        oy = mulq15(ha_noise1(mulq16(u, k), f->nseed + HR16(40.0)) - ha_noise1(0, f->nseed + HR16(40.0)), HLV(0.25));
+        break;
+    }
+    default: {                              /* a slow slide back and forth */
+        int32_t a = mulq15(f->r + (f->r >> 1), ha_sinr(mulq16(f->w, u) >> 1));
+        ox = mulq15(f->dx1, a);
+        oy = mulq15(f->dy1, a);
+        break;
+    }
+    }
+    ease = ha_smooth(clampi(u >> 1, 0, Q15));             /* eased in over a second */
+    carry = ha_smooth(clampi(mulq16(u, f->invFor) >> 1, 0, Q15));
+    x = clampi(f->ax + mulq15(f->tx, carry) + mulq15(ox, ease), HLV(0.03), HLV(0.97));
+    y = clampi(f->ay + mulq15(f->ty, carry) + mulq15(oy, ease), HLV(0.03), HLV(0.97));
+    if (f->glide > 0) {
+        x = f->gx + mulq15(x - f->gx, Q15 - f->glide);
+        y = f->gy + mulq15(y - f->gy, Q15 - f->glide);
+        f->glide = (int16_t)(f->glide > 260 ? f->glide - 260 : 0);
+    }
+    f->x = (int16_t)x;
+    f->y = (int16_t)y;
+    fade = ghost ? clampi((f->dur - f->t) >> 1, 0, Q15) : Q15;
+    /* pressing harder and easing off in slow swells */
+    f->size = (int16_t)mulq15(mulq15(mulq15(f->pressure, HLV(0.6) + mulq15(HLV(0.4), ha_sinr(mulq16(f->t, HR16(0.45)) + f->nseed))),
+                                     clampi(f->t, 0, HR16(0.5))), fade);
+    dx = f->x - f->px;
+    dy = f->y - f->py;
+    sp = clampi((int32_t)isqrt32((uint32_t)(dx * dx + dy * dy)) * 4594, 0, Q15);   /* (0.3 surface a second: full) */
+    f->speed = (int16_t)(f->speed + (sp - f->speed) / 10);
+    f->px = f->x;
+    f->py = f->y;
+    if (u >= f->figureFor)
+        ha_figure(v, d, f);
+}
+/* each destination's swing at 100 % (its units: macro steps, Q15 level, %) */
+static const int16_t HD_SPAN[HD_N] = {MAC_MAX, MAC_MAX / 2, Q15 / 2, 100, 100, MAC_MAX};   /* (GRAIN: half -- the cloud wetter and faster moves a sound's level too) */
+/* .. and how far each may go down (BRIGHT pulled far down takes a metal's level with it; LEVEL: never under ~0.6) */
+static const int16_t HD_FLOOR[HD_N] = {-MAC_MAX / 2, -MAC_MAX / 4, -Q15 * 2 / 5, -100, -100, -MAC_MAX};
+/* a block of the hand: the fingers moved, the controllers read, the offsets worked out (v->hoff) */
+static FAST void mo_hand(mo_voice_t *v, const mo_design_t *d)
+{
+    struct mo_finger *f = &v->f, *g = &v->ghost;
+    int32_t c[HS_N], dt = (int32_t)(((int64_t)HR16(0.00072562) * d->hand.pace) >> 8), gx, gy, k;
+    if (f->down) {
+        v->handover -= dt;                  /* now and then the finger lands somewhere else (an exponential wait ~18 s) */
+        if (v->handover <= 0) {
+            ha_land(v, d, f, 0);
+            v->handover = mulq16(HR16(18.0), mulq16(rnd_in(&v->motion, HR16(0.4), HR16(2.0)),
+                                                    (int32_t)(((int64_t)(HR16(15.0) - log2_q16((uint32_t)rnd_in(&v->motion, 64, Q15))) * 45426) >> 16)));
+        }
+        ha_move(v, d, f, 0, dt);
+    }
+    v->ghostClock -= dt;                    /* the ghost: down a while, lifted again, on a clock that will not keep time */
+    if (v->ghostClock <= 0) {
+        int32_t dens = HR16(0.2) + d->hand.density * (HR16(0.8) / 100), mean;
+        if (!g->down && f->down && d->hand.density > 45u)
+            ha_land(v, d, g, 1);
+        mean = (int32_t)((uint32_t)HR16(10.0) / (uint32_t)((mulq16(dens, dens) >> 8) + 1) << 8);
+        mean = mulq16(mean, rnd_in(&v->motion, HR16(0.35), HR16(2.5)));
+        v->ghostClock = mulq16(mean, (int32_t)(((int64_t)(HR16(15.0) - log2_q16((uint32_t)rnd_in(&v->motion, 4, Q15))) * 45426) >> 16));
+    }
+    if (g->down) {
+        ha_move(v, d, g, 1, dt);
+        if (g->t >= g->dur)
+            g->down = 0;
+    }
+    gx = g->down ? (f->x + g->x) >> 1 : f->x;
+    gy = g->down ? (f->y + g->y) >> 1 : f->y;
+    v->countSmooth += ((g->down ? Q15 : 0) - v->countSmooth) / 16;
+    c[HS_X] = f->x;
+    c[HS_Y] = Q15 - f->y;
+    c[HS_SIZE] = maxi(f->size, g->down ? g->size : 0);
+    c[HS_SPEED] = maxi(f->speed, g->down ? g->speed : 0);
+    c[HS_ANGLE] = ha_angle(f->x - Q15 / 2, f->y - Q15 / 2);
+    c[HS_DIST] = clampi(((int32_t)isqrt32((uint32_t)((f->x - Q15 / 2) * (f->x - Q15 / 2) + (f->y - Q15 / 2) * (f->y - Q15 / 2))) * 46341) >> 15, 0, Q15);
+    c[HS_AGE] = Q15 / 2 - (ha_cosr(mulq16(f->t, HR16(0.27318))) >> 1);   /* (a cycle in 23 s) */
+    c[HS_GX] = gx;
+    c[HS_GY] = Q15 - gy;
+    c[HS_COUNT] = v->countSmooth;
+    for (k = 0; k < HD_N; k++)
+        v->hoff[k] = 0;
+    for (k = 0; k < (int32_t)d->hand.n && k < 5; k++) {
+        uint32_t src = d->hand.map[k].src, dst = d->hand.map[k].dst;
+        int32_t lo, hi;
+        if (src >= HS_N || dst >= HD_N)
+            continue;
+        lo = d->hand.map[k].lo * HD_SPAN[dst] / 100;
+        hi = d->hand.map[k].hi * HD_SPAN[dst] / 100;
+        v->hoff[dst] = (int16_t)clampi(v->hoff[dst] + lo + mulq15(hi - lo, c[src]), -32767, 32767);
+    }
+    for (k = 0; k < HD_N; k++)
+        if (v->hoff[k] < HD_FLOOR[k])
+            v->hoff[k] = HD_FLOOR[k];
+}
+static __typeof__(&ha_land) volatile ha_land_fp = ha_land;   /* (the flash's way into the RAM code) */
+/* the hand put down at a fresh note (the main loop's or the ISR's note-on: flash code) */
+static void mo_hand_start(mo_voice_t *v, const mo_design_t *d)
+{
+    memset(&v->f, 0, sizeof v->f);
+    memset(&v->ghost, 0, sizeof v->ghost);
+    memset(v->hoff, 0, sizeof v->hoff);
+    v->countSmooth = 0;
+    rnd_seed(&v->motion, d->seed ^ 0x48414E44u ^ v->w * 2654435761u);
+    ha_land_fp(v, d, &v->f, 0);
+    v->handover = HR16(6.0) + rnd_in(&v->motion, 0, HR16(20.0));
+    v->ghostClock = rnd_in(&v->motion, HR16(1.0), HR16(8.0));
+}
+
+/* -------------------------------------------------------------- the grit --- */
+/* Generation 3: Russolo's (Tonitor's russolo.c, after Robert Heel's Noisferatu), on the operators' sound before the
+ * cloud: a small DAC's grit (the bits kept, the sample held a few times over), bitwise logic (the sample XOR'd with a
+ * triangle at a ratio to the note: Noisferatu's logic oscillators), and stutters -- by chance, the last moment of the
+ * sound (from the cloud's buffer, which always listens) looped a while, then on as it was. The crushed share is
+ * mixed with the clean; the hand may move it (GRIT) and the stutters' and bent grains' chance (GLITCH). */
+static FAST void mo_grit(mo_voice_t *v, const mo_design_t *d, int32_t *y)
+{
+    uint32_t i, sh = d->grit.bits ? 15u - clampi(d->grit.bits, 3, 10) + 1u : 0u, hold = d->grit.hold;
+    int32_t mix = clampi(d->grit.mix + v->hoff[HD_GRIT], 0, 100) * (Q15 / 100), lg = d->grit.logic * (Q15 / 100);
+    uint32_t linc = 0;
+    int32_t stut = clampi(d->grit.stut + v->hoff[HD_GLITCH], 0, 200);
+    if (lg) {                                /* the logic triangle: the note's step x ratio / 8 */
+        int32_t inc24 = fm6_freq(fm6_note_logfreq(v->note * 16, 0));
+        linc = (uint32_t)(((uint64_t)(uint32_t)inc24 * (d->grit.lratio ? d->grit.lratio : 8u)) << 5);   /* Q24 x 2^8 / 8 */
+    }
+    if (!v->stut_left && stut && rnd_below(&v->r, 13780) < stut && v->filled > 4096u) {   /* (x 10 a second) */
+        uint32_t ms = clampi(d->grit.stut_ms, 5, 120);
+        v->stut_len = ms_samples2(ms);
+        v->stut_left = (uint32_t)rnd_in(&v->r, 3, 12) * v->stut_len * 2u;   /* (3 .. 12 rounds, at the full rate) */
+        if (v->stut_left > (MO_GR_N - v->stut_len) * 2u - 64u)   /* (done before the write head comes round to it) */
+            v->stut_left = (MO_GR_N - v->stut_len) * 2u - 64u;
+        v->stut_pos = v->w + MO_GR_N - v->stut_len;               /* (the moment just before, fixed where it is) */
+        if (v->stut_pos >= MO_GR_N)
+            v->stut_pos -= MO_GR_N;
+        v->stut_ph = 0;
+    }
+    for (i = 0; i < CTL; i++) {
+        int32_t x = y[i], c = x;
+        v->lenv += (absi(x) - v->lenv) >> 7;     /* (the sound's level, followed: ~2 ms) */
+        if (sh || hold || lg) {
+            if (v->gstep <= 0) {             /* a new sample for the small DAC */
+                int32_t q = x;
+                if (lg) {                    /* XOR, ten bits against ten -- its result as loud as the sound (a follower
+                                              * of its level): XOR'd with near silence, a triangle would sound out */
+                    int32_t t = (int32_t)(v->lph >> 22), tri = t < 512 ? t * 2 - 512 : 1535 - t * 2;
+                    int32_t a = clampi(q >> 6, -512, 511) + 512, xv = ((((a ^ (tri + 512)) & 0x3FF) - 512) * 64);
+                    xv = mulq15(xv, clampi(v->lenv * 2, 0, Q15));
+                    q = q + mulq15(xv - q, lg);
+                }
+                if (sh)                      /* (towards zero: silence kept at 0, never a step below it) */
+                    q = q < 0 ? -(((-q) >> sh) << sh) : (q >> sh) << sh;
+                v->gheld = q;
+                v->gstep = (int32_t)hold + 1;
+            }
+            v->gstep--;
+            c = v->gheld;
+            v->lph += linc;
+        }
+        if (mix != Q15)
+            c = x + mulq15(c - x, mix);
+        if (v->stut_left) {                  /* a stutter: the moment just before, looped (half-rate buffer) */
+            uint32_t at = v->stut_pos + (v->stut_ph >> 1);
+            if (at >= MO_GR_N)
+                at -= MO_GR_N;
+            c = gr_dec(v->buf[at]);
+            if (++v->stut_ph >= v->stut_len * 2u)
+                v->stut_ph = 0;
+            v->stut_left--;
+        }
+        y[i] = c;
+    }
+}
+
 /* ------------------------------------------------------------- the block --- */
 /* one block (CTL samples), Q15 into out; 0 when the voice is silent for good. mac: EDIT's macros (0: none) */
 static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, const int8_t *mac)
@@ -488,9 +840,28 @@ static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, con
     uint32_t i, lfoq8 = 256;
     const mo_gr_t *gr = d->gr.mode ? &d->gr : 0;
     int fm_quiet;
+    int8_t hmac[NMAC];
+    int32_t hlvl = Q15;
+    int mac_on = 0;
+    mo_gr_t gdark;
     if (!v->live)
         return 0;
     v->blocks++;
+    if (d->gen >= 3u) {                          /* generation 3: the hand's offsets on the macros, the level, the cloud */
+        if (d->hand.on) {
+            mo_hand(v, d);
+            for (i = 0; i < NMAC; i++)           /* (BRIGHT below: the modulators alone, not the macro's carrier tilt) */
+                hmac[i] = (int8_t)clampi((mac ? mac[i] : 0) + (i == 2u ? v->hoff[HD_GRAIN] : 0), -MAC_MAX, MAC_MAX);
+            mac = hmac;
+            hlvl = clampi(Q15 + v->hoff[HD_LEVEL], Q15 / 8, Q15);
+            if (gr && v->hoff[HD_DARK]) {
+                gdark = *gr;
+                gdark.dark = (uint8_t)clampi(gr->dark + v->hoff[HD_DARK] * 100 / MAC_MAX, 0, 100);
+                gr = &gdark;
+            }
+        }
+        v->gbend = (uint8_t)clampi(d->grit.bend + v->hoff[HD_GLITCH], 0, 100);
+    }
     if (mac && (mac[0] | mac[1] | mac[2] | mac[3])) {
         int8_t felt[NMAC];
         for (i = 0; i < NMAC; i++) {                     /* (the knob's turn, felt early: its square root) */
@@ -504,8 +875,19 @@ static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, con
         }
         motion = felt[3];
         gmac = felt[2];
+        mac_on = 1;
         if (!gr && gmac > 0)
             gr = &d->gr_def;                             /* a cloud for a sound that has none */
+    }
+    if (d->gen >= 3u && d->hand.on && v->hoff[HD_BRIGHT]) {   /* the hand's brightness: the modulators' index alone, as
+                                                              * the macro moves them (the timbre, not the level) */
+        uint32_t car = mo_carriers_of(p), k;
+        int32_t hb = v->hoff[HD_BRIGHT], a = hb < 0 ? -hb : hb, q = (int32_t)isqrt32((uint32_t)(a * MAC_MAX));
+        hb = hb < 0 ? -q : q;
+        for (k = 0; k < 6u; k++)
+            if (!((car >> k) & 1u))
+                lvl[k] += hb * 1179648;
+        (void)mac_on;
     }
     /* the operators: skipped once the cloud is frozen and nothing dry is heard */
     if (v->frozen && gr && gr->mix >= 100 && gmac >= 0) {
@@ -532,7 +914,20 @@ static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, con
             }
         }
     }
+    if (d->gen >= 3u && (d->grit.bits | d->grit.hold | d->grit.logic | d->grit.stut | (uint32_t)v->hoff[HD_GLITCH]))
+        mo_grit(v, d, y);                        /* (generation 3: Russolo's grit) */
     mo_grains(v, gr, y, out, gmac, motion);
+    if (hlvl != Q15)                             /* (the hand's press on the level) */
+        for (i = 0; i < CTL; i++)
+            out[i] = mulq15(out[i], hlvl);
+    if (d->gen >= 3u) {                          /* (generation 3: let go and silent a quarter second -- done) */
+        int32_t pk = 0;
+        for (i = 0; i < CTL; i++)
+            pk = maxi(pk, absi(out[i]));
+        v->hquiet = (uint16_t)(!v->n.down && !v->hold && pk < 4 ? (v->hquiet < 0xFFFFu ? v->hquiet + 1u : v->hquiet) : 0u);
+        if (v->hquiet > 345u)
+            return (v->live = 0);
+    }
     /* alive? the operators sounding; else the cloud, until it has let go */
     if (!v->fm_done)
         return 1;
@@ -1231,6 +1626,188 @@ static void mo_sanitize(mo_design_t *d)
     }
 }
 
+/* ------------------------------------------------------- generation 3 --- */
+/* the new families -- ilbient, atmospheric industrial, hellscapes, abstract glitch; every one held and moving
+ * (generation 2's rules apply after them): each borrows a body, then is made what it is */
+static int mo_fam3_body(int32_t f, rnd_t *r)
+{
+    switch (f) {
+    case MF_FURNACE: case MF_STATIC: return MF_BRUIT;
+    case MF_HUM: case MF_SCRAPE: return MF_METAL;
+    case MF_HOWL: return MF_FORMANT;
+    case MF_DATA: return MF_GLASS;
+    case MF_ASH: return MF_DRONE;
+    default: return rnd_chance(r, 50) ? MF_GLASS : MF_DRONE;   /* TUNNEL */
+    }
+}
+static void mo_fam3(mo_design_t *d, int32_t f, rnd_t *r)
+{
+    static const uint8_t LR[6] = {12, 18, 25, 43, 57, 26};   /* logic ratios x 8: 1.5, 2.25, 3.125, 5.375, 7.125, 3.25 */
+    uint8_t *p = d->p;
+    mo_gr_t *g = &d->gr;
+    int n;
+    switch (f) {
+    case MF_FURNACE:                             /* a furnace: low, roaring, crushed, a dark cloud over it */
+        p[FP_TRNSP] = 12;
+        p[FP_FB] = 7;
+        for (n = 1; n <= 6; n++)
+            if (mo_is_carrier(p, n))
+                mo_ratio(mo_op(p, n), rnd_chance(r, 50) ? 50 : 100);
+        mo_cloud(g, r);
+        g->dark = (uint8_t)rnd_in(r, 60, 90);
+        g->mix = (uint8_t)rnd_in(r, 40, 70);
+        d->grit.bits = (uint8_t)rnd_in(r, 7, 9);
+        d->grit.hold = (uint8_t)rnd_in(r, 0, 2);
+        d->grit.logic = (uint8_t)(rnd_chance(r, 30) ? rnd_in(r, 20, 40) : 0);
+        d->grit.lratio = LR[rnd_below(r, 6)];
+        d->grit.stut = (uint8_t)rnd_in(r, 0, 3);
+        d->grit.stut_ms = (uint8_t)rnd_in(r, 20, 90);
+        d->grit.mix = (uint8_t)rnd_in(r, 50, 90);
+        break;
+    case MF_HUM: {                               /* a machine room: carriers nailed to the mains' region, beating, XOR'd */
+        int nc = 0;
+        for (n = 1; n <= 6; n++)
+            if (mo_is_carrier(p, n) && nc++ < 2)
+                mo_fixed(mo_op(p, n), nc == 1 ? 1 : 2, nc == 1 ? rnd_in(r, 66, 80) : rnd_in(r, 0, 20));   /* ~50 Hz, ~100 Hz */
+        if (rnd_chance(r, 60))
+            mo_pulsar(g, r);
+        if (g->mode)
+            g->mix = (uint8_t)rnd_in(r, 30, 60);
+        d->grit.bits = (uint8_t)rnd_in(r, 8, 10);
+        d->grit.logic = (uint8_t)rnd_in(r, 30, 70);
+        d->grit.lratio = LR[rnd_below(r, 6)];
+        d->grit.mix = (uint8_t)rnd_in(r, 40, 80);
+        break;
+    }
+    case MF_STATIC:                              /* static: noise from feedback, crushed hard, stuttering, shattered */
+        p[FP_FB] = 7;
+        for (n = 1; n <= 6; n++)
+            if (!mo_is_carrier(p, n) && !mo_op(p, n)[FP_MODE])
+                mo_ratio(mo_op(p, n), rnd_in(r, 1100, 1900));
+        mo_shatter(g, r);
+        g->mix = (uint8_t)rnd_in(r, 30, 60);
+        d->grit.bits = (uint8_t)rnd_in(r, 4, 6);
+        d->grit.hold = (uint8_t)rnd_in(r, 2, 6);
+        d->grit.stut = (uint8_t)rnd_in(r, 5, 20);
+        d->grit.stut_ms = (uint8_t)rnd_in(r, 10, 60);
+        d->grit.bend = (uint8_t)rnd_in(r, 20, 50);
+        d->grit.mix = (uint8_t)rnd_in(r, 80, 100);
+        break;
+    case MF_HOWL:                                /* a howl: formants an octave down under long dark grains, pitched down */
+        p[FP_TRNSP] = 12;
+        mo_cloud(g, r);
+        g->size_ms = (uint16_t)rnd_in(r, 200, 400);
+        g->rev = (uint8_t)rnd_in(r, 20, 40);
+        g->fb = (uint8_t)rnd_in(r, 30, 50);
+        g->mix = (uint8_t)rnd_in(r, 60, 90);
+        g->dark = (uint8_t)rnd_in(r, 40, 80);
+        if (rnd_chance(r, 40)) {
+            d->grit.bits = (uint8_t)rnd_in(r, 9, 10);
+            d->grit.mix = (uint8_t)rnd_in(r, 30, 60);
+        }
+        break;
+    case MF_SCRAPE:                              /* scraping metal: high inharmonic partials, bent grains, held samples */
+        for (n = 1; n <= 6; n++)
+            if (!mo_op(p, n)[FP_MODE])
+                mo_ratio(mo_op(p, n), INHARM[rnd_in(r, 4, 11)] * (rnd_chance(r, 30) ? 2 : 1));
+        mo_shatter(g, r);
+        g->size_ms = (uint16_t)rnd_in(r, 20, 80);
+        g->rate = (uint16_t)rnd_in(r, 20, 90);
+        g->mix = (uint8_t)rnd_in(r, 40, 80);
+        d->grit.hold = (uint8_t)rnd_in(r, 1, 3);
+        d->grit.stut = (uint8_t)rnd_in(r, 2, 6);
+        d->grit.stut_ms = (uint8_t)rnd_in(r, 15, 70);
+        d->grit.bend = (uint8_t)rnd_in(r, 40, 80);
+        d->grit.mix = (uint8_t)rnd_in(r, 40, 70);
+        break;
+    case MF_DATA:                                /* data: glass through bitwise logic, crushed, stuttering, bent pulsars */
+        mo_pulsar(g, r);
+        g->mix = (uint8_t)rnd_in(r, 50, 90);
+        d->grit.bits = (uint8_t)rnd_in(r, 5, 7);
+        d->grit.logic = (uint8_t)rnd_in(r, 60, 100);
+        d->grit.lratio = LR[rnd_below(r, 6)];
+        d->grit.stut = (uint8_t)rnd_in(r, 5, 15);
+        d->grit.stut_ms = (uint8_t)rnd_in(r, 5, 25);
+        d->grit.bend = (uint8_t)rnd_in(r, 30, 60);
+        d->grit.mix = (uint8_t)rnd_in(r, 70, 100);
+        break;
+    case MF_ASH:                                 /* ash: a dark drone under a sparse dusty crackle */
+        p[FP_TRNSP] = 12;
+        mo_cloud(g, r);
+        g->size_ms = (uint16_t)rnd_in(r, 4, 15);
+        g->rate = (uint16_t)rnd_in(r, 3, 12);
+        g->shape = 1;
+        g->spread_ms = (uint16_t)rnd_in(r, 200, 400);
+        g->pch = 0;
+        g->mix = (uint8_t)rnd_in(r, 40, 70);
+        g->dark = (uint8_t)rnd_in(r, 20, 50);
+        g->freeze_ms = 0;
+        d->grit.bits = (uint8_t)rnd_in(r, 6, 8);
+        d->grit.hold = (uint8_t)rnd_in(r, 3, 6);
+        d->grit.mix = (uint8_t)rnd_in(r, 30, 60);
+        break;
+    default:                                     /* TUNNEL: deep below, a huge dark cloud fed back, sometimes frozen */
+        p[FP_TRNSP] = (uint8_t)(rnd_chance(r, 50) ? 12 : 0);
+        mo_cloud(g, r);
+        g->size_ms = (uint16_t)rnd_in(r, 250, 400);
+        g->rate = (uint16_t)rnd_in(r, 6, 15);
+        g->back_ms = (uint16_t)rnd_in(r, 150, 250);
+        g->fb = (uint8_t)rnd_in(r, 40, 60);
+        g->dark = (uint8_t)rnd_in(r, 60, 90);
+        g->mix = (uint8_t)rnd_in(r, 70, 100);
+        g->freeze_ms = (uint16_t)(rnd_chance(r, 30) ? rnd_in(r, 1500, 4000) : 0);
+        break;
+    }
+}
+/* the hand drawn: most sounds of generation 3 have one; what it moves leans on the family (the glitchy ones' speed
+ * on their glitches, the dark ones' age on the cloud's darkness); paced by the path (AMBIENT slower) */
+static void mo_hand_draw(mo_design_t *d, int32_t f, uint32_t path, rnd_t *r)
+{
+    static const struct { uint8_t src, dst; int8_t lo, hi; } POOLH[10] = {
+        {HS_X, HD_BRIGHT, -30, 40}, {HS_SIZE, HD_LEVEL, -70, 0}, {HS_Y, HD_GRAIN, -20, 50}, {HS_AGE, HD_DARK, -30, 30},
+        {HS_ANGLE, HD_BRIGHT, -30, 30}, {HS_COUNT, HD_GRAIN, 0, 40}, {HS_SPEED, HD_GLITCH, 0, 60},
+        {HS_DIST, HD_GRIT, -40, 40}, {HS_GX, HD_DARK, -40, 20}, {HS_GY, HD_GRIT, -30, 50}};
+    int gritty = d->grit.mix || d->grit.bend, k, n;
+    uint8_t w[10] = {6, 5, 5, 4, 3, 3, 0, 0, 3, 0};
+    if (gritty)
+        w[6] = 6, w[7] = 5, w[9] = 4;
+    if (f == MF_ASH || f == MF_TUNNEL || f == MF_HOWL)
+        w[3] = 8, w[8] = 6;
+    if (!rnd_chance(r, 85))
+        return;
+    d->hand.on = 1;
+    d->hand.pace = (uint16_t)(path == PATH_AMBIENT ? rnd_in(r, 110, 230) : path == PATH_EXP ? rnd_in(r, 230, 480) : rnd_in(r, 170, 320));
+    d->hand.travel = (uint8_t)rnd_in(r, 15, 80);
+    d->hand.density = (uint8_t)rnd_in(r, 20, 95);
+    n = 2 + rnd_below(r, 3);
+    for (k = 0; k < n; k++) {
+        uint32_t i = rnd_weighted(r, w, 10);
+        int32_t amt = rnd_in(r, 60, 130);        /* (each its own reach: 0.6 .. 1.3 of the archetype's) */
+        d->hand.map[k].src = POOLH[i].src;
+        d->hand.map[k].dst = POOLH[i].dst;
+        d->hand.map[k].lo = (int8_t)clampi(POOLH[i].lo * amt / 100, -100, 100);
+        d->hand.map[k].hi = (int8_t)clampi(POOLH[i].hi * amt / 100, -100, 100);
+        if (POOLH[i].dst != HD_LEVEL && rnd_chance(r, 30)) {   /* (now and then the other way round -- but a harder
+                                                                 * press never quieter: the sound would start loud) */
+            int8_t t = d->hand.map[k].lo;
+            d->hand.map[k].lo = d->hand.map[k].hi;
+            d->hand.map[k].hi = t;
+        }
+        w[i] = 0;                                /* (each archetype once) */
+    }
+    d->hand.n = (uint8_t)n;
+}
+/* the older families on EXPERIMENTAL now and then roughened too: a little of the small DAC */
+static void mo_grit_draw(mo_design_t *d, uint32_t path, rnd_t *r)
+{
+    if (path != PATH_EXP || !rnd_chance(r, 30))
+        return;
+    d->grit.bits = (uint8_t)rnd_in(r, 7, 10);
+    d->grit.hold = (uint8_t)rnd_in(r, 0, 2);
+    d->grit.mix = (uint8_t)rnd_in(r, 30, 60);
+    d->grit.bend = (uint8_t)(rnd_chance(r, 40) ? rnd_in(r, 10, 40) : 0);
+}
+
 /* a sound of family f (-1: any, by the path's weights), from seed, on a path; then mo_measure */
 static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, uint32_t gen)
 {
@@ -1247,7 +1824,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     d->gen = (uint8_t)gen;
     d->gain = 4096;
     mo_defaults(d);
-    if (f < MF_BODY_N)
+    if (f >= MF_G3)                                      /* (generation 3's families: a body borrowed) */
+        body = mo_fam3_body(f, r);
+    else if (f < MF_BODY_N)
         body = f;
     else if (gen >= 2u)
         body = (int)rnd_weighted(r, MF_BODY_G2[path], MF_BODY_N);
@@ -1266,7 +1845,10 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     case MF_SHATTER: mo_shatter(&d->gr, r); break;
     case MF_PULSAR: mo_pulsar(&d->gr, r); break;
     case MF_FREEZE: mo_freeze(&d->gr, r); break;
-    default: break;
+    default:
+        if (f >= MF_G3)
+            mo_fam3(d, f, r);
+        break;
     }
     mo_cloud(&d->gr_def, r);                             /* (the cloud GRAIN gives a sound that has none) */
     d->gr_def.freeze_ms = 0;
@@ -1287,6 +1869,11 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     mo_care(d, r);
     if (gen >= 2u)
         mo_gen2(d, r);
+    if (gen >= 3u) {                                     /* generation 3: the hand; the older families' grit */
+        if (f < MF_G3)
+            mo_grit_draw(d, path, r);
+        mo_hand_draw(d, f, path, r);
+    }
     mo_sanitize(d);
     if (gen >= 1u && d->gr.freeze_ms) {                  /* (generation 1: never frozen before the body has sounded) */
         int32_t a[4], fz;

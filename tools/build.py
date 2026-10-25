@@ -38,7 +38,7 @@ CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-fu
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
 PRODUCT = "FM-1_700"                # package identity
-BUILD = 9                           # the build number: the next build is one more
+BUILD = 10                           # the build number: the next build is one more
 
 
 def toolchain():
@@ -205,7 +205,9 @@ def check(img, syms, dis, rt):
         return int(mm.group(1), 16) if mm else 0
     bss = sym("_bss_end") - 0x01C08000
     pool = sym("_pool_end") - sym("_pool_start")
-    notes.append(f"image {len(img)} B of {APP_SLOT}; RAM .data+.bss {bss} B of 98304; pool {pool} B of {0x54000}")
+    stacks = sym("_cpu1_stacks_hi") - sym("_cpu1_stacks_lo")
+    notes.append(f"image {len(img)} B of {APP_SLOT}; RAM .data+.bss {bss} B of 98304; pool {pool} B + CPU1's stacks "
+                 f"{stacks} B of {0x54000}: {0x54000 - (sym('_cpu1_stacks_hi') - sym('_pool_start'))} B free")
     if bss > 96 * 1024:
         errors.append("RAM region overflow")
     if 0x54000 - pool < 8192:

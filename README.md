@@ -3,7 +3,7 @@
 A firmware for the M-VAVE FM-1: a randomizable modular environment to explore and play, bringing the
 philosophy of Vascular (and Wild Rider) to the FM-1 with the compromises the device asks for.
 
-**State: build 6.** Textures and drones only: every sound swells in, holds and keeps moving, and nothing sounds on once no note is held, latched or looped. Each generator has Tonitor's looper; Tonitor's master delay and reverb close the chain. Sessions (64) with 16 snapshots each, and two LFOs and four modulation slots on every slot. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
+**State: build 10.** Textures and drones only: every sound swells in, holds and keeps moving, and nothing sounds on once no note is held, latched or looped. Each generator has Tonitor's looper; Tonitor's master delay and reverb close the chain. Sessions (64) with 16 snapshots each, and two LFOs and four modulation slots on every slot. Each voice is played by an invisible hand (Anima's); Russolo's grit and twenty families of sustained sound: ilbient, atmospheric industrial, hellscapes, abstract glitch. Three generator slots, each a MOLECULE generator, share three effect slots the way synthesizers
 share a pedalboard. HOME on a generator draws its sound and its cables into the effects; HOME on an effect slot draws
 its chain of two or three effects from a recipe, their values and its cables across to the other effect slots. The
 white keys play the generator chosen last, in the scale chosen. The second core runs the effects. No sessions, no
