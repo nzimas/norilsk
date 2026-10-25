@@ -57,6 +57,7 @@
 <a href="#snapshots-and-sessions">Snapshots and sessions</a>
 <a href="#the-looper">The looper</a>
 <a href="#backing-up-sessions">Backing up sessions</a>
+<a href="#usb-audio">USB audio</a>
 </nav>
 <h2 id="how-it-is-put-together">How it is put together</h2>
 <p>Three <b>generators</b> make sound; three <b>effect slots</b> wreck it; a master <b>delay</b> and <b>plate reverb</b> close the chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared between the three generators.</p>
@@ -66,7 +67,7 @@
 <li>Each generator has its level, pan, mute, delay and reverb sends, a looper, and a DISINTEGRATOR; each effect slot its level, pan and mute.</li>
 <li>The first processor core renders the voices; the second runs the effects, a block behind.</li>
 </ul>
-<p>Every sound swells in and keeps moving, and <b>nothing sounds on once no note is held, latched or looped</b>: released voices fade out within three seconds, the effect slots and the master close two seconds after the last voice.</p>
+<p>Every sound swells in and keeps moving, and <b>nothing sounds on once no note is held, latched or looped</b>: released voices fade out within three seconds and the effect slots close two seconds after the last voice — while the master delay's and reverb's tails ring out whole, whatever is let go or muted.</p>
 <h2 id="randomness-level-by-level">Randomness, level by level</h2>
 <p>Almost nothing in Norilsk is set by hand at the start: it is drawn. What you do is choose, keep, throw again, and play.</p>
 <ol>
@@ -89,7 +90,7 @@
 <tr><td><b>HOME</b></td><td>a new patch for the slot chosen: a generator's sound and its cables into the effects; an effect slot's recipe, effects, values and cables across</td></tr>
 <tr><td><b>SHIFT + HOME</b></td><td>a new patch of the same family, or the same recipe</td></tr>
 <tr><td><b>HOME</b> held 0.8 s</td><td>all six slots anew</td></tr>
-<tr><td>the white keys</td><td>play the generator chosen last, in the scale chosen</td></tr>
+<tr><td>the white keys</td><td>play the generator chosen, in the scale chosen. With an effect slot chosen they play nothing and show nothing</td></tr>
 <tr><td>a white key held, then <b>SHIFT</b></td><td>its note latched (the key stays lit); <b>SHIFT</b> held, then the lit key: let go</td></tr>
 <tr><td><b>SELECT / ALGORITHM</b></td><td>the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right</td></tr>
 <tr><td><b>OCT− / OCT+</b></td><td>the octave, −3 to +3</td></tr>
@@ -169,6 +170,8 @@
 <p>Tonitor's looper, on each generator: up to ten free-running loops, each on its own clock — no tempo, no grid. REC arms a loop (the first note starts it), REC again ends it and it plays at once; again, while they play, an overdub. A note held across the end of a loop is tied over. PLAY held shows the loops on the white keys to take out or bring back, and lights the 4th to 8th black keys: REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED. SHIFT + OCT moves every loop along the scale. SHIFT + REC: VARY.</p>
 <h2 id="backing-up-sessions">Backing up sessions</h2>
 <p>The website's <a href="https://nzimas.github.io/norilsk/backup.html">backup page</a> saves every session on the FM-1 to a file and puts them back, from a desktop Chrome, Edge or Opera. From a terminal: <code>tools/fm1_sessions.py</code> lists them, <code>tools/fm1_sessions.py save N</code> saves one, <code>tools/fm1_sessions.py restore FILE</code> writes one back. Both talk only to an FM-1 whose USB name is FM-1 Norilsk.</p>
+<h2 id="usb-audio">USB audio</h2>
+<p>Connected to a computer, the FM-1 is also a USB audio interface (class compliant, no driver): the master, stereo, 16-bit, at 48 kHz (or 44.1 kHz), before the MASTER knob — a recording does not follow the headphones' level. Tonitor's and Bigorna's.</p>
     </main>
     <footer>
       <p>Developed by Nuno Zimas. Firmware: GPL-3.0. Website and logo: MIT. <a href="https://github.com/nzimas/norilsk">Source on GitHub</a>.</p>

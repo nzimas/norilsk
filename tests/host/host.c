@@ -754,7 +754,8 @@ static int cmd_patches(int argc, char **argv)
     return fails ? 1 : 0;
 }
 /* nothing lingers: N patches, notes held 3 s on each generator, every key let go; how long until the voices are done,
- * and until the output is under -60 dB FS for good (TAIL_LIMIT_S at most, else a failure) */
+ * and until the output is under -60 dB FS for good (TAIL_LIMIT_S at most, else a failure). The voices and the effect
+ * slots only: the master delay's and reverb's returns turned down (MIX 0) -- their tails are kept, `host mtails` */
 #define TAIL_LIMIT_S 6.0
 static int cmd_tails(int argc, char **argv)
 {
@@ -764,6 +765,9 @@ static int cmd_tails(int argc, char **argv)
         uint32_t b, last_loud = 0, voices_done = 0;
         fw_init();
         ui.seed = 4321u + (uint32_t)i * 6007u;
+        ui.rvp[3] = ui.dlp[3] = 0;
+        rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+        mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
         for (l = 0; l < (int)NSLOT; l++) {
             press(SLOT_BTN[l], 50);
             press(B_HOME, 50);
@@ -1150,8 +1154,11 @@ static int cmd_looper(void)
     key(KEY_SHIFT, 0);
     if (loop[0].play)
         LFAIL("SHIFT + PLAY did not stop every loop");
-    {   /* nothing on, once they stop */
+    {   /* nothing on, once they stop (the voices and the effect slots: the master's tails are kept, `host mtails`) */
         uint32_t last = 0;
+        ui.rvp[3] = ui.dlp[3] = 0;
+        rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+        mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
         for (b = 0; b < 1378u * 10u; b++) {
             int32_t pk = fw_peak;
             fw_peak = 0;
@@ -2633,6 +2640,59 @@ static int cmd_link(void)
     return fails ? 1 : 0;
 }
 
+/* the master's tails kept (build 26, the owner's): a note held 3 s, sent deep to the master delay and reverb, let go;
+ * after its voice has ended and the effect slots have closed (6 to 8 s after it was let go), and with an effect slot
+ * and the generator muted on the way, the delay and reverb still ring -- and then fall silent by themselves (within
+ * 90 s, even at a long DECAY and a high FEEDBACK) */
+static int cmd_mtails(void)
+{
+    int fails = 0;
+    uint32_t b, quiet_at = 0, l;
+    int32_t late = 0, out[2 * CTL], pk;
+    fw_init();
+    ui.seed = 777u;
+    for (l = 0; l < NSLOT; l++) {
+        press(SLOT_BTN[l], 50);
+        press(B_HOME, 50);
+        fw_run(30);
+    }
+    ui.rvp[1] = 90;                                      /* a long DECAY (RT60 ~17 s), a high FEEDBACK */
+    ui.dlp[1] = 80;
+    rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+    mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    press(B_FX, 50);
+    ui.rsend[0] = 90;
+    ui.dsend[0] = 60;
+    sends_apply(0);
+    key(0, 1);
+    fw_run(4134);
+    key(0, 0);
+    fw_run(1378);
+    fx_mute[0] = 1;                                      /* an effect slot muted, then the generator */
+    fw_run(1378);
+    gen_mute[0] = 1;
+    for (b = 0; b < 1378u * 90u; b++) {
+        uint32_t i;
+        mix_block(out);
+        for (i = 0, pk = 0; i < 2u * CTL; i++)
+            pk = maxi(pk, absi(out[i]));
+        if (b >= 1378u * 4u && b < 1378u * 6u)           /* (6 .. 8 s after it was let go) */
+            late = maxi(late, pk);
+        if (pk > 33)
+            quiet_at = b + 1u;
+    }
+    printf("mtails: 6 .. 8 s after the last key the master's tails peak at %d; silent %.1f s after\n", late,
+           2.0 + quiet_at / 1378.0);
+    if (late < 300)
+        printf("FAIL mtails: the master delay and reverb tails were cut\n"), fails++;
+    if (quiet_at >= 1378u * 88u)
+        printf("FAIL mtails: the master's tails never end\n"), fails++;
+    fx_mute[0] = 0;
+    gen_mute[0] = 0;
+    printf("mtails: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 /* a snapshot recalled at once while a slot is still taking the last change (SES_BUSY then): every part given in the
  * frames that follow, none left at the snapshot before (build 15) */
 static int cmd_recall(void)
@@ -3277,6 +3337,33 @@ static int cmd_flows(void)
             printf("FAIL flows: an effect slot's patch left untaken\n");
             fails++;
         }
+    {   /* an effect slot chosen (build 26): the white keys play nothing and latch nothing; a key pressed on a generator
+         * and let go after an effect slot was chosen still ends its note */
+        uint32_t k, before = 0, after = 0;
+        press(B_FX, 50);
+        key(2, 1);                                       /* held on generator 1 */
+        fw_run(100);
+        press(B_LFO, 50);                                /* effect slot 4 chosen */
+        for (k = 0; k < NVOICE; k++)
+            before += vox[k].sounding && vox[k].gate;
+        key(4, 1);                                       /* a white key, SHIFT: nothing */
+        key(KEY_SHIFT, 1);
+        ui_input();
+        key(KEY_SHIFT, 0);
+        fw_run(100);
+        for (k = 0; k < NVOICE; k++)
+            after += vox[k].sounding && vox[k].gate;
+        if (after != before || ui.latch[0] || ui.key_note[4] != KEY_NONE)
+            printf("FAIL flows: a white key played or latched with an effect slot chosen\n"), fails++;
+        key(4, 0);
+        key(2, 0);                                       /* the first one let go: its note ends */
+        fw_run(100);
+        for (k = 0, after = 0; k < NVOICE; k++)
+            after += vox[k].sounding && vox[k].gate;
+        if (after)
+            printf("FAIL flows: a note held over the change to an effect slot did not end\n"), fails++;
+        press(B_FX, 50);
+    }
     {   /* the SCALE page (build 25): SELECT the root, ALGORITHM the scale */
         uint8_t sc0, rt0;
         press(B_ARP, 50);
@@ -3596,6 +3683,8 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "mtails"))
+        return cmd_mtails();
     if (!strcmp(argv[1], "link"))
         return cmd_link();
     if (!strcmp(argv[1], "demo"))

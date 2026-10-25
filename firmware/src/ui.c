@@ -8,10 +8,11 @@
  *                             (its level and pan, and a modulation by another generator, stay). An effect slot: a recipe -- its
  *                             two or three effects, their values, its cables across to the slots after it.
  *                             SHIFT + HOME: a new one of the same family, or recipe. HOME held 0.8 s: all six anew
- *   the white keys            play the generator chosen last, in the scale chosen: the first key is the root, every
+ *   the white keys            play the generator chosen, in the scale chosen: the first key is the root, every
  *                             white key the next note of the scale. Four voices for the three generators. A key held
  *                             and SHIFT pressed: its note latched (the key lit while its generator is chosen); SHIFT
- *                             held and the lit key pressed: let go
+ *                             held and the lit key pressed: let go. An effect slot chosen: they play nothing and
+ *                             nothing is lit on them (build 26) -- only a generator shows its notes
  *   SELECT, ALGORITHM         the level and pan of the generator chosen (or chosen last, while an effect slot is):
  *                             as on Tonitor. At power-on generator 1 is in the middle, 2 left, 3 right. (The SCALE
  *                             page aside)
@@ -70,11 +71,11 @@
  *
  * The screen is for low vision: a few words, large, high contrast. At the top, the audio's load at the left and the
  * battery at the right (or a message, black on white, across). Under it the three generators, a block each in its
- * own colour: filled when heard, an outline when muted, brighter as it sounds, framed in white when chosen (in grey
- * when an effect slot is chosen and the keys still play it); a band along its foot in another generator's colour
+ * own colour: filled when heard, an outline when muted, brighter as it sounds, framed in white when chosen; a band
+ * along its foot in another generator's colour
  * when that one modulates it. Under them the three effect slots, a row each: its effects as tiles, named;
  * round each tile a border in the colours of the generators wired into it, shared out equally; the tiles the
- * generator the keys play is wired into filled with its colour; a tile brightens as sound passes through it; a
+ * chosen generator is wired into filled with its colour; a tile brightens as sound passes through it; a
  * muted slot's tiles dark; the chosen slot's row framed in white. No cables are drawn. */
 
 /* the panel: which matrix button carries which printed label (as SLOOP's panel.c, default table) */
@@ -883,7 +884,7 @@ static void ui_input(void)
         draw_path = draw_path == want ? DP_ANY : want;
         say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : "ANY PATH", 1200);
     }
-    if ((ch & keys) >> KEY_SHIFT & 1u)           /* SHIFT pressed: the keys held latched */
+    if (((ch & keys) >> KEY_SHIFT & 1u) && ui.sel < NGEN)   /* SHIFT pressed: the keys held latched */
         for (k = 0; k < NKEY; k++)
             if (((keys >> k) & 1u) && k != KEY_SHIFT && ui.key_note[k] != KEY_NONE) {
                 uint32_t g = ui.key_slot[k];
@@ -902,6 +903,8 @@ static void ui_input(void)
             if (w < p->ntrk)
                 ev_post(EV_LOOP_TRK, ui.gen, w, (p->mute >> w) & 1u);
             ui.force = 1;
+        } else if (((keys >> k) & 1u) && ui.sel >= NGEN) {
+            ui.key_note[k] = KEY_NONE;           /* (an effect slot chosen: the white keys play nothing -- build 26) */
         } else if ((keys >> k) & 1u) {
             /* (moved as the generator's loops are -- all of them, and its own -- so what is added fits them) */
             uint32_t note = scale_note(white_ix(k) + ui.lx + ui.lxt[ui.gen], ui.oct), bit = 1u << k;
@@ -981,8 +984,8 @@ static void ui_leds(void)
             fm1_led_key(14u + k, mk && ((k == KEY_REV && p->dmode == LD_REV) || (k == KEY_PEND && p->dmode == LD_PEND) ||
                                         (k == KEY_RAND && p->dmode == LD_RAND) || (k == KEY_HALF && p->rate == LS_HALF) ||
                                         (k == KEY_DOUBLE && p->rate == LS_DOUBLE)));
-        } else if (w >= 0)
-            fm1_led_key(14u + k, ((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u));
+        } else if (w >= 0)                       /* (an effect slot chosen: no notes, nothing lit) */
+            fm1_led_key(14u + k, ui.sel < NGEN && (((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u)));
         else                                     /* playing: the path chosen lit; the other black keys dark */
             fm1_led_key(14u + k, (k == KEY_ROUGH && draw_path == DP_ROUGH) || (k == KEY_DARK && draw_path == DP_DARK));
     }
@@ -1091,7 +1094,9 @@ static void draw_top(void)
 static int32_t gen_key(uint32_t l)
 {
     const gen_patch_t *p = &gbuf[l][g_use[l]];
-    int32_t xm = p->xsrc < NGEN ? p->xsrc + 1 : 0, fr = ui.sel == l ? 2 : ui.gen == l ? 1 : 0;
+    int32_t xm = p->xsrc < NGEN ? p->xsrc + 1 : 0, fr = ui.sel == l ? 2 : 0;   /* (build 26: no grey frame for the
+                                                                                 * last generator: an effect slot chosen,
+                                                                                 * the keys play nothing) */
     const looper_t *q = &loop[l];
     int32_t lr = q->rec == LR_REC ? 3 : q->rec == LR_ARMED ? 1 + (int32_t)((fm1_ms / 250u) & 1u) : 0;
     return level_step(gen_mute[l] ? 0 : gen_meter[l]) | gen_mute[l] << 2 | fr << 3 | xm << 5 | lr << 7 |
@@ -1204,7 +1209,7 @@ static int32_t tile_key(uint32_t inst, const uint32_t *mods)
     for (g = 0; g < NGEN; g++)
         if (!gen_mute[g] && ((mods[g] >> inst) & 1u))
             feed |= 1 << g;
-    return level_step(fx_mute[s] ? 0 : rm_meter[inst]) | feed << 2 | (int32_t)(!gen_mute[ui.gen] && ((mods[ui.gen] >> inst) & 1u)) << 5 |
+    return level_step(fx_mute[s] ? 0 : rm_meter[inst]) | feed << 2 | (int32_t)(ui.sel < NGEN && !gen_mute[ui.gen] && ((mods[ui.gen] >> inst) & 1u)) << 5 |
            (int32_t)ui.gen << 6 | fx_mute[s] << 8 | f->e[k].kind << 9 | f->n << 14 | (int32_t)(f->serial & 0xFFu) << 16;
 }
 static void draw_tile(uint32_t inst, int32_t key)

@@ -2,6 +2,19 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 26 (2026-10-25): tails kept; USB audio; the keys only on a generator
+
+- **The master delay's and reverb's tails ring out whole**: whatever reaches them -- a voice let go, a generator or an
+  effect slot muted, the effect slots closing -- they decay as they will, then stop running once spent (before, they
+  were faded out 2 s after the last voice). Nothing else lingers: the voices and the effect slots end as before. Test:
+  `host mtails` (fails on build 25); `host tails` and the looper's check measure the voices and slots alone.
+- **USB audio out**, Tonitor's and Bigorna's (their usb.c, the same here): connected to a computer the FM-1 is a class
+  compliant audio interface -- the master before the MASTER knob, stereo, 16-bit, 48 kHz offered first (resampled by
+  SLOOP's polyphase filter) or 44.1 kHz.
+- **With an effect slot chosen, the white keys play nothing and latch nothing, and nothing is lit on them**: only a
+  generator shows its notes. A key held over the change still ends its note when let go. No generator is framed in grey
+  then, and no tiles are filled for it. Test: `host flows`.
+
 ## Build 25 (2026-10-25): generators linked by hand; the SCALE page's knobs swapped
 
 - **One generator modulates another only when you link them**: SHIFT held, one generator's button held (the one that

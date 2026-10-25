@@ -17,8 +17,10 @@
 #define FELUCCA_OTA 1            /* the update entry (the installer), and the rescue mode */
 #define FELUCCA_OTA_DRYRUN 0
 #define FELUCCA_CDC 0
-#define FELUCCA_UAC 0            /* (USB audio out: later, from Tonitor's usb.c) */
-#define FELUCCA_UAC_48K 0
+#define FELUCCA_UAC 1            /* USB audio out to the host (build 26, Tonitor's and Bigorna's): the master before the
+                                  * MASTER knob, stereo, 16-bit, class compliant */
+#define FELUCCA_UAC_48K 1        /* (48 kHz offered first, 44.1 kHz too; 44.1 is what is rendered: at 48 SLOOP's polyphase
+                                  * filter resamples it, usb.c, uac_fir.h) */
 #define HALF_FRAMES 256u         /* an I2S half buffer: 5.8 ms (main.c renders it) */
 #define FM1_CORE1 1              /* CPU1 runs the effects and some voices (hal/fm1_multicore.h; after Tonitor, BIGORNA build 32
                                   * and Melodee 1.4.5) */

@@ -232,7 +232,7 @@ static uint32_t loops_playing(void);
 static void loops_init(void);
 /* the master delay and reverb (master.c, after this file) */
 static void master_init(void);
-static void master_block(int32_t *l, int32_t *r, const int32_t *dlin, int32_t *rvin, int open);
+static void master_block(int32_t *l, int32_t *r, const int32_t *dlin, int32_t *rvin);
 static volatile int32_t gen_rsend[NGEN], gen_dsend[NGEN];   /* each generator's sends to them, Q15 (KNOB 4, KNOB 3) */
 static void events_take(void)
 {
@@ -664,6 +664,10 @@ static void dis_block(uint32_t l, int32_t *x)
         d->pan = 0;
 }
 
+#if defined(FELUCCA_UAC) && FELUCCA_UAC
+static int32_t usb_blk[2 * CTL];                 /* (the block for USB audio: the master before the MASTER knob, at
+                                                  * unity -- a recording does not follow the headphones' level) */
+#endif
 /* one block: the events, the patches, the effects (on what the generators sent the block before), the voices, the
  * generators, their sends for the next block, the master (Q15 stereo, interleaved) */
 static void mix_block(int32_t *out)
@@ -782,8 +786,12 @@ static void mix_block(int32_t *out)
                 ebus_fed |= 1u << e;
             }
     }
-    master_block(l_, r_, dlin, rvin, rack_voices);      /* the master delay and reverb, last */
+    master_block(l_, r_, dlin, rvin);                   /* the master delay and reverb, last: their tails whole */
     for (i = 0; i < CTL; i++) {
+#if defined(FELUCCA_UAC) && FELUCCA_UAC
+        usb_blk[2u * i] = ceiling(l_[i]);
+        usb_blk[2u * i + 1u] = ceiling(r_[i]);
+#endif
         out[2u * i] = ceiling(mulq12(l_[i], master_q12));
         out[2u * i + 1u] = ceiling(mulq12(r_[i], master_q12));
     }

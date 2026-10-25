@@ -18,7 +18,7 @@ at will: as fit for noise experiments as for slow, dark ambient.
 
 **Website, browser installer and session backup: <https://nzimas.github.io/norilsk/>**
 
-State: **build 25**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
+State: **build 26**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
 
 # Manual
 
@@ -38,7 +38,8 @@ generators.
 - The first processor core renders the voices; the second runs the effects, a block behind.
 
 Every sound swells in and keeps moving, and **nothing sounds on once no note is held, latched or looped**: released
-voices fade out within three seconds, the effect slots and the master close two seconds after the last voice.
+voices fade out within three seconds and the effect slots close two seconds after the last voice -- while the master
+delay's and reverb's tails ring out whole, whatever is let go or muted.
 
 ## Randomness, level by level
 
@@ -74,7 +75,7 @@ SHIFT is the rightmost black key.
 | **HOME** | a new patch for the slot chosen: a generator's sound and its cables into the effects; an effect slot's recipe, effects, values and cables across |
 | **SHIFT + HOME** | a new patch of the same family, or the same recipe |
 | **HOME** held 0.8 s | all six slots anew |
-| the white keys | play the generator chosen last, in the scale chosen |
+| the white keys | play the generator chosen, in the scale chosen. With an effect slot chosen they play nothing and show nothing |
 | a white key held, then **SHIFT** | its note latched (the key stays lit); **SHIFT** held, then the lit key: let go |
 | **SELECT / ALGORITHM** | the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right |
 | **OCT− / OCT+** | the octave, −3 to +3 |
@@ -227,6 +228,12 @@ The website's [backup page](https://nzimas.github.io/norilsk/backup.html) saves 
 and puts them back, from a desktop Chrome, Edge or Opera. From a terminal: `tools/fm1_sessions.py` lists them,
 `tools/fm1_sessions.py save N` saves one, `tools/fm1_sessions.py restore FILE` writes one back. Both talk only to an
 FM-1 whose USB name is FM-1 Norilsk.
+
+## USB audio
+
+Connected to a computer, the FM-1 is also a USB audio interface (class compliant, no driver): the master, stereo,
+16-bit, at 48 kHz (or 44.1 kHz), before the MASTER knob -- a recording does not follow the headphones' level.
+Tonitor's and Bigorna's.
 
 # Building from source
 
