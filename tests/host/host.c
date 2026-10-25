@@ -2053,6 +2053,58 @@ static int cmd_trip(void)
     return fails ? 1 : 0;
 }
 
+/* each effect fed, then nothing: it falls silent (its meter with it, so the rack lets it rest) or at least fades --
+ * never holds a sound of its own for ever (build 17: TAPE's hiss, STARVE's lean, the meter stuck at 15 kept effects
+ * running, nothing reaching them, and a morph carried them into the next snapshot). A frozen CLOUD holds by design */
+static int cmd_quiet(void)
+{
+    int fails = 0;
+    uint32_t m, rep, b, i;
+    for (m = 0; m < NKIND; m++)
+        for (rep = 0; rep < 4u; rep++) {
+            fx_patch_t *f;
+            rnd_t r, nz;
+            int32_t x[CTL], l[CTL], rr[CTL], pk = 0;
+            double first = 0, last = 0;
+            fw_init();
+            f = &fbuf[0][f_use[0]];
+            memset(f, 0, sizeof *f);
+            f->n = 1;
+            f->e[0].kind = (uint8_t)m;
+            rnd_seed(&r, 5150u + rep * 31u + m * 7u);
+            fx_values(&f->e[0], &r);
+            if (m == RM_CLD && f->e[0].p[2] >= 50)
+                f->e[0].p[2] = 20;                       /* (frozen: held by design) */
+            memset(fx_arena[0], 0, FX_ARENA);
+            fx_start(0);
+            rnd_seed(&nz, 77u + rep);
+            for (b = 0; b < 1378u + 55120u; b++) {       /* 1 s of noise, then 40 s of nothing */
+                for (i = 0; i < CTL; i++)
+                    x[i] = b < 1378u ? mulq15(rnd_bi(&nz), 12000) : 0, l[i] = rr[i] = 0;
+                rm_block(0, &f->e[0], x, l, rr, 1);
+                for (i = 0; i < CTL; i++) {
+                    int32_t a = maxi(absi(x[i]), maxi(absi(l[i]), absi(rr[i])));
+                    if (b >= 1378u + 1378u * 2u && b < 1378u * 4u)
+                        first += (double)a * a;
+                    if (b >= 1378u + 55120u - 1378u) {
+                        last += (double)a * a;
+                        pk = maxi(pk, a);
+                    }
+                }
+            }
+            if (pk >= 32 && 10.0 * __builtin_log10((last + 1) / (first + 1)) > -6.0) {
+                printf("FAIL quiet: %s (%u %u %u %u) holds a sound with nothing in (peak %d after 40 s)\n", RM_NAME[m],
+                       f->e[0].p[0], f->e[0].p[1], f->e[0].p[2], f->e[0].p[3], pk);
+                fails++;
+            } else if (pk < 32 && rm_meter[0] >= 32) {
+                printf("FAIL quiet: %s silent, its meter held at %d (never rests)\n", RM_NAME[m], rm_meter[0]);
+                fails++;
+            }
+        }
+    printf("quiet: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 /* a snapshot recalled at once while a slot is still taking the last change (SES_BUSY then): every part given in the
  * frames that follow, none left at the snapshot before (build 15) */
 static int cmd_recall(void)
@@ -2205,10 +2257,13 @@ static void replay_part(const char *what, double *lr, double *part)
         printf(" %.1f", part[l]);
     printf("\n");
 }
-static void replay_loud(double *lr, double *part)    /* trip_loud, over 3 s */
+static double rp_inst[NINST];
+static void replay_loud(double *lr, double *part)    /* trip_loud, over 3 s; each instance's meter into rp_inst */
 {
     uint32_t i, l, j;
     int32_t out[2 * CTL];
+    for (l = 0; l < NINST; l++)
+        rp_inst[l] = 0;
     lr[0] = lr[1] = 0;
     for (l = 0; l < NGEN + NFX; l++)
         part[l] = 0;
@@ -2221,11 +2276,15 @@ static void replay_loud(double *lr, double *part)    /* trip_loud, over 3 s */
         for (l = 0; l < NGEN; l++)
             for (j = 0; j < CTL; j++)
                 part[l] += (double)gbus[l][j] * gbus[l][j];
+        for (l = 0; l < NINST; l++)
+            rp_inst[l] += (double)rm_meter[l] * rm_meter[l];
     }
     for (l = 0; l < 2u; l++)
         lr[l] = 10.0 * __builtin_log10(lr[l] + 1);
     for (l = 0; l < NGEN; l++)
         part[l] = 10.0 * __builtin_log10(part[l] + 1);
+    for (l = 0; l < NINST; l++)
+        rp_inst[l] = 10.0 * __builtin_log10(rp_inst[l] + 1);
 }
 static int replay_load(const char *path)
 {
@@ -2290,7 +2349,7 @@ static int cmd_replay(int argc, char **argv)
 {
     uint32_t from = argc > 3 ? (uint32_t)atoi(argv[3]) - 1u : 2u, to = argc > 4 ? (uint32_t)atoi(argv[4]) - 1u : 1u;
     uint32_t settle = argc > 5 ? (uint32_t)atoi(argv[5]) : 0, morph_t, l;
-    double ma[2], mb[2], pa[NGEN + NFX], pb[NGEN + NFX];
+    double ma[2], mb[2], pa[NGEN + NFX], pb[NGEN + NFX], ia[NINST];
     st_t sa;
     int num;
     if (argc < 3)
@@ -2362,7 +2421,38 @@ static int cmd_replay(int argc, char **argv)
     trip_frames(400);
     wav_write2("build/replay_trip.wav", wav2, fw_frames);
     st_capture(&sa);
+    if (getenv("RDBG")) {                                /* what reaches 4.1, 4.2: their inputs and outputs, a while */
+        uint32_t b, j;
+        int32_t out[2 * CTL];
+        for (b = 0; b < 8u; b++) {
+            int32_t in0 = 0;
+            for (j = 0; j < 200u; j++)
+                mix_block(out);
+            for (j = 0; j < CTL; j++)
+                in0 = maxi(in0, absi(ebus_run[0][j]));
+            printf("  4.1 in %d meter %d quiet %u | 4.2 meter %d quiet %u | gbus2 %d", in0, rm_meter[0], rm_quiet[0],
+                   rm_meter[1], rm_quiet[1], absi(gbus[1][0]));
+            for (in0 = 0, j = 0; j < CTL; j++)
+                in0 = maxi(in0, absi(ebus_run[7][j]));
+            if (!b) {
+                uint32_t q, e;
+                for (q = 0; q < NFX; q++)
+                    for (e = 0; e < FX_N; e++)
+                        if ((fbuf[q][f_use[q]].xto[e] >> 7) & 1u)
+                            printf(" [%u.%u -> 6.2, meter %d quiet %u]", q + 4u, e + 1u, rm_meter[q * FX_N + e], rm_quiet[q * FX_N + e]);
+                for (q = 0; q < NGEN; q++)
+                    for (e = 0; e < gbuf[q][g_use[q]].nent; e++)
+                        if (gbuf[q][g_use[q]].ent[e] == 7u)
+                            printf(" [gen %u -> 6.2]", q + 1u);
+                printf(" fed %08X fed_run %08X", ebus_fed, ebus_fed_run);
+            }
+            printf(" | 6.1 m %d q %u, 6.2 in %d m %d q %u, 6.3 m %d q %u | fx6 kinds %u %u %u n %u\n", rm_meter[6], rm_quiet[6], in0,
+                   rm_meter[7], rm_quiet[7], rm_meter[8], rm_quiet[8], fbuf[2][f_use[2]].e[0].kind, fbuf[2][f_use[2]].e[1].kind,
+                   fbuf[2][f_use[2]].e[2].kind, fbuf[2][f_use[2]].n);
+        }
+    }
     replay_loud(ma, pa);
+    memcpy(ia, rp_inst, sizeof ia);
     replay_load(argv[2]);
     if (!ui.latch[0] && !ui.latch[1] && !ui.latch[2]) {
         key(0, 1);
@@ -2382,6 +2472,10 @@ static int cmd_replay(int argc, char **argv)
     printf("snapshot %u, after %u -> %u -> %u (dB):\n", from + 1u, from + 1u, to + 1u, from + 1u);
     replay_part("morphed", ma, pa);
     replay_part("direct", mb, pb);
+    printf("  effects (morphed / direct):");
+    for (l = 0; l < NINST; l++)
+        printf(" %u.%u %.0f/%.0f", l / FX_N + 4u, l % FX_N + 1u, ia[l], rp_inst[l]);
+    printf("\n");
     if (!st_same(&sa, &snap.s[from])) {
         st_t x = sa, y = snap.s[from];
         st_norm(&x);
@@ -2824,6 +2918,8 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "quiet"))
+        return cmd_quiet();
     if (!strcmp(argv[1], "recall"))
         return cmd_recall();
     if (!strcmp(argv[1], "backup"))

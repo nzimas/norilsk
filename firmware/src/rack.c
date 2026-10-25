@@ -58,7 +58,7 @@ static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what M
 /* ------------------------------------------------------------- shared --- */
 /* a constant-peak-gain resonator (Smith and Angell): zeros at DC and Nyquist, poles at f, radius r. Q28 coefficients */
 typedef struct { int32_t a1, a2, g; } res_c;
-typedef struct { int32_t y1, y2, x1, x2, e; } res_s;   /* (e: the fraction the last result dropped) */
+typedef struct { int32_t y1, y2, x1, x2, e; } res_s;   /* (y: Q8 above the sample; e: the fraction the last dropped) */
 /* f in Hz (Q8), Q in Q8: 1 - r = pi f / (Q FS) (to the second order), cos 2 theta = 1 - 2 sin^2 theta, theta = pi f / FS */
 static void res_coef(res_c *c, int32_t hz8, int32_t q8)
 {
@@ -82,15 +82,17 @@ static void res_coef(res_c *c, int32_t hz8, int32_t q8)
 AINL int32_t res_run(res_s *s, const res_c *c, int32_t x)
 {
     /* the fraction a result drops carried into the next one (error feedback): a truncated high-Q resonator otherwise
-     * rings on by itself for ever, a small tone or a DC level, once its input has fallen silent */
-    int64_t acc = (int64_t)c->a1 * s->y1 + (int64_t)c->a2 * s->y2 + (int64_t)c->g * (x - s->x2) + s->e;
+     * rings on by itself for ever, a small tone or a DC level, once its input has fallen silent. (build 17) Its state
+     * 256 times finer than the sample, the result rounded towards zero: the last digit it may still hold is under the
+     * sample's -- MODAL and BANK raise it x 600, and it sang on alone, nothing in */
+    int64_t acc = (int64_t)c->a1 * s->y1 + (int64_t)c->a2 * s->y2 + (int64_t)c->g * ((int64_t)(x - s->x2) << 8) + s->e;
     int32_t y = (int32_t)(acc >> 28);
     s->e = (int32_t)(acc - ((int64_t)y << 28));
     s->y2 = s->y1;
     s->y1 = y;
     s->x2 = s->x1;
     s->x1 = x;
-    return y;
+    return y < 0 ? -((-y) >> 8) : y >> 8;
 }
 /* a Q15 product rounded towards zero: in a loop of gain under one it takes a little each trip, so the loop dies out
  * to nothing once its input is silent (truncating towards minus infinity leaves a level, or a tone, ringing on) */
@@ -127,6 +129,13 @@ static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
     drive = 4096 + p[3] * (11 * 4096) / 100;
     comp = (int32_t)(((uint32_t)Q15 * 4096u) / (uint32_t)(4096 + (q - 2896) / 3));   /* (x 1 .. ~0.3 with the Q) */
     svf_coef(&c, hz, q);
+    {   /* (build 17: nothing in and only a remainder left -- a high Q's rounding held one for ever: let it go) */
+        uint32_t any = 0;
+        for (i = 0; i < CTL; i++)
+            any |= (uint32_t)x[i];
+        if (!any && absi(s->f.ic1) < 128 && absi(s->f.ic2) < 128)
+            s->f.ic1 = s->f.ic2 = 0;
+    }
     for (i = 0; i < CTL; i++) {
         int32_t v = tanh_q15(mulq12(x[i], drive)) >> 1, y;
         if (type == 4) {                                    /* notch: the band taken out (low + high) */
@@ -385,7 +394,7 @@ static void m_dly(const uint8_t *p, m_dly_t *s, int32_t *x)
  * saturation, AGE (p3: the loop's low-pass from 12 kHz down to 3 kHz, the head driven harder, hiss under it). The
  * time's own wander is a breath (at most 0.1 %), never a bend. The echoes alone come out. A change of time cross-fades */
 #define TAP_N 19900u             /* 0.9 s at FS / 2 */
-typedef struct { uint8_t line[TAP_N]; uint32_t w; int32_t t, t0, xf, lp, prev, wn, wt, dg, drop; rnd_t r; } m_tap_t;
+typedef struct { uint8_t line[TAP_N]; uint32_t w; int32_t t, t0, xf, lp, prev, wn, wt, dg, drop, env; rnd_t r; } m_tap_t;
 static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
 {
     int32_t want = (25 + p[0] * 875 / 100) * 2205 / 100 * 256;   /* samples at FS / 2, Q8 */
@@ -421,7 +430,12 @@ static void m_tap(const uint8_t *p, m_tap_t *s, int32_t *x)
         if (++s->w >= TAP_N)
             s->w = 0;
         s->dg += ((s->drop ? 0 : Q15) - s->dg) >> 6;     /* (a dropout's edges: ~3 ms, no click) */
-        y = mulq15(s->lp, s->dg) + (hiss ? mulq15(rnd_bi(&s->r), hiss) : 0);
+        {   /* (build 17: the hiss under what passes, as on a tape: it follows the input and the echoes, ~0.3 s out,
+             * and is gone with them -- before, it hissed on alone and kept the effect running for ever) */
+            int32_t a = maxi(absi(in), absi(s->lp));
+            s->env += a > s->env ? (a - s->env) >> 3 : -((s->env >> 12) + (s->env > 0));
+        }
+        y = mulq15(s->lp, s->dg) + (hiss ? mulq15(rnd_bi(&s->r), mulq15(hiss, clampi(s->env * 16, 0, Q15))) : 0);
         o0 = (s->prev + y) >> 1;
         s->prev = y;
         x[i] = o0;
@@ -672,7 +686,7 @@ static void m_rng(const uint8_t *p, m_rng_t *s, int32_t *x)
  * asymmetric clipper (soft above, hard below), its BIAS (p2) pulled down as the sound gets louder (a starved supply);
  * a GATE (p1) on the sound's level with hysteresis, chopping it to nothing below -- the velcro sputter, the tearing;
  * TONE (p3) a low-pass after. Its level brought back to the sound's */
-typedef struct { int32_t env, lp, open, dc; } m_stv_t;
+typedef struct { int32_t env, lp, open, dc; } m_stv_t;   /* (dc: Q10 above the sample) */
 static void m_stv(const uint8_t *p, m_stv_t *s, int32_t *x)
 {
     int32_t g = (int32_t)((10u * exp2_q16(p[0] * (664 * 65536 / 10000))) >> 6), thr = p[1] * 33,   /* (gain Q10; to ~-20 dB) */
@@ -686,8 +700,10 @@ static void m_stv(const uint8_t *p, m_stv_t *s, int32_t *x)
         v = (int32_t)clampi(((int64_t)xv * g) >> 10, -4 * Q15, 4 * Q15) + bias - mulq15(s->env, LV(0.6));
         y = v > 0 ? tanh_q15(v) : clampi(v, -LV(0.6), 0);
         y = s->open ? mulq15(y, LV(0.22)) : 0;          /* (its level near the sound's) */
-        s->dc += (y - s->dc) >> 10;                      /* (the clipper's lean taken off) */
-        s->lp += mulz15(y - s->dc - s->lp, tone);
+        s->dc += y - (s->dc >> 10);                      /* (the clipper's lean taken off: Q10, so it settles on the
+                                                          * lean itself -- build 17: it stopped up to 1023 short and a
+                                                          * GATE of 0 held that much out for ever, nothing in) */
+        s->lp += mulz15(y - (s->dc >> 10) - s->lp, tone);
         x[i] = s->lp;
     }
 }
@@ -1017,7 +1033,9 @@ static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x, int32_t *l, i
         rm_guard(inst, x);
     for (i = 0; i < CTL; i++)
         pk = maxi(pk, absi(x[i]));
-    rm_meter[inst] = pk > rm_meter[inst] ? pk : rm_meter[inst] - (rm_meter[inst] >> 4);
+    rm_meter[inst] = pk > rm_meter[inst] ? pk : rm_meter[inst] - (rm_meter[inst] >> 4) - (rm_meter[inst] > 0);
+    /* (build 17: down to 0 -- a sixteenth of 15 is nothing, so it stopped at 15 and the effect was never quiet: it ran
+     * for ever, nothing reaching it, a TAPE hissing on alone) */
 }
 
 /* a slot's patch taken: its instances placed in its memory and started (the memory was cleared) */
@@ -1117,7 +1135,8 @@ static void rack_job(void)
                 rm_block(inst, &ee, x, sl, sr, (int)out);
             } else
                 rm_block(inst, &f->e[k], x, sl, sr, (int)out);
-            if (rm_meter[inst] < 8) {
+            if (rm_meter[inst] < 32) {               /* (-60 dB: build 17, 8 before -- small values some effects
+                                                      * hold for ever kept them running, nothing reaching them) */
                 if (rm_quiet[inst] < 0xFFFFu)
                     rm_quiet[inst]++;
             } else

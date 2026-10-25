@@ -2,6 +2,21 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 17 (2026-10-25): the hiss that a morph carried over
+
+- **Found with session 2**: snapshots 2 and 3 hold the same effects in slots 4 and 5, other cables. Recalled at once,
+  a slot whose cables change is cleared and started again; morphed, its cables change in place and its effects go on.
+  In snapshot 2 generator 1 feeds slot 4 (on the left): its TAPE ran. In snapshot 3 nothing reaches it -- but TAPE's
+  hiss was made whatever came in, and an effect nothing reaches runs on while it still sounds: its own hiss kept it
+  sounding, for ever. Hence the hiss on the left in snapshot 3, after a morph only.
+- **TAPE**: the hiss is under what passes (the input and the echoes), ~0.3 s out after them, and gone with them.
+- **Every effect falls silent with nothing in** (or fades, as a long echo does; a frozen CLOUD holds, as it should).
+  Others held a sound of their own for ever: BANK and MODAL a tone from their resonators' last digit raised x 600 (the
+  resonator now works 256 times finer), STARVE a level (its lean filter stopped short of the lean), FILTER at a high Q
+  a small remainder (let go when nothing comes in). The level meter of each effect stopped at 15 instead of 0, and an
+  effect under 32 (-60 dB, was 8) for 2 s with nothing in now rests. Test: `host quiet` (each effect, four ways: fed
+  1 s, then 40 s of nothing).
+
 ## Build 16 (2026-10-25): a recall is never left half done
 
 - **A snapshot recalled while a slot is still taking the last change** (its fade and clearing, ~15 ms; or a voice
