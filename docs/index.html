@@ -97,11 +97,12 @@
 <h2 id="machine">How the machine is put together</h2>
 <p>Three <b>generators</b> make sound; three <b>effect slots</b> wreck it; a master <b>delay</b> and <b>plate
   reverb</b> close the chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared
-  between the three. Each generator is wired by cables into one, two or three effects anywhere in the effect slots, and
-  keeps a dry share of its own. Each effect slot is a chain of two or three effects; any of them may also be wired
-  across into a later slot, or out to the master on its own. The first processor core renders the voices, the second
-  runs the effects, a block behind.</p>
-<div class="flow" role="img" aria-label="Three generators, cabled into three effect slots of two or three effects each, cables across to later slots, then the master delay and plate reverb to the output">
+  between the three. By default each generator runs through its own <b>lane</b>: generator 1 through effect slot 4,
+  2 through 5, 3 through 6, each lane a chain of two or three effects, with a small dry share of its own straight to the
+  master. A session may be <b>MESH</b> instead: each generator cabled into effects anywhere, effects wired across into
+  later slots. <b>KNOB 2</b> sets how much of every effect is heard at once, dry to wet. The first processor core renders
+  the voices; the second runs the effects and the master, a block behind.</p>
+<div class="flow" role="img" aria-label="Three generators, each into its own lane of two or three effects, then the master delay and plate reverb to the output; in MESH, cables across between lanes">
 <svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg" font-family="Atkinson Hyperlegible, sans-serif" font-size="17">
   <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d2b84a"/></marker></defs>
   <g fill="#1a1712" stroke="#ddd5bf" stroke-width="2">
@@ -112,24 +113,23 @@
   <g fill="#ef6a43"><rect x="10" y="20" width="8" height="76"/></g><g fill="#5a96ff"><rect x="10" y="126" width="8" height="76"/></g><g fill="#a8ff3c"><rect x="10" y="232" width="8" height="76"/></g>
   <g fill="#ede7d4" font-weight="700">
     <text x="30" y="50">GENERATOR 1</text><text x="30" y="156">GENERATOR 2</text><text x="30" y="262">GENERATOR 3</text>
-    <text x="316" y="50">EFFECT SLOT 4</text><text x="316" y="156">EFFECT SLOT 5</text><text x="316" y="262">EFFECT SLOT 6</text>
+    <text x="316" y="50">LANE 4</text><text x="316" y="156">LANE 5</text><text x="316" y="262">LANE 6</text>
     <text x="704" y="100">DELAY</text><text x="704" y="210">PLATE</text>
   </g>
   <g fill="#b9b09a" font-size="14">
     <text x="30" y="76">engine · hand · grit</text><text x="30" y="182">DISINTEGRATOR</text><text x="30" y="288">looper</text>
-    <text x="316" y="76">a recipe: 2 or 3 effects</text><text x="316" y="182">values drawn, cables across</text><text x="316" y="288">nineteen effects to draw from</text>
+    <text x="316" y="76">a recipe: 2 or 3 effects</text><text x="316" y="182">values drawn · KNOB 2: FX MIX</text><text x="316" y="288">twenty-two effects to draw from</text>
     <text x="704" y="124">master, mono</text><text x="704" y="234">master, stereo</text>
   </g>
   <g stroke="#d2b84a" stroke-width="2.4" fill="none" marker-end="url(#ar)" opacity="0.95">
-    <path d="M210,58 C250,58 260,58 298,58"/><path d="M210,70 C255,90 255,150 298,164"/>
-    <path d="M210,164 C255,164 255,260 298,268"/><path d="M210,270 C250,270 260,170 298,176"/>
+    <path d="M210,58 L298,58"/><path d="M210,164 L298,164"/><path d="M210,270 L298,270"/>
     <path d="M600,58 C640,58 650,96 688,100"/><path d="M600,164 C640,164 650,120 688,112"/><path d="M600,270 C640,270 650,120 688,124"/>
     <path d="M770,140 L770,178"/>
   </g>
   <g stroke="#c4512c" stroke-width="2" fill="none" stroke-dasharray="6 5" marker-end="url(#ar)">
-    <path d="M560,96 C560,110 540,112 540,124"/><path d="M500,202 C500,216 480,218 480,230"/>
+    <path d="M210,74 C255,94 255,150 298,152"/><path d="M500,202 C500,216 480,218 480,230"/>
   </g>
-  <text x="566" y="116" fill="#c4512c" font-size="13">across</text>
+  <text x="126" y="116" fill="#c4512c" font-size="13">MESH only</text>
 </svg>
 </div>
 <p>Every generator is a <b>MOLECULE</b>: six-operator FM whose operators read band-limited waves as well as sines,
@@ -152,11 +152,10 @@
     same key held twice never sounds the same twice.</li>
   <li><b>The generator</b> (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it
     is cabled into and where, its dry share. (One generator modulates another only when you link them by hand.)</li>
-  <li><b>The effect slot</b> (HOME on an effect slot): one of 22 recipes, each place filled from the recipe's choices
-    that fit the slot's memory, every value drawn around its home, the outs, the cables across to the slots after
-    it.</li>
-  <li><b>The signal flow.</b> A session is MESH -- any generator into any effect, effects across slots -- or LANES: each
-    generator runs through its own lane of effects, drawn with it as part of its patch.</li>
+  <li><b>The effect slot</b> (HOME on an effect slot): one of 24 recipes, each place filled from the recipe's choices
+    that fit the slot's memory, every value drawn around its home, the outs.</li>
+  <li><b>The signal flow.</b> A session is LANES -- each generator through its own lane of effects, drawn with it as part
+    of its patch: the default -- or MESH: any generator into any effect, effects across slots.</li>
   <li><b>The paths.</b> ABRASIVE (gnarly, textural, torn) and DARK (drones, depression, a little quieter) lean every
     draw above: the scenes, the families, the recipes, the effects' values. Neither on: anything goes.</li>
   <li><b>Partial throws.</b> REWIRE draws only the cables; RAND PARAMS only an effect slot's values, or a generator's
@@ -173,8 +172,9 @@
 <h2 id="features">Features</h2>
 <dl class="features">
   <dt>Three generators</dt><dd>Each a MOLECULE voice with its level, pan, sends, mute, looper and DISINTEGRATOR.</dd>
-  <dt>Nineteen effects</dt><dd>FILTER, FOLD, MULAW, SHIFT, MODAL, STRING, VOWEL, DELAY, TAPE, REVERSE, SPRING, REVERB,
-    GLITCH, CLOUD, SCREAM, RING, STARVE, CHEB, BANK — drawn into three slots by 22 recipes, with cables between slots.</dd>
+  <dt>Twenty-two effects</dt><dd>FILTER, FOLD, MULAW, SHIFT, MODAL, STRING, VOWEL, TAPE, REVERSE, SPRING, GLITCH,
+    CLOUD, SCREAM, RING, STARVE, CHEB, BANK, SMEAR, DIFFUSE, SLEW, XOR, DUST — drawn into three lanes by 24 recipes.</dd>
+  <dt>FX MIX</dt><dd>KNOB 2: every effect of every lane at once, from dry to wet.</dd>
   <dt>DISINTEGRATOR</dt><dd>KNOB 1: an unstable gate on each generator — stutters, crushes, sudden throws across the
     image — more erratic the higher.</dd>
   <dt>Draw paths</dt><dd>ABRASIVE and DARK, on two black keys, lean everything HOME draws.</dd>
@@ -184,7 +184,8 @@
     values.</dd>
   <dt>Loopers</dt><dd>Tonitor's looper on each generator: ten loops, overdubs, reverse, pendulum, random, half and
     double speed.</dd>
-  <dt>Master</dt><dd>Tonitor's delay and plate reverb, a send per generator; their tails always ring out.</dd>
+  <dt>Master</dt><dd>Tonitor's delay and plate reverb, the master's alone, a send per generator; their tails always ring
+    out.</dd>
   <dt>USB audio</dt><dd>The FM-1 is a class-compliant audio interface: record the master straight into a computer.</dd>
   <dt>A readable screen</dt><dd>Few words, very large, high contrast: made for low vision.</dd>
 </dl>

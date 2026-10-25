@@ -3,35 +3,34 @@
   colour for each generator — red, blue, green. Nothing else is drawn: no cables, no scopes.</p>
 
 <div class="shot">
-  <img src="assets/screens/playing.png" alt="The main view: generators 1 to 3 as large numbered blocks, generator 2 framed; three rows of effect tiles under them" width="240" height="240">
+  <img src="assets/screens/playing.png" alt="The main view: smog at the top with the load and the battery; three rusty pipes, their effects on plates; three brick furnaces, generator 2 framed" width="240" height="240">
   <div>
     <h2>The machine</h2>
-    <p>The three generators as large numbered blocks, the one chosen framed in white; under them the three effect slots,
-      a row each, their effects as tiles: SPR spring, FLD fold, MU mulaw, MDL modal, REV reverb, TAP tape, DLY delay.</p>
-    <p>Each tile is bordered in the colours of the generators cabled into it; the tiles the chosen generator feeds
-      are filled with its colour; a tile brightens as sound passes through it. Top left, the audio's load; top right,
-      the battery.</p>
+    <p>The main view is a place. At the top, smog, drifting slowly, the audio's load at the left and the battery at the right. Under the ground, the three lanes as rusty pipes, each effect a section between bolted flanges, its name on a dark plate: CLD cloud, SHF shift, STV starve, STR string, TAP tape, SLW slew, SPR spring. At the foot, the three generators as brick furnaces, the fire in their colours.</p>
+    <p>Under each name a band in the colours of the generators feeding it; the plates the chosen generator feeds are filled with its colour; a section glows hotter as sound passes. A furnace burns brighter as its generator sounds. The chosen slot is framed in white.</p>
   </div>
 </div>
-
 <div class="shot">
-  <img src="assets/screens/fx-chosen.png" alt="Effect slot 6 chosen: its row framed in white, the others dimmed" width="240" height="240">
+  <img src="assets/screens/fx-chosen.png" alt="Effect slot 6 chosen: its pipe framed in white" width="240" height="240">
   <div>
     <h2>An effect slot chosen</h2>
-    <p>Its row framed in white. HOME draws it a new recipe; the first black key rewires it; SHIFT and the first black
-      key throw its values (RAND PARAMS); its button held mutes it, and its row goes dark.</p>
+    <p>Its pipe framed in white. HOME draws it a new recipe; the first black key rewires it; SHIFT and the first black key throw its values (RAND PARAMS); its button held mutes it, and its pipe goes cold and grey. The white keys play nothing while an effect slot is chosen.</p>
   </div>
 </div>
-
 <div class="shot">
-  <img src="assets/screens/dis-dial.png" alt="DISINTEGRATOR 46, generator 1, a bar in red" width="240" height="240">
+  <img src="assets/screens/dis-dial.png" alt="DISINTEGRATOR 64, generator 1, a bar in red" width="240" height="240">
   <div>
     <h2>DISINTEGRATOR</h2>
-    <p>KNOB 1 while playing: the chosen generator's DISINTEGRATOR, 0 to 100, over the whole screen for a moment, in
-      the generator's colour. Its pulses gate, stutter, crush and throw that generator's sound about.</p>
+    <p>KNOB 1 while playing: the chosen generator's DISINTEGRATOR, 0 to 100, over the whole screen for a moment, in the generator's colour. Its pulses gate, stutter, crush and throw that generator's sound about.</p>
   </div>
 </div>
-
+<div class="shot">
+  <img src="assets/screens/fxmix.png" alt="FX MIX 34, all lanes, a bar in rust" width="240" height="240">
+  <div>
+    <h2>FX MIX</h2>
+    <p>KNOB 2 while playing: how much of every effect is heard, in every lane at once, 0 (DRY: each effect passes what reaches it) to 100 (WET: the effects alone). 50 at power-on; kept in snapshots and sessions.</p>
+  </div>
+</div>
 <div class="shot">
   <img src="assets/screens/snapshots.png" alt="The SNAPSHOTS page: sixteen squares, 1 and 3 stored, 6 chosen, 15 framed" width="240" height="240">
   <div>
@@ -51,14 +50,26 @@
 </div>
 
 <div class="shot">
-  <img src="assets/screens/sessions.png" alt="SESSIONS 1 EMPTY" width="240" height="240">
+  <img src="assets/screens/sessions.png" alt="The SESSIONS list: sessions 1 to 4, session 1 chosen" width="240" height="240">
   <div>
     <h2>Sessions</h2>
-    <p>SHIFT + SAVE: the sixty-four session slots, the number very large, red when it holds a session, grey when
-      empty. SAVE loads one (or starts afresh in an empty one); SAVE held saves.</p>
+    <p>SHIFT + SAVE: the sixty-four session slots, four to a page, as Bigorna's. PRESETS moves through them; a saved session is white, an empty slot grey, the one loaded marked at its right. SAVE opens the one chosen.</p>
   </div>
 </div>
-
+<div class="shot">
+  <img src="assets/screens/session-page.png" alt="Session 1's page: BACK, NEW, SAVE, COPY" width="240" height="240">
+  <div>
+    <h2>A session's page</h2>
+    <p>BACK; then what can be done with it: LOAD (NEW on an empty slot), SAVE, COPY, DELETE in red; then its settings. PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back. Saving over another session, copying over one and deleting ask first.</p>
+  </div>
+</div>
+<div class="shot">
+  <img src="assets/screens/session-mode.png" alt="The MODE row, LANES in its white field" width="240" height="240">
+  <div>
+    <h2>MODE</h2>
+    <p>The session's signal flow: LANES (each generator through its own lane: the default) or MESH (any generator into any effect, effects across slots). Turned to LANES, a session is rewired into lanes, its snapshots too; nothing is redrawn.</p>
+  </div>
+</div>
 <div class="shot">
   <img src="assets/screens/mod-gen.png" alt="1 MOD A: from LFO 1 to BRIGHTNESS, amount +45, its movement now" width="240" height="240">
   <div>
@@ -82,7 +93,7 @@
   <div>
     <h2>The looper</h2>
     <p>REC arms a loop on the chosen generator; the first note starts it, REC again ends it and it plays. A dot in the
-      generator's block while it records.</p>
+      generator's furnace while it records.</p>
   </div>
 </div>
 

@@ -18,7 +18,7 @@ at will: as fit for noise experiments as for slow, dark ambient.
 
 **Website, browser installer and session backup: <https://nzimas.github.io/norilsk/>**
 
-State: **build 28**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
+State: **build 33**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
 
 # Manual
 
@@ -28,14 +28,18 @@ Three **generators** make sound; three **effect slots** wreck it; a master **del
 chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared between the three
 generators.
 
-- Each generator is wired by cables into one, two or three effects anywhere in the effect slots (none, one time in
-  twenty), and keeps a dry share of its own that goes straight to the master. One generator may modulate another (ring,
-  amplitude, filter) -- only when you link them: SHIFT, hold one generator's button, then the other's.
-- Each effect slot is a chain of two or three effects, drawn from a recipe. Any effect may also be wired across into an
-  effect of a later slot, or sent out to the master on its own.
+- By default each generator runs through its own **lane**: generator 1 through effect slot 4, 2 through 5, 3 through 6,
+  with a small dry share of its own straight to the master (LANES). A session may be MESH instead: each generator wired
+  by cables into one, two or three effects anywhere in the slots, effects wired across into later slots. One generator
+  may modulate another (ring, amplitude, filter) -- only when you link them: SHIFT, hold one generator's button, then
+  the other's.
+- Each effect slot is a chain of two or three effects, drawn from a recipe; an effect before the last may also go out
+  to the master on its own. **KNOB 2** sets how much of every effect is heard at once: FX MIX, dry to wet, 50 at
+  power-on.
 - Each generator has its level, pan, mute, delay and reverb sends, a looper, and a DISINTEGRATOR; each effect slot its
   level, pan and mute.
-- The first processor core renders the voices; the second runs the effects, a block behind.
+- The first processor core renders the voices; the second runs the effects and the master delay and reverb, a block
+  behind.
 
 Every sound swells in and keeps moving, and **nothing sounds on once no note is held, latched or looped**: released
 voices fade out within three seconds and the effect slots close two seconds after the last voice -- while the master
@@ -52,8 +56,9 @@ Almost nothing in Norilsk is set by hand at the start: it is drawn. What you do 
    that wander. The same key held twice never sounds the same twice.
 3. **The generator** (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it is
    cabled into and where, its dry share.
-4. **The effect slot** (HOME on an effect slot): one of 22 recipes, each place filled from the recipe's choices that
-   fit the slot's memory, every value drawn around its home, the outs, the cables across to the slots after it.
+4. **The effect slot** (HOME on an effect slot): one of 24 recipes, each place filled from the recipe's choices that
+   fit the slot's memory, every value drawn around its home, the outs (in MESH, the cables across to the slots after
+   it). In LANES, HOME on a generator draws its lane's chain with it.
 5. **The paths.** ABRASIVE and DARK lean every draw above: the scenes, the families, the recipes, the effects' values.
 6. **Partial throws.** REWIRE draws only the cables; RAND PARAMS only an effect slot's values, or a generator's sound
    within its family; SHIFT + HOME keeps the family or the recipe; HOME held throws all six slots at once.
@@ -147,8 +152,8 @@ repeaters; none of their code.)
 
 ## The effect slots
 
-Twenty-two effects drawn, two or three to a slot (five more from build 32, their names provisional) (build 30: DELAY and REVERB are the master's; from build 31 a session
-saved with them in a slot loads them as TAPE and SPRING):
+Twenty-two effects, two or three to a slot (the last five from build 32, their names provisional). The delay and the
+plate reverb are the master's alone (build 30); a session saved with them in a slot loads them as TAPE and SPRING:
 
 | Effect | What it is |
 |---|---|
@@ -220,7 +225,7 @@ that place), its level, pan, the LFOs' rates. SEQ's third page sets them; SHIFT 
 ## Snapshots and sessions
 
 **A snapshot is the whole machine**: every slot's sound, effects, values and cables, levels, pans, mutes and sends, the
-DISINTEGRATORs, the master delay and reverb, the modulation, the scale and root, the octave, the path — and how it is
+DISINTEGRATORs, the FX MIX, the master delay and reverb, the modulation, the scale and root, the octave, the path — and how it is
 played: the latched notes, whether each generator's loops play, which loops are held out, their direction, speed, VARY
 and moves along the scale. (The loops' recordings themselves belong to the session.) Sixteen to a session.
 
@@ -230,8 +235,8 @@ into place over it — levels, pans, sends, values and LFOs glide; sounds cross 
 chains are faded out and in, in turn; what has no between switches at the middle. The square and key of the snapshot
 it flows into blink until it is there.
 
-**SHIFT + SAVE** brings up the SESSIONS list: PRESETS through 64 slots, the number very large (red when it holds a
-session, grey when empty). SAVE opens that slot's page, as Bigorna's: **BACK**; **LOAD** (on an empty slot **NEW**,
+**SHIFT + SAVE** brings up the SESSIONS list, as Bigorna's: four to a page, PRESETS through 64 slots (a saved session
+white, an empty slot grey, the one loaded marked at its right). SAVE opens that slot's page, as Bigorna's: **BACK**; **LOAD** (on an empty slot **NEW**,
 a clean slate there); **SAVE** (over another session, asked first); **COPY** (to a slot PRESETS chooses, the first
 empty one offered; over a session, asked); **DELETE** (asked); and the session's **MODE**, MESH or LANES (SAVE,
 PRESETS, SAVE: the session playing's only). PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back a
@@ -297,7 +302,7 @@ website: `tools/make_logo.py`, `tools/make_demos.sh`, then `tools/make_site.py` 
 | `firmware/src/main.c`, `usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c` | boot and interrupts, USB, the installer's handshake, the rescue mode, the screen |
 | `firmware/src/mol.c`, `fm6_core.c`, `wt.c` | MOLECULE: the voice, the grains, the hand, the grit, the families; the FM core; the waves |
 | `firmware/src/gens.c` | the three generators: the draw, the voices, the two cores, the DISINTEGRATOR, the mix |
-| `firmware/src/rack.c`, `reverb.c` | the effect slots: the nineteen effects, the recipes, the paths, the memory, the cables |
+| `firmware/src/rack.c`, `reverb.c` | the effect slots: the twenty-two effects, the recipes, the paths, the memory, the cables |
 | `firmware/src/mod.c`, `loop.c`, `master.c` | the modulation; the loopers; the master delay and reverb |
 | `firmware/src/sessions.c`, `backup.c` | sessions, snapshots and the morph; the sessions over USB |
 | `firmware/src/ui.c` | the panel and the screen |
