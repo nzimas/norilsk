@@ -153,6 +153,7 @@ static void audio_worker_check(void) {}
 #include "sessions.h"
 #include "ui.c"
 #include "sessions.c"
+#include "backup.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
 
@@ -1963,6 +1964,312 @@ static int cmd_hiss(void)
     return fails ? 1 : 0;
 }
 
+/* the owner's case, widened: snapshots B (3) and A (2), morphs B -> A -> B (the second after the first ends, or while it
+ * runs), against B applied at once to a fresh machine: the same state; the same loudness on the left and on the right;
+ * each effect slot's and each generator's own output the same within 3 dB (nothing of A left on either side) */
+static void trip_loud(double *lr, double *part)
+{
+    uint32_t i, l, j;
+    int32_t out[2 * CTL];
+    lr[0] = lr[1] = 0;
+    for (l = 0; l < NGEN + NFX; l++)
+        part[l] = 0;
+    for (i = 0; i < 1378u * 2u; i++) {
+        mix_block(out);
+        for (l = 0; l < CTL; l++) {
+            lr[0] += (double)out[2u * l] * out[2u * l];
+            lr[1] += (double)out[2u * l + 1u] * out[2u * l + 1u];
+        }
+        for (l = 0; l < NGEN; l++)
+            for (j = 0; j < CTL; j++)
+                part[l] += (double)gbus[l][j] * gbus[l][j];
+    }
+    for (l = 0; l < 2u; l++)
+        lr[l] = 10.0 * __builtin_log10(lr[l] + 1);
+    for (l = 0; l < NGEN; l++)
+        part[l] = 10.0 * __builtin_log10(part[l] + 1);
+}
+static void trip_frames(uint32_t frames)
+{
+    uint32_t l;
+    for (l = 0; l < frames; l++) {
+        fw_run(14);
+        ui_input();
+    }
+}
+static int cmd_trip(void)
+{
+    int fails = 0;
+    uint32_t sd, l, mid;
+    for (mid = 0; mid < 2u; mid++)
+        for (sd = 0; sd < 16u; sd++) {
+            uint32_t seed = 7300u + sd * 41u + mid * 1000u;
+            st_t A, B, sa;
+            double ma[2], mb[2], pa[NGEN + NFX], pb[NGEN + NFX];
+            int bad = 0;
+            ends_fresh(seed);
+            snap_store(2);                               /* B (snapshot 3), then A (snapshot 2): everything anew */
+            B = snap.s[2];
+            for (l = 0; l < NSLOT; l++) {
+                press(SLOT_BTN[l], 50);
+                press(B_HOME, 50);
+                fw_run(60);
+            }
+            gen_lvl[seed % NGEN] = 23;
+            snap_store(1);
+            A = snap.s[1];
+            ui.morph = 0;
+            snap_recall(2);                              /* at B */
+            trip_frames(300);
+            ui.morph = 8;                                /* 4 s */
+            snap_recall(1);                              /* B -> A */
+            trip_frames(mid ? 150 : 700);                /* (mid: 1.5 s in, still on its way) */
+            snap_recall(2);                              /* -> B */
+            trip_frames(1100);
+            st_capture(&sa);
+            trip_loud(ma, pa);
+            ends_fresh(seed);                            /* B at once, to a fresh machine */
+            st_apply(&B);
+            trip_frames(1100);
+            trip_loud(mb, pb);
+            for (l = 0; l < 2u; l++)
+                bad |= ma[l] - mb[l] > 3.0 || mb[l] - ma[l] > 3.0;
+            for (l = 0; l < NGEN; l++)
+                bad |= pa[l] - pb[l] > 3.0 || pb[l] - pa[l] > 3.0;
+            if (!st_same(&sa, &B) || bad) {
+                printf("FAIL trip %s seed %u: L %.1f / %.1f, R %.1f / %.1f; gens %.1f/%.1f %.1f/%.1f %.1f/%.1f%s\n",
+                       mid ? "(back while on its way)" : "", seed, ma[0], mb[0], ma[1], mb[1], pa[0], pb[0], pa[1], pb[1],
+                       pa[2], pb[2], st_same(&sa, &B) ? "" : "; the state is not B");
+                fails++;
+            }
+            (void)A;
+        }
+    printf("trip: %d round trips that do not come back to B\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* the backup (backup.c): the list, every record read back in pieces as the flash holds it, the writes refused */
+static uint8_t bk_got[4096];
+static uint32_t bk_gotn;
+static int bk_wire(const uint8_t *p, uint32_t n)        /* F0 .. F7 -> decoded (00 59 cmd len24 body sum) */
+{
+    uint32_t i, acc = 0, nb = 0;
+    bk_gotn = 0;
+    for (i = 1; i + 1u < n; i++) {
+        acc |= (uint32_t)p[i] << nb;
+        nb += 7u;
+        if (nb >= 8u) {
+            bk_got[bk_gotn++] = (uint8_t)acc;
+            acc >>= 8;
+            nb -= 8u;
+        }
+    }
+    return 0;
+}
+static void bk_ask(uint32_t cmd, const uint8_t *b, uint32_t n)
+{
+    uint8_t m[32];
+    uint32_t i, s = 0;
+    m[0] = 0;
+    m[1] = 0x59;
+    m[2] = (uint8_t)cmd;
+    m[3] = (uint8_t)n;
+    m[4] = m[5] = 0;
+    for (i = 0; i < n; i++)
+        s += m[6u + i] = b[i];
+    m[6u + n] = (uint8_t)~s;
+    bk_handle(m, 7u + n);
+}
+static int bk_reply_ok(uint32_t cmd)
+{
+    uint32_t n = bk_gotn >= 7u ? bk_got[3] | (uint32_t)bk_got[4] << 8 : 0, i, s = 0;
+    if (bk_gotn < 7u + n || bk_got[0] || bk_got[1] != 0x59 || bk_got[2] != cmd)
+        return 0;
+    for (i = 0; i < n; i++)
+        s += bk_got[6u + i];
+    return (uint8_t)~s == bk_got[6u + n];
+}
+static int cmd_backup(void)
+{
+    int fails = 0;
+    uint32_t i, k, cnt, off;
+    static const uint32_t NUM[3] = {2, 7, 64};
+    uint8_t list[32];
+    memset(hflash, 0xFF, sizeof hflash);
+    fw_init();
+    for (k = 0; k < 3u; k++) {
+        press(B_HOME, 50);
+        snap_store(k);
+        snap_store(k + 1u);
+        ui.morph = 6;
+        if (ses_save(NUM[k]) != SES_OK)
+            printf("FAIL backup: save %u\n", NUM[k]), fails++;
+    }
+    bk_ask(0x50, 0, 0);
+    if (!bk_reply_ok(0x50) || bk_got[6] != 3u)
+        printf("FAIL backup: the list (%u records)\n", bk_got[6]), fails++;
+    cnt = bk_got[6];
+    memcpy(list, bk_got, sizeof list);                   /* (each read's answer takes its place) */
+    for (k = 0; k < cnt && k < 3u; k++) {
+        uint8_t q[8], rec[SES_NSECT * SES_SECT / 8u];
+        uint32_t num = list[7u + k * 6u] | (uint32_t)list[8u + k * 6u] << 8, len = bk_rd32(list + 9u + k * 6u);
+        int at = ses_find(num);
+        if (num != NUM[k] || at < 0 || len > sizeof rec) {
+            printf("FAIL backup: record %u listed as %u, %u B\n", k, num, len), fails++;
+            continue;
+        }
+        for (off = 0; off < len;) {
+            uint32_t n;
+            q[0] = (uint8_t)num;
+            q[1] = (uint8_t)(num >> 8);
+            bk_wr32(q + 2, off);
+            q[6] = 0;
+            q[7] = 1;                                    /* 256 */
+            bk_ask(0x51, q, 8);
+            n = bk_got[12] | (uint32_t)bk_got[13] << 8;
+            if (!bk_reply_ok(0x51) || !n || n > 256u) {
+                printf("FAIL backup: read %u at %u\n", num, off), fails++;
+                break;
+            }
+            memcpy(rec + off, bk_got + 14, n);
+            off += n;
+        }
+        if (off == len && memcmp(rec, hflash + SES_LO + ses.sect[at] * SES_SECT, len))
+            printf("FAIL backup: record %u read back differs\n", num), fails++;
+        else if (off == len && !k) {                     /* (a record as fm1_sessions.py saves it: host replay's) */
+            FILE *f = fopen("build/backup_session.bin", "wb");
+            if (f)
+                fwrite(rec, 1, len, f), fclose(f);
+        }
+        for (i = 0; bk_rd32(rec) == SES_MAGIC && i < 1u; i++) {          /* past its end: nothing */
+            bk_wr32(q + 2, len);
+            bk_ask(0x51, q, 8);
+            if (bk_got[12] | bk_got[13])
+                printf("FAIL backup: bytes past the end of %u\n", num), fails++;
+        }
+    }
+    for (k = 0x52; k <= 0x54; k++) {
+        uint8_t q[6] = {2, 0, 0, 1, 0, 0};
+        uint32_t sum = fnv(2166136261u, hflash + SES_LO, SES_HI - SES_LO);
+        bk_ask(k, q, 6);
+        if (!bk_reply_ok(k) || bk_got[6] != 2u || sum != fnv(2166136261u, hflash + SES_LO, SES_HI - SES_LO))
+            printf("FAIL backup: write 0x%02X not refused\n", k), fails++;
+    }
+    printf("backup: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* a session saved from the device (tools/fm1_sessions.py): loaded, snapshot FROM recalled at once, then morphs to TO
+ * and back to FROM; the end against FROM recalled at once to a machine that had only the session loaded. The WAVs:
+ * build/replay_trip.wav, build/replay_direct.wav. Each part's loudness is printed. */
+static void replay_part(const char *what, double *lr, double *part)
+{
+    uint32_t l;
+    printf("  %-8s L %.1f R %.1f  gens", what, lr[0], lr[1]);
+    for (l = 0; l < NGEN; l++)
+        printf(" %.1f", part[l]);
+    printf("\n");
+}
+static void replay_loud(double *lr, double *part)    /* trip_loud, over 3 s */
+{
+    uint32_t i, l, j;
+    int32_t out[2 * CTL];
+    lr[0] = lr[1] = 0;
+    for (l = 0; l < NGEN + NFX; l++)
+        part[l] = 0;
+    for (i = 0; i < 1378u * 3u; i++) {
+        mix_block(out);
+        for (l = 0; l < CTL; l++) {
+            lr[0] += (double)out[2u * l] * out[2u * l];
+            lr[1] += (double)out[2u * l + 1u] * out[2u * l + 1u];
+        }
+        for (l = 0; l < NGEN; l++)
+            for (j = 0; j < CTL; j++)
+                part[l] += (double)gbus[l][j] * gbus[l][j];
+    }
+    for (l = 0; l < 2u; l++)
+        lr[l] = 10.0 * __builtin_log10(lr[l] + 1);
+    for (l = 0; l < NGEN; l++)
+        part[l] = 10.0 * __builtin_log10(part[l] + 1);
+}
+static int replay_load(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    uint32_t n, num;
+    memset(hflash, 0xFF, sizeof hflash);
+    if (!f)
+        return printf("replay: cannot open %s\n", path), -1;
+    n = (uint32_t)fread(hflash + SES_LO, 1, SES_HI - SES_LO, f);
+    fclose(f);
+    num = hflash[SES_LO + 4] | (uint32_t)hflash[SES_LO + 5] << 8;
+    fm1_in.notes = fm1_in.buttons = 0;
+    fw_init();
+    if (ses_load_slot(num) != SES_OK)
+        return printf("replay: %s (%u B) does not load\n", path, n), -1;
+    return (int)num;
+}
+static int cmd_replay(int argc, char **argv)
+{
+    uint32_t from = argc > 3 ? (uint32_t)atoi(argv[3]) - 1u : 2u, to = argc > 4 ? (uint32_t)atoi(argv[4]) - 1u : 1u;
+    uint32_t settle = argc > 5 ? (uint32_t)atoi(argv[5]) : 0, morph_t, l;
+    double ma[2], mb[2], pa[NGEN + NFX], pb[NGEN + NFX];
+    st_t sa;
+    int num;
+    if (argc < 3)
+        return printf("usage: host replay SESSION.bin [FROM TO [FRAMES]]  (snapshots 1..16; FRAMES at TO before going back)\n"), 1;
+    if ((num = replay_load(argv[2])) < 0)
+        return 1;
+    morph_t = ui.morph;
+    printf("replay: session %d, morph %u.%u s, snapshots used %04X, current %d\n", num, morph_t / 2u, morph_t % 2u * 5u,
+           snap.used, snap.cur + 1);
+    for (l = 0; l < NGEN; l++)
+        print_gen(l);
+    for (l = 0; l < NFX; l++)
+        print_fx(l);
+    if (!snap_has(from) || !snap_has(to))
+        return printf("replay: snapshot %u or %u empty\n", from + 1u, to + 1u), 1;
+    if (!ui.latch[0] && !ui.latch[1] && !ui.latch[2]) {  /* (nothing latched in it: a note latched, as ends_fresh) */
+        printf("replay: no note latched in the session: key 1 latched\n");
+        key(0, 1);
+        key(KEY_SHIFT, 1);
+        ui_input();
+        key(KEY_SHIFT, 0);
+        key(0, 0);
+    }
+    ui.morph = 0;
+    snap_recall(from);
+    trip_frames(600);
+    fw_frames = 0;
+    ui.morph = (uint8_t)morph_t;
+    snap_recall(to);
+    trip_frames(settle ? settle : morph_t * 50u + 600u);
+    snap_recall(from);
+    trip_frames(morph_t * 50u + 600u);
+    wav_write2("build/replay_trip.wav", wav2, fw_frames);
+    st_capture(&sa);
+    replay_loud(ma, pa);
+    replay_load(argv[2]);
+    if (!ui.latch[0] && !ui.latch[1] && !ui.latch[2]) {
+        key(0, 1);
+        key(KEY_SHIFT, 1);
+        ui_input();
+        key(KEY_SHIFT, 0);
+        key(0, 0);
+    }
+    ui.morph = 0;
+    snap_recall(from);
+    fw_frames = 0;
+    trip_frames(600);
+    wav_write2("build/replay_direct.wav", wav2, fw_frames);
+    replay_loud(mb, pb);
+    printf("snapshot %u, after %u -> %u -> %u (dB):\n", from + 1u, from + 1u, to + 1u, from + 1u);
+    replay_part("morphed", ma, pa);
+    replay_part("direct", mb, pb);
+    if (!st_same(&sa, &snap.s[from]))
+        printf("  the state after the morphs is not snapshot %u's\n", from + 1u);
+    return 0;
+}
+
 static int cmd_flows(void)
 {
     int fails = 0;
@@ -2376,6 +2683,12 @@ int main(int argc, char **argv)
         return cmd_ends();
     if (!strcmp(argv[1], "hiss"))
         return cmd_hiss();
+    if (!strcmp(argv[1], "trip"))
+        return cmd_trip();
+    if (!strcmp(argv[1], "backup"))
+        return cmd_backup();
+    if (!strcmp(argv[1], "replay"))
+        return cmd_replay(argc, argv);
     if (!strcmp(argv[1], "tails"))
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))

@@ -178,9 +178,8 @@ static void ses_isr_sync(void)
 }
 
 #define OTA_IDENTITY (recovery_active ? "FM-1_000" : MOLECULAR_ID)
-/* the backup protocol (Tonitor's backup.c): none yet -- a message to the host would be answered here */
-static void bk_handle(const uint8_t *m, uint32_t d) { (void)m; (void)d; }
 #include "ota.c"
+static int bk_wire(const uint8_t *p, uint32_t n) { return ota_wire_send(p, n); }   /* (backup.c) */
 static void recovery_poll(void);
 static uint32_t ota_now_ms(void) { return fm1_ms; }
 static void ota_idle(void)

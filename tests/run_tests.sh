@@ -24,6 +24,7 @@ build/host ears
 build/host master
 build/host mod
 build/host sessions
+build/host backup
 build/host morph
 build/host ends
 build/host hiss

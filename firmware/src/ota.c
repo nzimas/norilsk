@@ -169,7 +169,7 @@ static void ota_service(void)
         ota_reply_identity();
 #ifndef FELUCCA_LOADER
     else if (d >= 7u && ota_dec[2] >= 0x50 && ota_dec[2] <= 0x54)
-        bk_handle(ota_dec, d);                   /* (the backup protocol: none yet in MOLECULAR -- main.c's stub) */
+        bk_handle(ota_dec, d);                   /* (the backup protocol: backup.c, reading only) */
 #endif
 }
 

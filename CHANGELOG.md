@@ -2,6 +2,15 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 15 (2026-10-25): the sessions read over USB
+
+- **The sessions can be copied to the computer**, to find what the morph leaves behind in session 2: Tonitor's backup
+  protocol, reading only (backup.c: 0x50 the list, 0x51 a piece of a record; the writes are refused, nothing is
+  written to the flash). `tools/fm1_sessions.py` lists the sessions and saves one (`save 2`: `build/session_2.bin`);
+  `build/host replay build/session_2.bin 3 2` plays it on the computer: snapshot 3, a morph to 2 and back, against 3
+  recalled at once (each side's and each generator's loudness; WAVs in build/). Test: `host backup`.
+- Nothing else changes.
+
 ## Build 14 (2026-10-25): the morph fixed; its dial; the snapshots' keys
 
 - **A morph no longer carries the snapshot before into the one after.** An effect slot whose effects stayed the same
