@@ -2,6 +2,18 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 25 (2026-10-25): generators linked by hand; the SCALE page's knobs swapped
+
+- **One generator modulates another only when you link them**: SHIFT held, one generator's button held (the one that
+  modulates), then another's (the one modulated). A kind is drawn -- RING, AM or FILTER -- and a depth; the screen
+  shows it for 1.5 s in two lines: the pair, very large, each number in its generator's colour with an arrow between,
+  and the kind (OFF when undone). The same gesture again undoes it. On the main view, a linked generator's block has a
+  band along its foot in the colour of the one that modulates it (a small corner square before). HOME and REWIRE no
+  longer draw links (before, HOME drew one now and then: a new sound on one generator could change another), and keep
+  the one there is. Links in sessions and snapshots stay as they were saved. Test: `host link`.
+- **On the SCALE page (ARP), SELECT sets the root and ALGORITHM the scale** (the other way round before). Test: `host
+  flows`.
+
 ## Build 24 (2026-10-25): restores that always go through
 
 - **Found with build 23's diagnosis**: a failed restore's new copy had its first sector blank -- written, then erased.

@@ -2565,6 +2565,74 @@ static int cmd_demo(int argc, char **argv)
     return 0;
 }
 
+/* the generators' links (build 25): HOME and REWIRE never draw one, on any path; SHIFT, generator 1's button held, then
+ * generator 2's: 1 modulates 2 (a kind and a depth drawn), the message up, neither muted however long they are held;
+ * HOME and REWIRE on 2 keep it; a snapshot holds it; the same gesture again undoes it */
+static void link_gesture(uint32_t o, uint32_t d)
+{
+    key(KEY_SHIFT, 1);
+    hold_btn(SLOT_BTN[o], 1);
+    fw_run(100);
+    hold_btn(SLOT_BTN[d], 1);
+    fw_run(1400);                                        /* (held past a mute's 0.8 s) */
+    ui_input();
+    hold_btn(SLOT_BTN[d], 0);
+    hold_btn(SLOT_BTN[o], 0);
+    key(KEY_SHIFT, 0);
+    fw_run(10);
+}
+static int cmd_link(void)
+{
+    int fails = 0;
+    uint32_t p, n, l;
+    for (p = 0; p < DP_N; p++) {                         /* never drawn */
+        fw_init();
+        draw_path = (uint8_t)p;
+        for (n = 0; n < 60u; n++)
+            for (l = 0; l < NGEN; l++) {
+                gen_draw(l, -1, 700u + n * 3u + l);
+                fw_run(2);
+                gen_rewire(l, 900u + n);
+                fw_run(2);
+                if (gbuf[l][g_use[l]].xsrc != XM_NONE)
+                    printf("FAIL link: generator %u drew a link (path %u)\n", l + 1u, p), fails++, n = 60u;
+            }
+    }
+    draw_path = DP_ANY;
+    ends_fresh(5150u);
+    link_gesture(0, 1);
+    {
+        const gen_patch_t *g = &gbuf[1][g_use[1]];
+        if (g->xsrc != 0 || g->xkind >= XM_N || g->xdepth < 35 || g->xdepth > 95)
+            printf("FAIL link: SHIFT + 1 held + 2 did not link 1 to 2 (src %u)\n", g->xsrc), fails++;
+        if (gen_mute[0] || gen_mute[1])
+            printf("FAIL link: a generator muted by the gesture\n"), fails++;
+        if ((int32_t)(ui.lk_until - fm1_ms) <= 0 && !ui.lk_shown)
+            printf("FAIL link: no message\n"), fails++;
+    }
+    press(SLOT_BTN[1], 50);                              /* HOME, REWIRE on 2: kept */
+    press(B_HOME, 50);
+    fw_run(40);
+    key(KEY_REWIRE, 1);
+    ui_input();
+    key(KEY_REWIRE, 0);
+    fw_run(40);
+    if (gbuf[1][g_use[1]].xsrc != 0)
+        printf("FAIL link: HOME or REWIRE on 2 dropped its link\n"), fails++;
+    snap_store(0);
+    link_gesture(0, 1);                                  /* undone */
+    if (gbuf[1][g_use[1]].xsrc != XM_NONE || ui.lk_kind != XM_N)
+        printf("FAIL link: the gesture again did not undo it\n"), fails++;
+    ui.morph = 0;
+    snap_recall(0);                                      /* the snapshot holds it */
+    fw_run(40);
+    ui_input();
+    if (gbuf[1][g_use[1]].xsrc != 0)
+        printf("FAIL link: the snapshot did not bring the link back\n"), fails++;
+    printf("link: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 /* a snapshot recalled at once while a slot is still taking the last change (SES_BUSY then): every part given in the
  * frames that follow, none left at the snapshot before (build 15) */
 static int cmd_recall(void)
@@ -3209,6 +3277,21 @@ static int cmd_flows(void)
             printf("FAIL flows: an effect slot's patch left untaken\n");
             fails++;
         }
+    {   /* the SCALE page (build 25): SELECT the root, ALGORITHM the scale */
+        uint8_t sc0, rt0;
+        press(B_ARP, 50);
+        sc0 = ui.scale;
+        rt0 = ui.root;
+        fm1_in.enc[PANEL_ENC[EN_SELECT]] = 2;
+        ui_input();
+        if (ui.root != (rt0 + 2) % 12 || ui.scale != sc0)
+            printf("FAIL flows: SELECT on the SCALE page did not move the root alone\n"), fails++;
+        fm1_in.enc[PANEL_ENC[EN_ALGO]] = 1;
+        ui_input();
+        if (ui.scale != sc0 + 1 || ui.root != (rt0 + 2) % 12)
+            printf("FAIL flows: ALGORITHM on the SCALE page did not move the scale alone\n"), fails++;
+        press(B_ARP, 50);
+    }
     printf("flows: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -3262,6 +3345,16 @@ static int cmd_screens(int argc, char **argv)
     fw_run(800);
     load_pct = 47;
     SHOT("playing");
+    link_gesture(0, 2);                                  /* generator 1 linked to 3: the message, then the band */
+    ui.lk_until = fm1_ms + 1500u;
+    ui.lk_shown = 0;
+    SHOT("link");
+    ui.lk_until = fm1_ms;
+    ui_draw();
+    SHOT("linked");
+    link_gesture(0, 2);                                  /* (undone) */
+    ui.lk_until = fm1_ms;
+    ui_draw();
     press(B_ENV, 900);                                   /* generator 3 muted */
     press(B_GLO, 50);                                    /* effect slot 6 chosen */
     fw_run(200);
@@ -3503,6 +3596,8 @@ int main(int argc, char **argv)
         return cmd_hiss();
     if (!strcmp(argv[1], "trip"))
         return cmd_trip();
+    if (!strcmp(argv[1], "link"))
+        return cmd_link();
     if (!strcmp(argv[1], "demo"))
         return cmd_demo(argc, argv);
     if (!strcmp(argv[1], "whole"))

@@ -5,7 +5,7 @@
  *                             muted, or heard again
  *   LFO EDIT GLO              the effect slots 4 to 6. Pressed: the slot chosen. Held 0.8 s: muted, or heard again
  *   HOME                      a new patch for the slot chosen. A generator: its sound, the effects it is wired into,
- *                             its modulation by another generator (its level and pan stay). An effect slot: a recipe -- its
+ *                             (its level and pan, and a modulation by another generator, stay). An effect slot: a recipe -- its
  *                             two or three effects, their values, its cables across to the slots after it.
  *                             SHIFT + HOME: a new one of the same family, or recipe. HOME held 0.8 s: all six anew
  *   the white keys            play the generator chosen last, in the scale chosen: the first key is the root, every
@@ -15,7 +15,7 @@
  *   SELECT, ALGORITHM         the level and pan of the generator chosen (or chosen last, while an effect slot is):
  *                             as on Tonitor. At power-on generator 1 is in the middle, 2 left, 3 right. (The SCALE
  *                             page aside)
- *   ARP                       the SCALE page (its light: on it): SELECT the scale, ALGORITHM the root
+ *   ARP                       the SCALE page (its light: on it): SELECT the root, ALGORITHM the scale
  *   OCT- / OCT+               the octave, -3 .. +3
  *   REC                       the looper of the generator the keys play (Tonitor's, loop.c): pressed, a new loop
  *                             armed (the first note starts it); again, ended (it plays at once); again while they
@@ -25,8 +25,12 @@
  *                             taken out. SHIFT + PLAY: every generator's loops stopped, or all started together. Its
  *                             light glows dimly when the generator has loops, lit while they play, dark when it has
  *                             none. An effect slot chosen: PLAY does nothing, dark (muting is the slot button held)
- *   the 1st black key         the chosen slot REWIRED: a generator's cables into the effect slots and its modulation by
- *                             another generator drawn anew; an effect slot's outs and cables across to the slots
+ *   SHIFT + a generator's button held, then another's  the first modulates the second (a kind drawn: RING, AM or
+ *                             FILTER, at a depth drawn), shown 1.5 s over the screen -- the pair, an arrow, the kind;
+ *                             on the main view a band at the foot of the second in the first's colour. The same again:
+ *                             undone (OFF). Nothing else makes or unmakes it (build 25: HOME drew it before)
+ *   the 1st black key         the chosen slot REWIRED: a generator's cables into the effect slots drawn anew; an effect
+ *                             slot's outs and cables across to the slots
  *                             after it. Nothing else changes, and nothing is cut off: its sound and values stay
  *   SHIFT + the 1st black key the chosen slot's values thrown anew: an effect slot's every effect (in place, no
  *                             break: its effects and cables stay); a generator's sound, of the same family (its cables
@@ -67,8 +71,8 @@
  * The screen is for low vision: a few words, large, high contrast. At the top, the audio's load at the left and the
  * battery at the right (or a message, black on white, across). Under it the three generators, a block each in its
  * own colour: filled when heard, an outline when muted, brighter as it sounds, framed in white when chosen (in grey
- * when an effect slot is chosen and the keys still play it); a small square in another generator's colour in its
- * corner when that one modulates it. Under them the three effect slots, a row each: its effects as tiles, named;
+ * when an effect slot is chosen and the keys still play it); a band along its foot in another generator's colour
+ * when that one modulates it. Under them the three effect slots, a row each: its effects as tiles, named;
  * round each tile a border in the colours of the generators wired into it, shared out equally; the tiles the
  * generator the keys play is wired into filled with its colour; a tile brightens as sound passes through it; a
  * muted slot's tiles dark; the chosen slot's row framed in white. No cables are drawn. */
@@ -207,6 +211,8 @@ static struct {
     uint8_t morph;               /* KNOB 1: a snapshot's morph time, half seconds (0: at once) */
     uint32_t dial_until;         /* KNOB 1's dial over the screen, until (KNOB 1 turned) */
     uint8_t dial_shown, dial_kind;   /* dial_kind: 0 MORPH, 1 DISINTEGRATOR */
+    uint32_t lk_until;           /* (build 25) two generators linked or unlinked: the message over the screen, until */
+    uint8_t lk_from, lk_to, lk_kind, lk_shown;   /* .. which to which; XM_* the kind made, XM_N undone */
     int32_t shown_dial;
 } ui;
 enum { SP_LIST = 1, SP_ASK = 2 };
@@ -513,6 +519,7 @@ static void ui_input(void)
     /* the slots' buttons: pressed, chosen; held, muted or heard again */
     for (l = 0; l < NSLOT; l++) {
         if (btn_bit(press, SLOT_BTN[l])) {
+            uint32_t o;
             ui.sel = (uint8_t)l;
             if (l < NGEN)
                 ui.gen = (uint8_t)l;
@@ -521,6 +528,23 @@ static void ui_input(void)
             ui.btn_t0[l] = fm1_ms;
             if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page)
                 pages_off();
+            for (o = 0; l < NGEN && shift_held() && o < NGEN; o++)   /* SHIFT, generator o held, then generator l: o
+                                                                    * modulates l, or no more (gens.c gen_link) */
+                if (o != l && ui.btn_down[o] && btn_bit(fm1_in.buttons, SLOT_BTN[o])) {
+                    int r = gen_link(o, l, next_seed());
+                    ui.btn_done[o] = ui.btn_done[l] = 1;
+                    if (r < 0)
+                        say("BUSY", 800);
+                    else {
+                        ui.lk_from = (uint8_t)o;
+                        ui.lk_to = (uint8_t)l;
+                        ui.lk_kind = (uint8_t)r;
+                        ui.lk_until = fm1_ms + 1500u;
+                        ui.lk_shown = 0;
+                    }
+                    ui.force = 1;
+                    break;
+                }
         }
         if (ui.btn_down[l] && !btn_bit(fm1_in.buttons, SLOT_BTN[l]))
             ui.btn_down[l] = 0;
@@ -698,15 +722,16 @@ static void ui_input(void)
             ui.force = 1;
         }
     }
-    if (ui.sc_page) {                            /* the SCALE page: SELECT the scale, ALGORITHM the root */
-        s = fm1_enc_take(PANEL_ENC[EN_SELECT]);
+    if (ui.sc_page) {                            /* the SCALE page: SELECT the root, ALGORITHM the scale (his, build
+                                                  * 25: the other way round before) */
+        s = fm1_enc_take(PANEL_ENC[EN_ALGO]);
         if (s) {
             ui.scale = (uint8_t)clampi((int32_t)ui.scale + s, 0, NSCALE - 1);
             lx_post();                           /* (the loops moved walk the new scale) */
             ui.sc_touched = 1;
             ui.sc_touch_until = fm1_ms + 700u;
         }
-        s = fm1_enc_take(PANEL_ENC[EN_ALGO]);
+        s = fm1_enc_take(PANEL_ENC[EN_SELECT]);
         if (s) {
             ui.root = (uint8_t)(((int32_t)ui.root + s + 1200) % 12);
             rack_root = SCALE_BASE + ui.root;
@@ -1062,7 +1087,7 @@ static void draw_top(void)
 }
 /* a generator's block: filled in its colour when heard (brighter as it sounds), an outline when muted; framed in
  * white when chosen, in grey when an effect slot is chosen and the keys play it; its number; the colour of the
- * generator that modulates it, in a corner */
+ * generator that modulates it, a band along its foot */
 static int32_t gen_key(uint32_t l)
 {
     const gen_patch_t *p = &gbuf[l][g_use[l]];
@@ -1091,8 +1116,8 @@ static void draw_gen(uint32_t l, int32_t key)
         cv_frame(0, 0, w, GEN_H, 4, C_WHITE);
     else if (fr == 1)
         cv_frame(0, 0, w, GEN_H, 2, C_GREY);
-    cv_text((w - text_w(&FONT_M, d)) / 2 + ((key >> 7) & 7 ? 8 : 0), (GEN_H - FONT_M.h) / 2, &FONT_M, d, fg);   /* (moved
-                                                                                * right by the looper's mark) */
+    cv_text((w - text_w(&FONT_M, d)) / 2 + ((key >> 7) & 7 ? 8 : 0), (GEN_H - FONT_M.h) / 2 - (xm ? 3 : 0), &FONT_M, d,
+            fg);                                 /* (moved right by the looper's mark, up by a link's band) */
     {   /* its looper, at the left: recording, a red disc; armed, a red ring blinking; its loops playing, a ring */
         int32_t lr = (key >> 7) & 3, cy = GEN_H / 2;   /* (white and black: seen on every generator's colour) */
         if (lr == 3) {
@@ -1104,9 +1129,10 @@ static void draw_gen(uint32_t l, int32_t key)
         } else if ((key >> 9) & 1)
             cv_ring(15, cy, 10, 4, fg);
     }
-    if (xm) {                                    /* modulated by another generator */
-        cv_rect(w - 20, 4, 16, 16, C_BLACK);
-        cv_rect(w - 18, 6, 12, 12, GEN_COL[xm - 1]);
+    if (xm) {                                    /* modulated by another generator: a band along its foot, in that
+                                                  * one's colour, edged in black (build 25: a corner square before) */
+        cv_rect(4, GEN_H - 12, w - 8, 8, C_BLACK);
+        cv_rect(6, GEN_H - 10, w - 12, 6, GEN_COL[xm - 1]);
     }
     cv_blit(l * GEN_P + 1u, GEN_Y);
 }
@@ -1359,6 +1385,40 @@ static int draw_dial(void)
     ui.shown_dial = key;
     return 1;
 }
+/* two generators linked (SHIFT, one held, then the other), over the screen for 1.5 s, in two lines: the pair, very
+ * large, each number in its generator's colour, an arrow from the one that modulates to the one modulated; under it
+ * how -- RING, AM, FILTER -- or OFF, unlinked */
+static int draw_link(void)
+{
+    static const char *const KIND[XM_N + 1] = {"RING", "AM", "FILTER", "OFF"};
+    char a[2] = {(char)('1' + ui.lk_from), 0}, b[2] = {(char)('1' + ui.lk_to), 0};
+    int32_t wa, wb, x0;
+    if ((int32_t)(ui.lk_until - fm1_ms) <= 0) {
+        if (ui.lk_shown) {
+            ui.lk_shown = 0;
+            ui.force = 1;
+            ui.shown_page = 0xFF;
+        }
+        return 0;
+    }
+    if (ui.lk_shown)
+        return 1;
+    wa = text_w(&FONT_XL, a);
+    wb = text_w(&FONT_XL, b);
+    x0 = (240 - (wa + 76 + wb)) / 2;
+    CV_AREA(0, 0, 240, 150, C_BLACK) {
+        int32_t y = (150 - FONT_XL.h) / 2, ay = y + FONT_XL.h / 2, k;
+        cv_text(x0, y, &FONT_XL, a, GEN_COL[ui.lk_from % NGEN]);
+        cv_rect(x0 + wa + 10, ay - 5, 34, 10, C_WHITE);              /* the arrow: a shaft, a head */
+        for (k = 0; k < 22; k++)
+            cv_rect(x0 + wa + 44 + k, ay - 22 + k, 1, 2 * (22 - k), C_WHITE);
+        cv_text(x0 + wa + 76, y, &FONT_XL, b, GEN_COL[ui.lk_to % NGEN]);
+    }
+    CV_AREA(0, 150, 240, 90, C_BLACK)
+        cv_text_c((90 - FONT_L.h) / 2, &FONT_L, KIND[ui.lk_kind <= XM_N ? ui.lk_kind : XM_N], C_WHITE);
+    ui.lk_shown = 1;
+    return 1;
+}
 /* the whole screen's message (flash): l1 very large, l2 under it */
 static int draw_flash(void)
 {
@@ -1576,6 +1636,8 @@ static void ui_draw(void)
 {
     uint32_t l, n = 0, mods[NGEN], all;
     if (draw_flash())
+        return;
+    if (draw_link())
         return;
     if (draw_dial())
         return;

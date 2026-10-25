@@ -18,7 +18,7 @@ at will: as fit for noise experiments as for slow, dark ambient.
 
 **Website, browser installer and session backup: <https://nzimas.github.io/norilsk/>**
 
-State: **build 24**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
+State: **build 25**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
 
 # Manual
 
@@ -29,8 +29,8 @@ chain. The white keys play the generator chosen last, in the scale chosen; four 
 generators.
 
 - Each generator is wired by cables into one, two or three effects anywhere in the effect slots (none, one time in
-  twenty), and keeps a dry share of its own that goes straight to the master. Now and then another generator modulates
-  it (ring, amplitude, filter).
+  twenty), and keeps a dry share of its own that goes straight to the master. One generator may modulate another (ring,
+  amplitude, filter) -- only when you link them: SHIFT, hold one generator's button, then the other's.
 - Each effect slot is a chain of two or three effects, drawn from a recipe. Any effect may also be wired across into an
   effect of a later slot, or sent out to the master on its own.
 - Each generator has its level, pan, mute, delay and reverb sends, a looper, and a DISINTEGRATOR; each effect slot its
@@ -50,7 +50,7 @@ Almost nothing in Norilsk is set by hand at the start: it is drawn. What you do 
    cuts bits, crosses the sound with itself and stutters it from points of its own; the grains are taken from places
    that wander. The same key held twice never sounds the same twice.
 3. **The generator** (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it is
-   cabled into and where, its dry share, now and then a modulation by another generator.
+   cabled into and where, its dry share.
 4. **The effect slot** (HOME on an effect slot): one of 22 recipes, each place filled from the recipe's choices that
    fit the slot's memory, every value drawn around its home, the outs, the cables across to the slots after it.
 5. **The paths.** ABRASIVE and DARK lean every draw above: the scenes, the families, the recipes, the effects' values.
@@ -78,12 +78,13 @@ SHIFT is the rightmost black key.
 | a white key held, then **SHIFT** | its note latched (the key stays lit); **SHIFT** held, then the lit key: let go |
 | **SELECT / ALGORITHM** | the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right |
 | **OCT− / OCT+** | the octave, −3 to +3 |
-| **ARP** | the SCALE page: SELECT the scale (23), ALGORITHM the root |
+| **ARP** | the SCALE page: SELECT the root, ALGORITHM the scale (23) |
 | **KNOB 1** | playing: the DISINTEGRATOR of the generator the keys play, 0 to 100. On the SNAPSHOTS page: the morph time, 0 to 30 s |
 | **KNOB 3 / KNOB 4** | the delay send / reverb send of the generator the keys play |
 | **SEQ** | the DELAY page, again the REVERB page, again the MOD page, again back: KNOB 1 to 4 set the four rows |
 | **SHIFT + SEQ** | the chosen slot's modulation thrown anew |
-| 1st black key | REWIRE the chosen slot: a generator's cables and modulation, or an effect slot's outs and cables, drawn anew; its sound and values stay |
+| **SHIFT** + hold a generator's button, then hold another's | LINK: the first modulates the second (RING, AM or FILTER, drawn), shown in two lines over the screen and as a band at the foot of the second's block in the first's colour; the same again unlinks (OFF) |
+| 1st black key | REWIRE the chosen slot: a generator's cables, or an effect slot's outs and cables, drawn anew; its sound and values stay |
 | **SHIFT** + 1st black key | RAND PARAMS: an effect slot's every value anew (in place, no break: its effects and cables stay), or a generator's sound of the same family (its cables stay) |
 | 2nd black key | the ABRASIVE path on or off (lit while on) |
 | 3rd black key | the DARK path on or off (lit while on). One path at a time; neither: anything goes |
@@ -124,7 +125,7 @@ the sound's intervals, reversed, darkened, fed back, FROZEN — or a PULSAR at a
 
 Twenty **families**: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE, FURNACE,
 HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL. Four **scenes** choose among them: FIELD (ambient), MATERIAL (open),
-FEEDBACK and EROSION (experimental), each with its own families and its chance of a modulation by another generator.
+FEEDBACK and EROSION (experimental), each with its own families.
 Four macros — BRIGHTNESS, DETUNE (INHARMONIC on the metallic and noisy bodies), GRAIN, MOTION — moved by the invisible
 hand, by the LFOs, and by you. Every sound is measured as it is made and brought to one level. `docs/ENGINE.md` has the
 design in full.

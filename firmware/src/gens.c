@@ -5,8 +5,8 @@
  * A generator slot's patch is drawn whole by HOME (gen_draw, the main loop): the generator's sound; the effects it
  * is wired into -- one, two or three, in any effect slot, mostly at the head of its chain, often shared with the
  * other generators, as synthesizers share a pedalboard -- and how much it sends them; the share of it heard dry;
- * and, now and then, a modulation by another generator (ring, amplitude, or a filter the other's
- * level opens), as Vascular's generators modulate each other. The draw follows Vascular's abstract path: a scene
+ * and, made by hand (SHIFT and two generators' buttons, from build 25; drawn now and then before), a modulation by
+ * another generator (ring, amplitude, or a filter the other's level opens), as Vascular's generators modulate each other. The draw follows Vascular's abstract path: a scene
  * leans the family, a harshness budget pays for what is rough; it leans to the inharmonic and the non-melodic.
  *
  * Four voices for the three generators (the engine is dear: a voice is an instance of it): a note takes a free
@@ -810,7 +810,7 @@ static uint32_t gen_mods(uint32_t l)
 
 /* ------------------------------------------------------- the draw (main loop) --- */
 /* after Vascular's abstract path:
- *   - a SCENE leans the family (x 3) and sets the chance of a modulation by another generator:
+ *   - a SCENE leans the family (x 3) (and, before build 25, the chance of a modulation by another generator):
  *       FIELD      glass, formants, clouds          MATERIAL   metals, glass, reeds, impacts, pulsars
  *       FEEDBACK   bruits, drones, pulses, reeds    EROSION    clouds, freezes, shatters, bruits
  *   - a HARSHNESS budget of 0, 1 or 2 (0.4, 0.4, 0.2) pays for the rough families
@@ -823,7 +823,6 @@ static uint32_t gen_mods(uint32_t l)
 enum { SC_FIELD, SC_MATERIAL, SC_FEEDBACK, SC_EROSION, SC_N };
 static const char *const SC_NAME[SC_N] = {"FIELD", "MATERIAL", "FEEDBACK", "EROSION"};
 static const uint8_t SC_PATH[SC_N] = {PATH_AMBIENT, PATH_OPEN, PATH_EXP, PATH_EXP};
-static const uint8_t SC_CROSS[SC_N] = {12, 18, 30, 12};    /* the chance of a modulation by another generator */
 static const uint8_t SC_FAM[SC_N][MF_N] = {   /* (generation 3's families after the twelve) */
     {0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1},
     {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
@@ -842,9 +841,9 @@ static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4
 
 /* generator l's cables, drawn into p (HOME's rules, after Vascular's abstract path): the effects it is wired into --
  * none one time in twenty, else one (0.55), two (0.35) or three (0.1), each in an effect slot of its own if it can,
- * at the head of its chain mostly; the dry share; now and then a modulation by another generator. fresh: HOME's draw
- * (the send and the modulation's depth drawn too, in HOME's order); else a rewiring (the send kept; the depth kept if
- * it had a modulation; the dry share kept unless cables appear where there were none, or all go) */
+ * at the head of its chain mostly; the dry share (its modulation by another generator left as it is). fresh: HOME's
+ * draw (the send drawn too); else a rewiring (the send kept; the dry share kept unless cables appear where there were
+ * none, or all go) */
 static void gen_wire(uint32_t l, gen_patch_t *p, rnd_t *r, int fresh)
 {
     static const uint8_t NE[3] = {55, 35, 10};
@@ -852,7 +851,6 @@ static void gen_wire(uint32_t l, gen_patch_t *p, rnd_t *r, int fresh)
     static const uint8_t NE_ROUGH[3] = {25, 45, 30};
     uint32_t used = 0, k, n = rnd_chance(r, 5) ? 0u : 1u + rnd_weighted(r, draw_path == DP_ROUGH ? NE_ROUGH : NE, 3),
              had = p->nent;
-    uint8_t odepth = p->xdepth, osrc = p->xsrc;
     p->nent = 0;
     for (k = 0; k < n; k++) {
         uint32_t s = (uint32_t)rnd_below(r, NFX), tries;
@@ -868,16 +866,8 @@ static void gen_wire(uint32_t l, gen_patch_t *p, rnd_t *r, int fresh)
         p->dry = Q15;                            /* (no cable left: all of it heard dry) */
     else if (!had)
         p->dry = rnd_in(r, LV(0.15), LV(0.6));   /* (cables where there were none: a share for them) */
-    p->xsrc = XM_NONE;
-    if (rnd_chance(r, SC_CROSS[p->scene] * (draw_path == DP_ROUGH ? 2u : 1u))) {   /* a modulation by another
-                                                  * generator, now and then (abrasive: twice as often) */
-        static const uint8_t XW[XM_N] = {22, 26, 26};
-        uint32_t o = (l + 1u + (uint32_t)rnd_below(r, NGEN - 1)) % NGEN;
-        p->xsrc = (uint8_t)o;
-        p->xkind = (uint8_t)rnd_weighted(r, XW, XM_N);
-        p->xdepth = (uint8_t)(fresh || osrc == XM_NONE ? rnd_in(r, 35, 95) : odepth);
-    }
-    p->rewired = 0;
+    p->rewired = 0;                              /* (its modulation by another generator, if any, as it was: never
+                                                  * drawn from build 25 -- made and unmade by hand, gen_link) */
 }
 
 /* HOME on generator l: a new patch from a seed (family -1: any; else that family, on the scene it had: SHIFT + HOME).
@@ -901,7 +891,14 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
             return 0;
         fm1_wdt_feed();
     }
-    memset(p, 0, sizeof *p);
+    {   /* (its modulation by another generator, if it has one, kept: gen_wire) */
+        const gen_patch_t *now = &gbuf[l][g_use[l]];
+        uint8_t xs = gen_drawn[l] ? now->xsrc : XM_NONE, xk = now->xkind, xd = now->xdepth;
+        memset(p, 0, sizeof *p);
+        p->xsrc = xs;
+        p->xkind = xk;
+        p->xdepth = xd;
+    }
     rnd_seed(r, seed ^ 0x534C4F54u);
     p->scene = family >= 0 && gen_drawn[l] ? scene0
              : draw_path == DP_ANY ? (uint8_t)rnd_below(r, SC_N)
@@ -932,6 +929,44 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
     g_pub[l] = (uint8_t)b;
     gen_drawn[l] = 1;
     return 1;
+}
+
+/* SHIFT held, generator o's button held, then generator d's (build 25): o modulates d -- RING, AM or FILTER, as deep
+ * as drawn (35 .. 100) -- or, if it did already, no more. Published as a rewiring is (no fade). Returns the kind made,
+ * XM_N for undone, -1 if busy */
+static int gen_link(uint32_t o, uint32_t d, uint32_t seed)
+{
+    static const uint8_t XW[XM_N] = {22, 26, 26};
+    uint32_t b = g_use[d] ^ 1u, k, t0 = fm1_ms;
+    gen_patch_t *p = &gbuf[d][b];
+    rnd_t rr;
+    if (o >= NGEN || d >= NGEN || o == d)
+        return -1;
+    for (;;) {
+        int busy = g_pub[d] != g_use[d];
+        for (k = 0; k < NVOICE; k++)
+            if (vox[k].sounding && vox[k].slot == d && vox[k].dsg == b)
+                busy = 1;
+        if (!busy)
+            break;
+        if ((uint32_t)(fm1_ms - t0) > 40u)
+            return -1;
+        fm1_wdt_feed();
+    }
+    *p = gbuf[d][g_use[d]];
+    rnd_seed(&rr, seed ^ 0x4C494E4Bu);
+    if (p->xsrc == o)
+        p->xsrc = XM_NONE;
+    else {
+        p->xsrc = (uint8_t)o;
+        p->xkind = (uint8_t)rnd_weighted(&rr, XW, XM_N);
+        p->xdepth = (uint8_t)rnd_in(&rr, 35, 95);
+    }
+    p->rewired = 1;
+    p->serial = ++gen_serial;
+    RING_PUBLISH();
+    g_pub[d] = (uint8_t)b;
+    return p->xsrc == XM_NONE ? XM_N : p->xkind;
 }
 
 /* SHIFT + the first black key on generator l: a new sound of the family it has (the path's way), its cables, send, dry
