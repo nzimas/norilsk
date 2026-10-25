@@ -8,6 +8,8 @@
  *   0x53  data off(u32) bytes (<= 256, in order) -> 0x53  status
  *   0x54  commit                     -> 0x54  status: its head and body checked, it is number's now (the old copy
  *                                      retired only then)
+ *   0x55  diagnosis (build 23)       -> 0x55  the sectors' states (SC_*), the last placing (first sector, count, their
+ *                                      states before, which were erased), the sessions, the last commit's heads
  * (build 21: the writes, Tonitor's; reading only before.) A record goes back whole and as it was, only its sequence
  * number new and it made live. Statuses: 0 done, 1 no flash, 2 not as asked, 3 no room, 4 not a whole record (head,
  * length, CRC, a format this firmware does not read), 5 the flash failed. Sessions 1 .. 64. tools/fm1_sessions.py
@@ -170,6 +172,22 @@ static void bk_handle(const uint8_t *m, uint32_t d)
         bk_status(0x54u, st);
         if (!st)
             bk_done(bk.num);
+    } else if (cmd == 0x55u) {                       /* (build 23) the diagnosis: the sectors' states, the last placing,
+                                                      * the last commit's heads -- read only */
+        uint8_t *o = bk_msg + 6;
+        memcpy(o, ses.st, SES_NSECT);
+        o += SES_NSECT;
+        *o++ = (uint8_t)(ses_diag.s & 0xFF);
+        *o++ = ses_diag.ns;
+        memcpy(o, ses_diag.before, 4);
+        o += 4;
+        *o++ = ses_diag.erased;
+        *o++ = ses.n;
+        memcpy(o, &ses_diag.want, 32);
+        o += 32;
+        memcpy(o, &ses_diag.got, 32);
+        o += 32;
+        bk_send(0x55u, (uint32_t)(o - (bk_msg + 6)));
     } else
         bk_status(cmd, 2u);
 }

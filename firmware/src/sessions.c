@@ -781,11 +781,23 @@ static int ses_alloc(uint32_t n)
     return best < SES_NSECT ? (int)best : -1;
 }
 /* room for a record of len bytes: blank now (Norilsk's own erased if need be); the first, or -SES_FULL / -SES_FAIL */
+/* (build 23) what the last placing and commit saw, for backup.c's 0x55: the sectors taken and their states before;
+ * a commit's head as meant and as read back */
+static struct {
+    int16_t s;
+    uint8_t ns, before[4], erased, rsv;
+    ses_head_t want, got;
+} ses_diag = {-1, 0, {0}, 0, 0, {0}, {0}};
 static int ses_place(uint32_t len, uint32_t *nsect)
 {
     uint32_t ns = (len + SES_SECT - 1u) / SES_SECT, k;
     int s = ses_alloc(ns);
     *nsect = ns;
+    ses_diag.s = (int16_t)s;
+    ses_diag.ns = (uint8_t)ns;
+    ses_diag.erased = 0;
+    for (k = 0; k < 4u; k++)
+        ses_diag.before[k] = s >= 0 && k < ns && (uint32_t)s + k < SES_NSECT ? ses.st[(uint32_t)s + k] : 0xFFu;
     if (s < 0)
         return -SES_FULL;
     for (k = 0; k < ns; k++) {
@@ -794,6 +806,7 @@ static int ses_place(uint32_t len, uint32_t *nsect)
             if (ses_flash_erase(SES_LO + q * SES_SECT))
                 return -SES_FAIL;
             ses.st[q] = SC_BLANK;
+            ses_diag.erased |= (uint8_t)(1u << k);
         }
         if (ses.st[q] != SC_BLANK)                     /* (never anything but a blank sector written) */
             return -SES_FAIL;
@@ -809,6 +822,8 @@ static int ses_commit(uint32_t num, int s, uint32_t ns, const ses_head_t *head)
     int old;
     ses_head_t h;
     ses_flash_read(SES_LO + (uint32_t)s * SES_SECT, &h, sizeof h);
+    ses_diag.want = *head;
+    ses_diag.got = h;
     if (memcmp(&h, head, sizeof h))
         return SES_FAIL;
     for (k = 0; k < ns; k++)

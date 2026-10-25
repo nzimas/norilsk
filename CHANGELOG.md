@@ -2,6 +2,14 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 23 (2026-10-25): a diagnosis of the flash, over USB
+
+- A restore over USB sometimes stops at its last check ("the flash failed" while checking: the new copy's head does not
+  read back as written) -- safely, the session already there kept, and the same restore goes through when tried
+  again. To find why, the backup protocol answers a diagnosis (0x55, reading only): each sector's state as the
+  firmware sees it, the last write's sectors and their states before, and the last commit's head as meant and as read
+  back. `tools/fm1_sessions.py diag` prints it.
+
 ## Build 22 (2026-10-25): a restore is never disturbed
 
 - **While a session is being restored over USB, saving or loading a session on the FM-1 shows BUSY.** A restore keeps

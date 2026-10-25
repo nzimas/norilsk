@@ -5,6 +5,7 @@
   fm1_sessions.py                 the sessions on the FM-1: number, bytes
   fm1_sessions.py save N [DIR]    session N to DIR/session_N.bin (default: build/)
   fm1_sessions.py restore FILE    a saved session back onto the FM-1, under its own number (replacing the one there)
+  fm1_sessions.py diag            what the firmware sees of its flash (build 23): each sector's state, the last write
 
 The protocol is the firmware's backup.c (Tonitor's backup protocol, reading only): the installer's framing,
 F0 pack7(00 59 cmd len24 body ~sum) F7; 0x50 the list, 0x51 a piece of a record; 0x52 .. 0x54 a record written (build 21). Only an FM-1 that answers the
@@ -104,6 +105,19 @@ def main():
                 print(f"  session {num}: {n} B")
             if not recs:
                 print("  no sessions")
+            return
+        if args[0] == "diag":
+            b = ask(dev.link, 0x55)
+            if b is None or len(b) < 73 + 8 + 64:
+                sys.exit("no diagnosis (a firmware older than build 23)")
+            names = "?BUMO"                           # SC_UNKNOWN BLANK USED MINE OTHER
+            print("sectors (0x97000 + n x 4 KiB): " + "".join(names[x] if x < 5 else "!" for x in b[:73]))
+            s0, ns = (b[73] if b[73] < 128 else b[73] - 256), b[74]
+            print(f"last placing: sector {s0}, {ns} sectors, states before {[names[x] if x < 5 else x for x in b[75:75 + ns]]}, "
+                  f"erased mask {b[79]:#04x}; sessions {b[80]}")
+            want, got = b[81:113], b[113:145]
+            print("last commit head meant:", want.hex())
+            print("              read back:", got.hex(), "(same)" if want == got else "(DIFFERENT)")
             return
         if args[0] == "restore" and len(args) == 2:
             with open(args[1], "rb") as f:
