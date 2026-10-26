@@ -2,6 +2,23 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 36 (2026-10-26): lanes only; FX MIX a lane's own; the scale drawn
+
+- **Lanes only**: MESH is gone, and with it the session page's MODE row. Each generator runs through its own lane, as
+  LANES did; HOME held draws the three generators and their lanes. A session saved in MESH (builds 28 .. 35) loads
+  rewired into lanes -- the playing state and every snapshot, nothing redrawn. Sessions keep their format.
+- **KNOB 2, FX MIX, a lane's own**: the chosen generator's lane, or the lane chosen (one for all lanes from build 33).
+  Shown as before, with GEN n LANE n under the value in the generator's colour. Kept in snapshots per lane (a snapshot
+  of builds 33 .. 35 gives its one mix to every lane), glided by a morph.
+- **SHIFT + ARP (the scale button): a root and a scale drawn**, the SCALE page up for two seconds to show them (turned
+  there, it stays). **At power-on and in a new session the root and scale are drawn too** (natural minor in C before).
+- **STRING lets go**: at some roots its long, nearly lossless loop held a whisper (about -49 dB) for ever after its
+  input stopped -- the tests had only ever tuned it to C, the random root found it. Its read now rounds towards zero,
+  and with nothing in and under -48 dB it is cleared at once.
+- `tools/fm1_sessions.py restore FILE N`: a saved session back onto the FM-1 as session N.
+- Tests: `host b36` (the scale drawn, the page shown and closed; KNOB 2 on each slot moves its lane's mix alone); `host
+  lanes` (an old MESH session loaded into lanes).
+
 ## Build 35 (2026-10-26): engine generation 5 -- found sounds in the grains
 
 - **Grains of found sound**: sixteen clips of 0.6 s in the flash (211 KB, `firmware/src/found_clips.h`), each the

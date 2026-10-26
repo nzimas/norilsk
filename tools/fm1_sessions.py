@@ -4,7 +4,8 @@
 
   fm1_sessions.py                 the sessions on the FM-1: number, bytes
   fm1_sessions.py save N [DIR]    session N to DIR/session_N.bin (default: build/)
-  fm1_sessions.py restore FILE    a saved session back onto the FM-1, under its own number (replacing the one there)
+  fm1_sessions.py restore FILE [N]  a saved session back onto the FM-1, under its own number or as session N
+                                  (replacing the one there; the FM-1 gives the record that number as it commits it)
   fm1_sessions.py diag            what the firmware sees of its flash (build 23): each sector's state, the last write
 
 The protocol is the firmware's backup.c (Tonitor's backup protocol, reading only): the installer's framing,
@@ -74,10 +75,13 @@ STATUS = ["done", "the FM-1 has no flash store", "not as asked", "no room left o
           "not a whole record (a damaged file?)", "writing the flash failed"]
 
 
-def restore(link, data):
+def restore(link, data, num=None):
     if data[:4] != b"MOL1" or len(data) < 32:
         sys.exit("not a NORILSK session file")
-    num = data[4] | data[5] << 8
+    if num is None:
+        num = data[4] | data[5] << 8
+    if not 1 <= num <= 64:
+        sys.exit(f"no session slot {num} (1 .. 64)")
     for cmd, body in [(0x52, bytes([num & 0xFF, num >> 8]) + len(data).to_bytes(4, "little"))] + \
             [(0x53, off.to_bytes(4, "little") + data[off:off + PIECE]) for off in range(0, len(data), PIECE)] + [(0x54, b"")]:
         b = ask(link, cmd, body)
@@ -119,9 +123,9 @@ def main():
             print("last commit head meant:", want.hex())
             print("              read back:", got.hex(), "(same)" if want == got else "(DIFFERENT)")
             return
-        if args[0] == "restore" and len(args) == 2:
+        if args[0] == "restore" and len(args) in (2, 3):
             with open(args[1], "rb") as f:
-                restore(dev.link, f.read())
+                restore(dev.link, f.read(), int(args[2]) if len(args) == 3 else None)
             return
         if args[0] != "save" or len(args) < 2:
             sys.exit(__doc__)

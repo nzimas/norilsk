@@ -18,7 +18,7 @@ at will: as fit for noise experiments as for slow, dark ambient.
 
 **Website, browser installer and session backup: <https://nzimas.github.io/norilsk/>**
 
-State: **build 33**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
+State: **build 36**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
 
 # Manual
 
@@ -28,14 +28,12 @@ Three **generators** make sound; three **effect slots** wreck it; a master **del
 chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared between the three
 generators.
 
-- By default each generator runs through its own **lane**: generator 1 through effect slot 4, 2 through 5, 3 through 6,
-  with a small dry share of its own straight to the master (LANES). A session may be MESH instead: each generator wired
-  by cables into one, two or three effects anywhere in the slots, effects wired across into later slots. One generator
-  may modulate another (ring, amplitude, filter) -- only when you link them: SHIFT, hold one generator's button, then
-  the other's.
+- Each generator runs through its own **lane**: generator 1 through effect slot 4, 2 through 5, 3 through 6, with a
+  small dry share of its own straight to the master. One generator may modulate another (ring, amplitude, filter) --
+  only when you link them: SHIFT, hold one generator's button, then the other's.
 - Each effect slot is a chain of two or three effects, drawn from a recipe; an effect before the last may also go out
-  to the master on its own. **KNOB 2** sets how much of every effect is heard at once: FX MIX, dry to wet, 50 at
-  power-on.
+  to the master on its own. **KNOB 2** sets how much of a lane's effects is heard: FX MIX, dry to wet, 50 at
+  power-on -- the chosen generator's lane, or the lane chosen.
 - Each generator has its level, pan, mute, delay and reverb sends, a looper, and a DISINTEGRATOR; each effect slot its
   level, pan and mute.
 - The first processor core renders the voices; the second runs the effects and the master delay and reverb, a block
@@ -57,8 +55,8 @@ Almost nothing in Norilsk is set by hand at the start: it is drawn. What you do 
 3. **The generator** (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it is
    cabled into and where, its dry share.
 4. **The effect slot** (HOME on an effect slot): one of 24 recipes, each place filled from the recipe's choices that
-   fit the slot's memory, every value drawn around its home, the outs (in MESH, the cables across to the slots after
-   it). In LANES, HOME on a generator draws its lane's chain with it.
+   fit the slot's memory, every value drawn around its home, the outs. HOME on a generator draws its lane's chain with
+   it.
 5. **The paths.** ABRASIVE and DARK lean every draw above: the scenes, the families, the recipes, the effects' values.
 6. **Partial throws.** REWIRE draws only the cables; RAND PARAMS only an effect slot's values, or a generator's sound
    within its family; SHIFT + HOME keeps the family or the recipe; HOME held throws all six slots at once.
@@ -84,9 +82,9 @@ SHIFT is the rightmost black key.
 | a white key held, then **SHIFT** | its note latched (the key stays lit); **SHIFT** held, then the lit key: let go |
 | **SELECT / ALGORITHM** | the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right |
 | **OCT− / OCT+** | the octave, −3 to +3 |
-| **ARP** | the SCALE page: SELECT the root, ALGORITHM the scale (23) |
+| **ARP** | the SCALE page: SELECT the root, ALGORITHM the scale (23). **SHIFT + ARP**: a root and a scale drawn at random, shown a moment. At power-on and in a new session the root and scale are drawn too |
 | **KNOB 1** | playing: the DISINTEGRATOR of the generator the keys play, 0 to 100. On the SNAPSHOTS page: the morph time, 0 to 30 s |
-| **KNOB 2** | playing: FX MIX, every effect of every lane at once, 0 (dry) to 100 (wet); 50 at power-on |
+| **KNOB 2** | playing: FX MIX of the chosen generator's lane (or of the lane chosen), 0 (dry) to 100 (wet); 50 at power-on |
 | **KNOB 3 / KNOB 4** | the delay send / reverb send of the generator the keys play |
 | **SEQ** | the DELAY page, again the REVERB page, again the MOD page, again back: KNOB 1 to 4 set the four rows |
 | **SHIFT + SEQ** | the chosen slot's modulation thrown anew |
@@ -97,7 +95,7 @@ SHIFT is the rightmost black key.
 | 3rd black key | the DARK path on or off (lit while on). One path at a time; neither: anything goes |
 | **SAVE** | the SNAPSHOTS page (again: back) |
 | **SAVE** held (playing) | save into the session loaded or chosen |
-| **SHIFT + SAVE** | the SESSIONS list; SAVE opens a session's page: BACK, LOAD, SAVE, COPY, DELETE, MODE (MESH or LANES) |
+| **SHIFT + SAVE** | the SESSIONS list; SAVE opens a session's page: BACK, LOAD, SAVE, COPY, DELETE |
 | **REC** | the looper of the generator the keys play: arm a loop (the first note starts it), end it (it plays at once), again to overdub; up to 10 loops |
 | **REC** held 1 s | empty that generator's loops |
 | **SHIFT + REC** | VARY: each note the loops play drawn anew (level, length, now and then changed or joined) |
@@ -199,21 +197,17 @@ Twenty-four **recipes** decide what may stand at each place: SPACE, ECHO, METAL,
 RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE,
 SPUTTER, SMOG, STATIC. Every effect, given nothing, falls silent: none sounds on by itself.
 
-## MESH and LANES
+## The lanes
 
-A session's MODE (its page, SHIFT + SAVE) sets how the signal runs:
+Generator 1 runs through effect slot 4 alone, generator 2 through slot 5, generator 3 through slot 6 -- cabled into its
+lane's head, with a small dry share; no cables between lanes; the lanes centre, left, right. HOME on a generator draws
+its lane's chain with it, so the chain is part of its patch (SHIFT + HOME: the same family and the same recipe); HOME on
+an effect slot draws that lane anew, its generator kept; REWIRE inside a lane redraws where its generator enters and
+which effects also go out to the master. HOME held draws the three generators and their lanes.
 
-- **MESH** (as it always was): a generator may be cabled into any effect of any slot, an effect across into any later
-  slot. Rich, and often a smear.
-- **LANES**: generator 1 runs through effect slot 4 alone, generator 2 through slot 5, generator 3 through slot 6 --
-  cabled into its lane's head, with a small dry share; no cables between lanes; the lanes centre, left, right. HOME on
-  a generator draws its lane's chain with it, so the chain is part of its patch (SHIFT + HOME: the same family and the
-  same recipe); HOME on an effect slot draws that lane anew, its generator kept; REWIRE inside a lane redraws where its
-  generator enters and which effects also go out to the master. HOME held draws the three generators and their lanes.
-
-Turned to LANES, a session is rewired, nothing redrawn: each generator into its own lane, the cables between lanes
-cut, its snapshots likewise. Turned back to MESH, nothing changes until something is drawn. LANES is the default (build
-29): at power-on and in a new session. Sessions saved before build 28 are MESH.
+(From build 28 to 35 a session could also be MESH, any generator cabled into any effect and effects across slots; it
+mostly smeared. From build 36 there are only lanes: a MESH session loads rewired into them, its snapshots too, nothing
+redrawn.)
 
 ## The paths
 
@@ -253,8 +247,7 @@ it flows into blink until it is there.
 **SHIFT + SAVE** brings up the SESSIONS list, as Bigorna's: four to a page, PRESETS through 64 slots (a saved session
 white, an empty slot grey, the one loaded marked at its right). SAVE opens that slot's page, as Bigorna's: **BACK**; **LOAD** (on an empty slot **NEW**,
 a clean slate there); **SAVE** (over another session, asked first); **COPY** (to a slot PRESETS chooses, the first
-empty one offered; over a session, asked); **DELETE** (asked); and the session's **MODE**, MESH or LANES (SAVE,
-PRESETS, SAVE: the session playing's only). PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back a
+empty one offered; over a session, asked); **DELETE** (asked). PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back a
 level. Playing, SAVE held saves at once into the session loaded. A session keeps the machine, its sixteen snapshots,
 the latched notes and every loop, in the FM-1's flash.
 

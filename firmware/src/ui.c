@@ -16,7 +16,9 @@
  *   SELECT, ALGORITHM         the level and pan of the generator chosen (or chosen last, while an effect slot is):
  *                             as on Tonitor. At power-on generator 1 is in the middle, 2 left, 3 right. (The SCALE
  *                             page aside)
- *   ARP                       the SCALE page (its light: on it): SELECT the root, ALGORITHM the scale
+ *   ARP                       the SCALE page (its light: on it): SELECT the root, ALGORITHM the scale; SHIFT + ARP: a root
+ *                             and a scale drawn, the page up two seconds to show them (build 36; drawn at power-on
+ *                             and in a new session too)
  *   OCT- / OCT+               the octave, -3 .. +3
  *   REC                       the looper of the generator the keys play (Tonitor's, loop.c): pressed, a new loop
  *                             armed (the first note starts it); again, ended (it plays at once); again while they
@@ -45,8 +47,9 @@
  *                             black keys do what the view they are in gives them
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
- *   KNOB 2                    playing: every effect's mix at once, 0 (dry) .. 100 (wet), 50 at power-on (build 33);
- *                             laid out over the screen as KNOB 1's
+ *   KNOB 2                    playing: the FX MIX of the chosen generator's lane, or of the lane chosen, 0 (dry) ..
+ *                             100 (wet), 50 at power-on (build 36; every lane's at once from build 33); laid out over
+ *                             the screen as KNOB 1's
  *   KNOB 3, KNOB 4            the delay send and the reverb send of the generator the keys play, 0 .. 100 (Tonitor's
  *                             KNOB 4 and SHIFT + KNOB 4): to the master delay and reverb, at the end of the chain
  *   SEQ                       the DELAY page, again the REVERB page, again MOD, again back (Tonitor's): KNOB 1 .. 4
@@ -171,6 +174,7 @@ static struct {
     uint8_t scale, root;         /* the keyboard's scale and root (0 = C .. 11 = B) */
     int8_t sc_touched;           /* 0 the root just turned, 1 the scale, -1 none (until sc_touch_until) */
     uint32_t sc_touch_until;
+    uint32_t sc_close_at;        /* SHIFT + the scale button: the page shown a moment, then closed (0: not) */
     uint8_t btn_down[NSLOT], btn_done[NSLOT];   /* a slot's button down since btn_t0; held long enough: done */
     uint32_t btn_t0[NSLOT];
     uint8_t home_down, home_done, home_shift;   /* HOME down since home_t0 (with SHIFT); held: done */
@@ -202,8 +206,8 @@ static struct {
     int8_t shown_fxp[4], shown_fx_touch;
     /* sessions and snapshots (sessions.c), the MOD page (mod.c), the whole-screen message */
     uint8_t ses_page, ses_ix, ses_yes, ses_over;   /* ses_page: 0, SP_LIST, SP_PAGE, SP_ASK, SP_COPY */
-    uint8_t ses_row, ses_edit, ses_val, ses_ask, ses_tgt;   /* (build 28, Bigorna's) a session's page: its row; MODE
-                                                             * being set, to ses_val; what is asked (AK_*); COPY's slot */
+    uint8_t ses_row, ses_ask, ses_tgt;   /* (build 28, Bigorna's) a session's page: its row; what is asked (AK_*); COPY's
+                                          * slot */
     uint16_t ses_new;            /* the slot a save asked about goes to */
     uint8_t save_down, save_long;
     uint32_t save_t0;
@@ -229,7 +233,7 @@ static struct {
     int32_t shown_dial;
 } ui;
 enum { SP_LIST = 1, SP_ASK = 2, SP_PAGE = 3, SP_COPY = 4 };
-enum { SR_BACK, SR_LOAD, SR_SAVE, SR_COPY, SR_DELETE, SR_MODE, SR_N };   /* a session's page, its rows */
+enum { SR_BACK, SR_LOAD, SR_SAVE, SR_COPY, SR_DELETE, SR_N };   /* (MODE gone with MESH, build 36) */   /* a session's page, its rows */
 enum { AK_SAVE_NEW, AK_OVER, AK_DEL, AK_COPY };                           /* what SP_ASK asks */
 #define C_SES RGB(255, 200, 60)
 #define C_FULL RGB(255, 60, 60)
@@ -249,6 +253,15 @@ static void sends_apply(uint32_t g)
 }
 static int32_t batt_raw;                         /* the battery's divider, smoothed (main.c), 0 .. 1023; 0 none yet */
 
+/* a root and a scale drawn (build 36: SHIFT and the scale button; at power-on; a new session) */
+static void scale_random(uint32_t seed)
+{
+    rnd_t r;
+    rnd_seed(&r, seed ^ 0x5343414Cu);
+    ui.root = (uint8_t)rnd_below(&r, 12);
+    ui.scale = (uint8_t)rnd_below(&r, NSCALE);
+    rack_root = SCALE_BASE + ui.root;
+}
 static void say(const char *s, uint32_t ms)
 {
     str_cpy(ui.msg, s, sizeof ui.msg);
@@ -360,7 +373,7 @@ static int new_patch(uint32_t l, int same)
     int ok;
     if (l < NGEN) {
         ok = gen_draw(l, same && gen_drawn[l] ? (int32_t)gbuf[l][g_use[l]].gen.family : -1, next_seed());
-        if (ok && sig_mode == SM_LANES)          /* (LANES: its lane's chain drawn with it -- part of the patch; SHIFT:
+        if (ok)                                  /* (its lane's chain drawn with it -- part of the patch; SHIFT:
                                                   * of the recipe it had) */
             ok = fx_draw(l, same ? (int32_t)fbuf[l][f_use[l]].recipe : -1, next_seed());
     } else
@@ -489,7 +502,6 @@ static void save_short(void)
     if (ui.ses_page == SP_LIST) {                /* the slot shown: its page, on LOAD (Bigorna's) */
         ui.ses_page = SP_PAGE;
         ui.ses_row = SR_LOAD;
-        ui.ses_edit = 0;
         ui.force = 1;
         return;
     }
@@ -497,14 +509,6 @@ static void save_short(void)
         uint32_t num = ui.ses_ix;
         int has = ses_has(num);
         ui.force = 1;
-        if (ui.ses_edit) {                       /* MODE set */
-            ui.ses_edit = 0;
-            if (!sig_set(ui.ses_val))
-                say("BUSY", 800);
-            else
-                say(ui.ses_val == SM_LANES ? "LANES" : "MESH", 1200);
-            return;
-        }
         switch (ui.ses_row) {
         case SR_BACK:
             ui.ses_page = SP_LIST;
@@ -550,13 +554,7 @@ static void save_short(void)
             ui.ses_new = (uint16_t)num;
             ui.ses_yes = 0;
             break;
-        default:                                 /* MODE: the session playing's only */
-            if (num != ses_current() && ses_current()) {
-                say("NOT LOADED", 1200);
-                break;
-            }
-            ui.ses_edit = 1;
-            ui.ses_val = sig_mode;
+        default:
             break;
         }
         return;
@@ -668,7 +666,7 @@ static void ui_input(void)
     if (ui.home_down && !ui.home_done && (uint32_t)(fm1_ms - ui.home_t0) >= HOLD_MS) {
         int ok = 1;
         ui.home_done = 1;
-        for (l = 0; l < (sig_mode == SM_LANES ? NGEN : NSLOT); l++)   /* (LANES: the generators bring their lanes) */
+        for (l = 0; l < NGEN; l++)               /* (the generators bring their lanes) */
             ok &= new_patch(l, 0);
         say(ok ? "ALL NEW" : "BUSY", 1000);
     }
@@ -677,10 +675,26 @@ static void ui_input(void)
         if (!ui.home_done && !new_patch(ui.sel, ui.home_shift))
             say("BUSY", 600);
     }
-    if (btn_bit(press, B_ARP)) {
+    if (btn_bit(press, B_ARP) && shift_held()) { /* SHIFT and the scale button: a root and a scale drawn (build 36),
+                                                  * the SCALE page up a moment to show them */
+        scale_random(next_seed());
+        lx_post();                               /* (the loops moved walk the new scale) */
+        if (!ui.sc_page) {
+            pages_off();
+            ui.sc_page = 1;
+            ui.sc_close_at = fm1_ms + 2000u;
+        }
+        ui.force = 1;
+    } else if (btn_bit(press, B_ARP)) {
         uint8_t was = ui.sc_page;
         pages_off();
         ui.sc_page = (uint8_t)!was;
+        ui.sc_close_at = 0;
+    }
+    if (ui.sc_close_at && (int32_t)(fm1_ms - ui.sc_close_at) >= 0) {
+        ui.sc_close_at = 0;
+        if (ui.sc_page)
+            pages_off();
     }
     if (btn_bit(press, B_SEQ) && shift_held()) { /* SHIFT and SEQ: the chosen slot's modulation thrown anew */
         mod_random(ui.sel, next_seed());
@@ -696,9 +710,7 @@ static void ui_input(void)
     }
     if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SESSIONS page; on its pages, a level back
                                                   * (a value being set: left as it was) */
-        if (ui.ses_page == SP_PAGE && ui.ses_edit)
-            ui.ses_edit = 0;
-        else if (ui.ses_page == SP_PAGE)
+        if (ui.ses_page == SP_PAGE)
             ui.ses_page = SP_LIST;
         else if ((ui.ses_page == SP_ASK && ui.ses_ask != AK_SAVE_NEW) || ui.ses_page == SP_COPY)
             ui.ses_page = SP_PAGE;
@@ -725,8 +737,6 @@ static void ui_input(void)
     s = fm1_enc_take(PANEL_ENC[EN_PRESET]);      /* PRESETS: through the page's list */
     if (s && ui.ses_page == SP_LIST) {
         ui.ses_ix = (uint8_t)clampi((int32_t)ui.ses_ix + s, 1, SES_SLOTS);
-    } else if (s && ui.ses_page == SP_PAGE && ui.ses_edit) {
-        ui.ses_val = (uint8_t)(s > 0 ? SM_LANES : SM_MESH);
     } else if (s && ui.ses_page == SP_PAGE) {
         ui.ses_row = (uint8_t)clampi((int32_t)ui.ses_row + s, 0, SR_N - 1);
     } else if (s && ui.ses_page == SP_COPY) {
@@ -849,6 +859,7 @@ static void ui_input(void)
                                                   * 25: the other way round before) */
         s = fm1_enc_take(PANEL_ENC[EN_ALGO]);
         if (s) {
+            ui.sc_close_at = 0;                  /* (turned: the page stays) */
             ui.scale = (uint8_t)clampi((int32_t)ui.scale + s, 0, NSCALE - 1);
             lx_post();                           /* (the loops moved walk the new scale) */
             ui.sc_touched = 1;
@@ -856,6 +867,7 @@ static void ui_input(void)
         }
         s = fm1_enc_take(PANEL_ENC[EN_SELECT]);
         if (s) {
+            ui.sc_close_at = 0;
             ui.root = (uint8_t)(((int32_t)ui.root + s + 1200) % 12);
             rack_root = SCALE_BASE + ui.root;
             lx_post();
@@ -915,9 +927,11 @@ static void ui_input(void)
             ui.dial_kind = 1;
             ui.dial_until = fm1_ms + 1500u;
         }
-        s = fm1_enc_take(PANEL_ENC[EN_K2]);    /* KNOB 2: every effect's mix at once (build 33) */
+        s = fm1_enc_take(PANEL_ENC[EN_K2]);    /* KNOB 2: the FX MIX of the chosen generator's lane, or of the lane
+                                                  * chosen (build 36; every lane's at once from build 33) */
         if (s && !ui.ses_page && !ui.snap_page) {
-            fx_wet = (uint8_t)clampi((int32_t)fx_wet + 2 * s, 0, 100);
+            uint32_t ln = ui.sel < NGEN ? ui.sel : ui.sel - NGEN;
+            fx_wet[ln] = (uint8_t)clampi((int32_t)fx_wet[ln] + 2 * s, 0, 100);
             ui.dial_kind = 2;
             ui.dial_until = fm1_ms + 1500u;
         }
@@ -1572,7 +1586,8 @@ static void draw_fx_page(void)
  * or OFF), a bar of its reach (0 .. 30 s). Then the page that was up comes back */
 static int draw_dial(void)
 {
-    int32_t key = ui.dial_kind == 2u ? 3000 + fx_wet : ui.dial_kind ? 1000 + (int32_t)ui.gen * 200 + gen_dis[ui.gen] : ui.morph;
+    uint32_t ln = ui.sel < NGEN ? ui.sel : ui.sel - NGEN;   /* (KNOB 2's lane) */
+    int32_t key = ui.dial_kind == 2u ? 3000 + (int32_t)ln * 200 + fx_wet[ln] : ui.dial_kind ? 1000 + (int32_t)ui.gen * 200 + gen_dis[ui.gen] : ui.morph;
     char v[12];
     if ((int32_t)(ui.dial_until - fm1_ms) <= 0) {
         if (ui.dial_shown) {
@@ -1584,18 +1599,22 @@ static int draw_dial(void)
     }
     if (ui.dial_shown && ui.shown_dial == key)
         return 1;
-    if (ui.dial_kind == 2u) {                    /* FX MIX (KNOB 2): every effect's, 0 .. 100, laid out as KNOB 1's */
-        int32_t a = fx_wet;
+    if (ui.dial_kind == 2u) {                    /* FX MIX (KNOB 2): a lane's, 0 .. 100, laid out as KNOB 1's -- the
+                                                  * generator and its lane under it, in its colour */
+        int32_t a = fx_wet[ln];
+        char gl[16] = "GEN 1 LANE 4";
+        gl[4] = (char)('1' + ln);
+        gl[11] = (char)('4' + ln);
         fmt_int(v, a);
         CV_AREA(0, 0, 240, 50, C_BLACK)
             cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "FX MIX", C_FXMIX);
         CV_AREA(0, 50, 240, 112, C_BLACK)
             cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
         CV_AREA(0, 162, 240, 40, C_BLACK)
-            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, a == 0 ? "DRY" : a == 100 ? "WET" : "ALL LANES", C_FXMIX);
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, gl, GEN_COL[ln]);
         CV_AREA(0, 202, 240, 38, C_BLACK) {
             cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
-            cv_rect(12, 8, a * 216 / 100, 22, C_FXMIX);
+            cv_rect(12, 8, a * 216 / 100, 22, GEN_COL[ln]);
         }
         ui.dial_shown = 1;
         ui.shown_dial = key;
@@ -1756,33 +1775,24 @@ static void draw_ses_list(void)
  * value in a field at the right). A thin rule after BACK, a thick one after DELETE: three parts */
 static void draw_ses_rows(void)
 {
-    static const char *const ROW[SR_N] = {"BACK", "LOAD", "SAVE", "COPY", "DELETE", "MODE"};
+    static const char *const ROW[SR_N] = {"BACK", "LOAD", "SAVE", "COPY", "DELETE"};
     uint32_t k = ui.ses_ix, top = ui.ses_row > 3u ? ui.ses_row - 3u : 0u, r;
     int has = ses_has(k);
-    uint32_t mode = k == ses_current() || !ses_current() ? (ui.ses_edit ? ui.ses_val : sig_mode) : ses_mode_of(k);
     char t[16] = "SESSION ";
     fmt_int(t + 8, (int32_t)k);
     ses_title(t, ses_col(k));
     for (r = 0; r < 4u; r++) {
         uint32_t i = top + r;
-        int chosen = i == ui.ses_row, focus = chosen && ui.ses_edit;
-        int ok = i == SR_BACK || i == SR_SAVE || i == SR_LOAD || (i == SR_MODE ? mode < SM_N : has);
+        int chosen = i == ui.ses_row, focus = 0;
+        int ok = i == SR_BACK || i == SR_SAVE || i == SR_LOAD || has;
         const char *name = i == SR_LOAD && !has ? "NEW" : ROW[i];
         uint16_t fg = !ok ? C_GREY : i == SR_DELETE ? C_FULL : C_WHITE, bg = chosen && !focus ? C_WHITE : C_BLACK;
         int32_t y = (SES_ROW_H - (int32_t)FONT_S.h) / 2;
         cv_begin(240, SES_ROW_H, bg);
-        if (i == SR_MODE) {                      /* (a setting: its value in its field, at the right) */
-            const char *v = mode == SM_LANES ? "LANES" : mode < SM_N ? "MESH" : "-";
-            if (focus)
-                cv_rect(116, 3, 122, SES_ROW_H - 7, C_WHITE);
-            cv_text(232 - text_w(&FONT_S, v), y, &FONT_S, v, focus || chosen ? C_BLACK : C_SES);
-        }
         cv_text(10, y, &FONT_S, name, chosen && !focus ? (i == SR_DELETE ? C_FULL : C_BLACK) : fg);
         cv_rect(0, SES_ROW_H - 1, 240, 1, RGB(50, 50, 50));
-        if (i == SR_BACK)                        /* (the parts: a thin rule after BACK, a thick one after DELETE) */
+        if (i == SR_BACK)                        /* (the parts: a rule after BACK) */
             cv_rect(0, SES_ROW_H - 2, 240, 2, C_SES);
-        else if (i == SR_DELETE)
-            cv_rect(0, SES_ROW_H - 5, 240, 5, C_SES);
         cv_blit(0, 55 + SES_ROW_H * r);
     }
     ses_foot();
@@ -1817,8 +1827,7 @@ static void draw_ses_ask(void)
 }
 static void draw_ses_page(void)
 {
-    int32_t key = ui.ses_page | ui.ses_ix << 3 | ui.ses_row << 10 | ui.ses_edit << 13 | ui.ses_val << 14 |
-                  ui.ses_yes << 15 | ui.ses_tgt << 16 | ui.ses_ask << 23 | (int32_t)sig_mode << 25 |
+    int32_t key = ui.ses_page | ui.ses_ix << 3 | ui.ses_row << 10 | ui.ses_yes << 15 | ui.ses_tgt << 16 | ui.ses_ask << 23 |
                   ses_has(ui.ses_ix) << 26 | (int32_t)(ses_current() & 63u) << 27;
     if (!ui.force && ui.shown_ses == key)
         return;
@@ -2091,9 +2100,9 @@ static void ui_init(void)
     memset(&ui, 0, sizeof ui);
     for (k = 0; k < NKEY; k++)
         ui.key_note[k] = KEY_NONE;
-    ui.scale = 1;                                /* natural minor, C */
-    rack_root = SCALE_BASE;
     ui.seed = 0x4D4F4Cu ^ fm1_ticks();
+    scale_random(ui.seed);                       /* (build 36: a root and a scale drawn at power-on; natural minor in C
+                                                  * before) */
     ui.sc_touched = -1;
     ui.shown_top = -0x7FFFFFFF;
     ui.force = 1;

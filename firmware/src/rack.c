@@ -315,8 +315,8 @@ static void m_mdl(const uint8_t *p, m_mdl_t *s, int32_t *x)
 typedef struct { int16_t line[3][STR_N]; uint32_t w; int32_t lp[3], in; uint32_t key, have; int32_t d8[3], g, tone, lvl, root; } m_str_t;
 static void m_str(const uint8_t *p, m_str_t *s, int32_t *x)
 {
-    int32_t g, tone, lvl, k, root = rack_root;
-    uint32_t i;
+    int32_t g, tone, lvl, k, root = rack_root, pk = 0;
+    uint32_t i, any = 0;
     if (!s->have || s->key != p_key(p) || s->root != root) {
         int32_t note = 24 + (root % 12) + 12 * (p[0] * 4 / 101), hz8 = note_hz8(note, 0), len8[3];
         int32_t t100 = (int32_t)((8u * exp2_q16(p[1] * (664 * 65536 / 10000))) >> 16);   /* 0.08 .. 8 s, x 100 (2^6.64 = 100) */
@@ -338,6 +338,8 @@ static void m_str(const uint8_t *p, m_str_t *s, int32_t *x)
         s->have = 1;
     }
     g = s->g, tone = s->tone, lvl = s->lvl;
+    for (i = 0; i < CTL; i++)
+        any |= (uint32_t)x[i];
     for (i = 0; i < CTL; i++) {
         int32_t y = 0;
         s->in += mulz15(x[i] - s->in, 15700);           /* (~4 kHz; towards zero, so silence settles at 0, not -1) */
@@ -347,7 +349,9 @@ static void m_str(const uint8_t *p, m_str_t *s, int32_t *x)
             if (i0 >= STR_N)                            /* (w + N - d, d within 4 .. N - 3: under 2N, one step) */
                 i0 -= STR_N;
             i1 = i0 + 1u >= STR_N ? 0u : i0 + 1u;
-            v = s->line[k][i0] + (((s->line[k][i1] - s->line[k][i0]) * (int32_t)(rp & 255u)) >> 8);
+            v = s->line[k][i0] + (s->line[k][i1] - s->line[k][i0]) * (int32_t)(rp & 255u) / 256;   /* (towards zero:
+                                                  * a shift leaned every trip one way, and a string held a whisper at
+                                                  * some roots for ever -- build 36) */
             s->lp[k] += mulz15(v - s->lp[k], tone);
             s->line[k][s->w] = (int16_t)clampi(s->in / 4 + mulz15(s->lp[k], g), -32767, 32767);
             y += k ? mulq15(v, lvl) : v;
@@ -355,6 +359,13 @@ static void m_str(const uint8_t *p, m_str_t *s, int32_t *x)
         if (++s->w >= STR_N)
             s->w = 0;
         x[i] = y;
+        pk = maxi(pk, absi(y));
+    }
+    if (!any && absi(s->in) < 8 && pk && pk < 128) {          /* nothing in and under -48 dB: let go at once (build 36: the
+                                                      * roundings of a long, nearly lossless loop could keep a whisper
+                                                      * going round for ever at some roots) */
+        memset(s->line, 0, sizeof s->line);
+        s->lp[0] = s->lp[1] = s->lp[2] = 0;
     }
 }
 
@@ -1180,8 +1191,10 @@ static uint32_t rack_ticks;                    /* what the last block of the rac
  * every effect of every slot at once, each its own input and output crossed by it; 50 at power-on. Glided over a
  * block when it moves */
 #define FX_WET_DEF 50
-static volatile uint8_t fx_wet = FX_WET_DEF;
-static int32_t fx_wq = FX_WET_DEF * Q15 / 100;   /* (the mix the last block ended at, Q15) */
+static volatile uint8_t fx_wet[NFX] = {FX_WET_DEF, FX_WET_DEF, FX_WET_DEF};   /* (build 36: a lane's own -- the chosen
+                                                  * generator's lane, or the lane chosen; one for all before) */
+static int32_t fx_wq[NFX] = {FX_WET_DEF * Q15 / 100, FX_WET_DEF * Q15 / 100, FX_WET_DEF * Q15 / 100};   /* (where each
+                                                  * ended the last block, Q15) */
 
 /* the guard: a peak rider (Tonitor's limiter: instant attack, ~200 ms release) to 0.5 */
 #define RM_CEIL 16384
@@ -1306,22 +1319,22 @@ static void rack_job(void)
 {
     uint32_t s, k, i, j, has = ebus_fed_run;
     uint32_t t0 = fm1_ticks();
-    int32_t wq1 = clampi(fx_wet, 0, 100) * Q15 / 100, wr[CTL], mixing = wq1 < Q15 || fx_wq < Q15;
-    if (mixing) {                                    /* (this block's mix, sample by sample, from where it was) */
-        int32_t dw = (wq1 - fx_wq) / (int32_t)CTL, w = fx_wq;
-        for (i = 0; i < CTL; i++)
-            wr[i] = w += dw;
-        wr[CTL - 1u] = wq1;
-    }
-    fx_wq = wq1;
     fx_take();
     for (i = 0; i < CTL; i++)
         fx_l[i] = fx_r[i] = fx_mdl[i] = fx_mrv[i] = 0;
     for (s = 0; s < NFX; s++) {
         const fx_patch_t *f = &fbuf[s][f_use[s]];
         int32_t sl[CTL], g, gl, gr, dg, dgl, dgr, gw;   /* (mono: build 32 -- no plate in a slot) */
+        int32_t wq1 = clampi(fx_wet[s], 0, 100) * Q15 / 100, wr[CTL], mixing = wq1 < Q15 || fx_wq[s] < Q15;
         uint32_t ph;
         int fading = fx_phase[s] == FS_FADE;
+        if (mixing) {                                /* (this lane's mix this block, sample by sample, from where it was) */
+            int32_t dw = (wq1 - fx_wq[s]) / (int32_t)CTL, w = fx_wq[s];
+            for (i = 0; i < CTL; i++)
+                wr[i] = w += dw;
+            wr[CTL - 1u] = wq1;
+        }
+        fx_wq[s] = wq1;
         if (fx_phase[s] == FS_CLEAR || (fx_mute[s] && !((fx_fine >> s) & 1u))) {   /* (a morph: the mute is its level) */
             fx_g[s] = 0;
             continue;
@@ -1452,12 +1465,13 @@ static __typeof__(&rack_job) volatile rack_job_fp = rack_job;
  * chooses among them */
 enum { DP_ANY, DP_ROUGH, DP_DARK, DP_N };
 static uint8_t draw_path;
-/* The session's signal flow (build 28; the session page's MODE): MESH -- a generator may be cabled into any effect, an
- * effect across into any later slot (as ever); LANES -- generator l runs through effect slot l alone, its lane: cabled
- * into its head, no cables between lanes, the lanes centre, left, right; HOME on a generator draws its lane's chain
- * with it, so the chain is part of the patch. Within a lane the outs to the master are still drawn and rewired */
-enum { SM_MESH, SM_LANES, SM_N };
-static uint8_t sig_mode = SM_LANES;      /* (build 29: LANES the default -- at power-on and in a new session) */
+/* The signal flow: LANES, the only one from build 36 (MESH, from build 28 to 35, a session's other MODE -- a generator
+ * cabled into any effect, effects across slots -- is gone): generator l runs through effect slot l alone, its lane:
+ * cabled into its head, no cables between lanes, the lanes centre, left, right; HOME on a generator draws its lane's
+ * chain with it, so the chain is part of the patch. Within a lane the outs to the master are still drawn and rewired.
+ * A session keeps the flow it was saved in: SES_LANES; a MESH session of builds 28 .. 35 is rewired into lanes as it
+ * loads (sessions.c ses_lanes) */
+#define SES_LANES 1u
 static const int8_t LANE_PAN[3] = {0, -14, 14};   /* (the lanes: centre, left, right) */
 /* what each effect's values do, for the paths' leaning (RM_PNAME, mod.c) */
 enum { VR_NONE, VR_DRIVE, VR_TONE, VR_SPACE, VR_DAMP, VR_BREAK, VR_BITS };
@@ -1579,13 +1593,7 @@ static void fx_wire(uint32_t s, fx_patch_t *f, rnd_t *r)
     for (k = 0; k + 1u < f->n; k++)
         if (rnd_chance(r, 20))
             f->out |= (uint8_t)(1u << k);
-    if (sig_mode == SM_LANES)
-        return;                                  /* (lanes: no cable across to another lane) */
-    for (k = 0; k < f->n; k++)
-        if (s + 1u < NFX && rnd_chance(r, 33)) {
-            uint32_t ts = s + 1u + (uint32_t)rnd_below(r, (int32_t)(NFX - 1u - s));
-            f->xto[k] = (uint16_t)(1u << (ts * FX_N + (uint32_t)rnd_below(r, 2)));
-        }
+    (void)s;                                     /* (lanes: no cable across to another lane) */
 }
 /* the first black key on effect slot s: its outs and cables across drawn anew, its effects and their values as they
  * are -- changed in place (each a byte or two, taken by the next block: no fade, no clearing). 0 if a new patch is
@@ -1622,20 +1630,6 @@ static void fx_refill(uint32_t s)
     for (k = 0; k < f->n && k < FX_N; k++)
         if (f->e[k].kind == RM_CLD && fx_st[s * FX_N + k])
             ((m_cld_t *)fx_st[s * FX_N + k])->fresh = CLD_N;
-}
-/* a session turned to LANES (build 28): slot s's cables across cut, in place (its effects, values and outs as they are).
- * 0 if a new patch is still on its way in */
-static int fx_unacross(uint32_t s)
-{
-    fx_patch_t *f;
-    uint32_t k;
-    if (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON)
-        return 0;
-    f = &fbuf[s][f_use[s]];
-    for (k = 0; k < FX_N; k++)
-        f->xto[k] = 0;
-    RING_PUBLISH();
-    return 1;
 }
 /* SHIFT + the first black key on effect slot s: every effect's values drawn anew (the path's way), its effects, outs
  * and cables as they are -- changed in place, as a rewiring (no fade, nothing cleared: the sound goes on, moved). 0 if
@@ -1702,7 +1696,7 @@ static int fx_set(uint32_t s, const fx_patch_t *src)
         room -= rm_size(f->e[k].kind);
         for (j = 0; j < 4u; j++)
             f->e[k].p[j] = (uint8_t)clampi(f->e[k].p[j], RM_LO[f->e[k].kind][j], RM_HI[f->e[k].kind][j]);
-        f->xto[k] &= (uint16_t)(((1u << NINST) - 1u) & ~((1u << ((s + 1u) * FX_N)) - 1u));   /* (later slots only) */
+        f->xto[k] = 0;                           /* (lanes: no cable across, build 36) */
     }
     f->serial = ++fx_serial;
     RING_PUBLISH();
@@ -1716,15 +1710,16 @@ static void rack_init(uint32_t seed)
     memset(fx_arena, 0, sizeof fx_arena);
     memset(fbuf, 0, sizeof fbuf);
     memset(ebus_mem, 0, sizeof ebus_mem);
-    fx_wet = FX_WET_DEF;                             /* (KNOB 2's mix, at power-on) */
-    fx_wq = FX_WET_DEF * Q15 / 100;
+    for (s = 0; s < NFX; s++) {                      /* (KNOB 2's mixes, at power-on) */
+        fx_wet[s] = FX_WET_DEF;
+        fx_wq[s] = FX_WET_DEF * Q15 / 100;
+    }
     for (s = 0; s < NFX; s++) {
         f_pub[s] = f_use[s] = 0;
         fx_phase[s] = FS_ON;
         fx_mute[s] = 0;
         fx_lvl[s] = 20 - 2;
-        fx_pan[s] = sig_mode == SM_LANES ? LANE_PAN[s] : (int8_t)((int32_t)s * 10 - 10);   /* (MESH: left, middle,
-                                                                                          * right) */
+        fx_pan[s] = LANE_PAN[s];
         fx_g[s] = fx_gl[s] = fx_gr[s] = 0;
         fx_gate[s] = Q15;
         fx_idle[s] = 0;

@@ -692,6 +692,7 @@ static void fw_init(void)
 {
     ui_init();
     gens_init(ui.seed);
+    scale_random(ui.seed);
     ses_init(1);
     master_q12 = 4096;
 }
@@ -1159,10 +1160,11 @@ static int cmd_modules(int argc, char **argv)
                 uint32_t b2, i2;
                 int32_t o[2 * CTL];
                 fw_init();
-                ui.seed = 4242u;                         /* (the same generators each time) */
+                ui.seed = 4242u;                         /* (the same generators each time, in the same scale) */
                 gens_init(ui.seed);
-                fx_wet = w ? 100u : 0u;
-                fx_wq = fx_wet * Q15 / 100;             /* (there from the start, not glided to) */
+                scale_random(ui.seed);
+                fx_wet[0] = w ? 100u : 0u;
+                fx_wq[0] = fx_wet[0] * Q15 / 100;       /* (there from the start, not glided to) */
                 f = &fbuf[0][f_use[0]];
                 memset(f, 0, sizeof *f);
                 f->n = 2;
@@ -1196,7 +1198,7 @@ static int cmd_modules(int argc, char **argv)
             if (w == 1 && d < -10.0)
                 printf("FAIL fx mix 100: two different slots alike\n"), fails++;
         }
-        fx_wet = FX_WET_DEF;
+        fx_wet[0] = FX_WET_DEF;
     }
     printf("modules: %d failures\n", fails);
     return fails ? 1 : 0;
@@ -1386,8 +1388,9 @@ static double mst_run(int rs, int ds, int dry0)
     fm1_in.notes = 0;
     fm1_in.buttons = 0;
     ui_init();
-    ui.seed = 4242u;                                     /* (the same patches every run) */
+    ui.seed = 4242u;                                     /* (the same patches every run, in the same scale) */
     gens_init(ui.seed);
+    scale_random(ui.seed);
     master_q12 = 4096;
     for (l = 0; l < NGEN; l++) {
         ui.rsend[l] = (int8_t)rs;
@@ -1672,6 +1675,7 @@ static double mod_run(int gen_on, int fx_on)
     ui_init();
     ui.seed = 777u;
     gens_init(ui.seed);
+    scale_random(ui.seed);
     master_q12 = 4096;
     for (l = 1; l < NGEN; l++)
         gen_mute[l] = 1;
@@ -1844,6 +1848,7 @@ static int cmd_rewire(void)
     ui_init();
     ui.seed = 31337u;
     gens_init(ui.seed);
+    scale_random(ui.seed);
     press(B_FX, 50);
     key(0, 1);
     key(4, 1);
@@ -1969,6 +1974,7 @@ static int cmd_morph(void)
     ui_init();
     ui.seed = 2468u;
     gens_init(ui.seed);
+    scale_random(ui.seed);
     ses_init(1);
     master_q12 = 4096;
     press(B_FX, 50);
@@ -2057,6 +2063,7 @@ static void ends_fresh(uint32_t seed)
     ui_init();
     ui.seed = seed;
     gens_init(ui.seed);
+    scale_random(ui.seed);
     if (fresh_keep) {                            /* (build 34: generation 3's DATA, as builds 18 .. 33 drew it here --
                                                   * the test's thresholds were set on it) */
         gen_keep_t k;
@@ -2169,6 +2176,7 @@ static int cmd_hiss(void)
         ui_init();
         ui.seed = 555u + s0;
         gens_init(ui.seed);
+        scale_random(ui.seed);
         ses_init(1);
         master_q12 = 4096;
         for (l = 0; l < NFX; l++) {                      /* slot 4: TAPE alone, every generator off it */
@@ -2631,7 +2639,8 @@ static int cmd_whole(void)
         ui.oct = 1;
         draw_path = DP_ROUGH;
         gen_dis[2] = 40;
-        fx_wet = 20;                                     /* (KNOB 2, build 33) */
+        fx_wet[0] = 20;                                  /* (KNOB 2, build 33; a lane's own from build 36) */
+        fx_wet[2] = 70;
         fw_run(200);
         snap_store(0);
         A = snap.s[0];
@@ -2667,7 +2676,7 @@ static int cmd_whole(void)
         ui.oct = -2;
         draw_path = DP_DARK;
         gen_dis[2] = 0;
-        fx_wet = 90;
+        fx_wet[0] = fx_wet[2] = 90;
         fw_run(300);
         snap_store(1);
         if (loop[0].play || loop[0].dmode != LD_FWD || ((ui.latch[1] >> 4) & 1u))
@@ -2679,12 +2688,13 @@ static int cmd_whole(void)
             ui_input();
         }
         fails += whole_check(pass ? "(morph)" : "(at once)", &A, 1, LD_REV, LS_HALF, 4, note);
-        if (ui.oct != 1 || draw_path != DP_ROUGH || gen_dis[2] != 40 || fx_wet != 20)
-            printf("FAIL whole: octave %d, path %u, DISINTEGRATOR %d, FX MIX %u\n", ui.oct, draw_path, gen_dis[2], fx_wet), fails++;
+        if (ui.oct != 1 || draw_path != DP_ROUGH || gen_dis[2] != 40 || fx_wet[0] != 20 || fx_wet[2] != 70)
+            printf("FAIL whole: octave %d, path %u, DISINTEGRATOR %d, FX MIX %u %u\n", ui.oct, draw_path, gen_dis[2],
+                   fx_wet[0], fx_wet[2]), fails++;
     }
     ui.morph = 0;
     draw_path = DP_ANY;
-    fx_wet = FX_WET_DEF;
+    fx_wet[0] = fx_wet[1] = fx_wet[2] = FX_WET_DEF;
     printf("whole: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -2731,6 +2741,7 @@ static int cmd_demo(int argc, char **argv)
         ui_init();
         ui.seed = 1000u * (d + 1u) + seed;
         gens_init(ui.seed);
+        scale_random(ui.seed);
         ses_init(1);
         master_q12 = 4096;
         draw_path = d == 0 ? DP_ROUGH : d == 1 ? DP_DARK : DP_ANY;
@@ -2873,8 +2884,7 @@ static int cmd_mtails(void)
     uint32_t b, quiet_at = 0, l;
     int32_t late = 0, out[2 * CTL], pk;
     fw_init();
-    sig_set(SM_MESH);                                    /* (build 29: LANES at power-on; the test was made in MESH) */
-    fx_wet = 100;                                        /* (.. and with the effects alone: KNOB 2 at 100, build 33) */
+    fx_wet[0] = fx_wet[1] = fx_wet[2] = 100;             /* (with the effects alone: KNOB 2 at 100, build 33) */
     ui.seed = 777u;
     for (l = 0; l < NSLOT; l++) {
         press(SLOT_BTN[l], 50);
@@ -2889,6 +2899,8 @@ static int cmd_mtails(void)
     ui.rsend[0] = 90;
     ui.dsend[0] = 60;
     sends_apply(0);
+    gbuf[0][g_use[0]].dry = Q15 / 2;                     /* (build 36, lanes only: half of it dry, so the master's sends
+                                                          * hear it with its lane muted, as MESH's dry share did) */
     key(0, 1);
     fw_run(4134);
     key(0, 0);
@@ -2914,7 +2926,7 @@ static int cmd_mtails(void)
         printf("FAIL mtails: the master's tails never end\n"), fails++;
     fx_mute[0] = 0;
     gen_mute[0] = 0;
-    fx_wet = FX_WET_DEF;
+    fx_wet[0] = fx_wet[1] = fx_wet[2] = FX_WET_DEF;
     printf("mtails: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -2947,32 +2959,34 @@ static int cmd_lanes(void)
     uint32_t l, n, ser[NFX], sum0, cross = 0;
     memset(hflash, 0xFF, sizeof hflash);
     fw_init();
-    if (sig_mode != SM_LANES)
-        printf("FAIL lanes: the FM-1 does not start in LANES\n"), fails++;
-    lanes_ok("at power-on") ? fails++ : 0;
-    sig_set(SM_MESH);
-    for (n = 0; n < 40u && !cross; n++) {                /* a MESH patch with cables across */
-        for (l = 0; l < NSLOT; l++) {
-            press(SLOT_BTN[l], 50);
-            press(B_HOME, 50);
-            fw_run(30);
-        }
+    fails += lanes_ok("at power-on");
+    {   /* (build 36: LANES the only flow) a MESH session of builds 28 .. 35 -- generator 1 cabled into slot 6, slot 4
+         * across into slot 6, the slots left, middle, right -- loads into lanes, its snapshots too, nothing redrawn */
+        gbuf[0][g_pub[0]].nent = 1;
+        gbuf[0][g_pub[0]].ent[0] = 2 * FX_N;
+        fbuf[0][f_pub[0]].xto[0] = (uint16_t)(1u << (2 * FX_N));
+        fx_pan[0] = -10;
+        fx_pan[1] = 0;
+        fx_pan[2] = 10;
+        snap_store(0);
+        sum0 = fnv(2166136261u, &gbuf[0][g_pub[0]].gen, sizeof gbuf[0][0].gen);
+        ses_mode_save = 0;                               /* (saved as an old MESH session) */
+        ses_save(6);
+        ses_mode_save = SES_LANES;
+        fw_init();
+        if (ses_load_slot(6) != SES_OK)
+            printf("FAIL lanes: the old MESH session not loaded\n"), fails++;
+        fw_run(60);
+        fails += lanes_ok("an old MESH session loaded");
+        if (fnv(2166136261u, &gbuf[0][g_pub[0]].gen, sizeof gbuf[0][0].gen) != sum0)
+            printf("FAIL lanes: loading into lanes redrew a sound\n"), fails++;
+        if (fx_pan[0] != 0 || fx_pan[1] != -14 || fx_pan[2] != 14)
+            printf("FAIL lanes: the lanes not panned centre, left, right\n"), fails++;
         for (l = 0; l < NFX; l++)
-            cross |= fbuf[l][f_pub[l]].xto[0] | fbuf[l][f_pub[l]].xto[1] | fbuf[l][f_pub[l]].xto[2];
-    }
-    snap_store(0);
-    sum0 = fnv(2166136261u, &gbuf[0][g_pub[0]].gen, sizeof gbuf[0][0].gen);
-    if (!sig_set(SM_LANES))
-        printf("FAIL lanes: turning to LANES busy\n"), fails++;
-    fw_run(30);
-    fails += lanes_ok("turned to LANES");
-    if (fnv(2166136261u, &gbuf[0][g_pub[0]].gen, sizeof gbuf[0][0].gen) != sum0)
-        printf("FAIL lanes: turning to LANES redrew a sound\n"), fails++;
-    if (fx_pan[0] != 0 || fx_pan[1] != -14 || fx_pan[2] != 14)
-        printf("FAIL lanes: the lanes not panned centre, left, right\n"), fails++;
-    for (l = 0; l < NFX; l++)
-        if (snap.s[0].x[l].f.xto[0] | snap.s[0].x[l].f.xto[1] | snap.s[0].x[l].f.xto[2])
+            cross |= snap.s[0].x[l].f.xto[0] | snap.s[0].x[l].f.xto[1] | snap.s[0].x[l].f.xto[2];
+        if (cross || snap.s[0].g[0].g.ent[0] / FX_N != 0u)
             printf("FAIL lanes: a snapshot still cabled across\n"), fails++;
+    }
     for (n = 0; n < 20u; n++) {
         for (l = 0; l < NFX; l++)
             ser[l] = fbuf[l][f_pub[l]].serial;
@@ -2999,16 +3013,17 @@ static int cmd_lanes(void)
     fails += lanes_ok("after the draws");
     ses_save(5);                                          /* kept with the session */
     fw_init();
-    sig_set(SM_MESH);
-    if (ses_load_slot(5) != SES_OK || sig_mode != SM_LANES)
-        printf("FAIL lanes: the session did not keep LANES\n"), fails++;
+    if (ses_load_slot(5) != SES_OK)
+        printf("FAIL lanes: the session not loaded again\n"), fails++;
+    fw_run(60);
+    fails += lanes_ok("loaded again");
     gens_init(1u);
     printf("lanes: %d failures\n", fails);
     return fails ? 1 : 0;
 }
 
 /* the session pages (build 28, Bigorna's), through the panel: SHIFT + SAVE, a slot, SAVE: its page; SAVE saves (over
- * another, asked), COPY to the first empty slot, DELETE asked (NO keeps it, YES deletes), LOAD, MODE set from the page */
+ * another, asked), COPY to the first empty slot, DELETE asked (NO keeps it, YES deletes), LOAD */
 static void page_open(uint32_t num)
 {
     key(KEY_SHIFT, 1);
@@ -3058,22 +3073,15 @@ static int cmd_sespage(void)
     press(B_SAVE, 50);
     if (ses_has(1))
         printf("FAIL sespage: DELETE YES did not delete\n"), fails++;
-    page_open(3);                                        /* MODE: LANES, from the page */
-    page_row(SR_MODE);
-    press(B_SAVE, 50);
-    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;
-    ui_input();
-    press(B_SAVE, 50);
-    if (sig_mode != SM_LANES)
-        printf("FAIL sespage: MODE not set to LANES\n"), fails++;
-    page_row(SR_SAVE);                                   /* saved, and loaded back */
+    page_open(3);                                        /* saved, and loaded back */
+    page_row(SR_SAVE);
     press(B_SAVE, 50);
     fw_init();
     page_open(3);
     page_row(SR_LOAD);
     press(B_SAVE, 50);
-    if (ses_current() != 3 || sig_mode != SM_LANES)
-        printf("FAIL sespage: LOAD from the page (session %u, mode %u)\n", ses_current(), sig_mode), fails++;
+    if (ses_current() != 3)
+        printf("FAIL sespage: LOAD from the page (session %u)\n", ses_current()), fails++;
     gens_init(1u);
     printf("sespage: %d failures\n", fails);
     return fails ? 1 : 0;
@@ -3912,13 +3920,10 @@ static int cmd_screens(int argc, char **argv)
     SHOT("sessions");
     press(B_SAVE, 50);                                   /* SAVE: the session's page (Bigorna's), on LOAD */
     SHOT("session-page");
-    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 4;                /* down to MODE, SAVE: being set, turned to LANES */
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 3;                /* down to DELETE: the page scrolled */
     ui_input();
-    press(B_SAVE, 50);
-    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;
-    ui_input();
-    SHOT("session-mode");
-    ui.ses_edit = 0;                                     /* (the questions and COPY, as they look) */
+    SHOT("session-delete");
+    ui.ses_row = SR_LOAD;                                /* (the questions and COPY, as they look) */
     ui.ses_page = SP_ASK;
     ui.ses_ask = AK_DEL;
     ui.ses_new = 1;
@@ -3988,7 +3993,7 @@ static int cmd_screens(int argc, char **argv)
     ui_draw();
     snprintf(name, sizeof name, "%s/screen-fxmix.ppm", dir);
     screen_save(name);
-    fx_wet = FX_WET_DEF;
+    fx_wet[0] = FX_WET_DEF;
     ui.dial_until = fm1_ms;
     ui_draw();
     morph_start(&snap.s[2], 2, 4000);                    /* a morph into snapshot 3: its square blinking */
@@ -4001,6 +4006,46 @@ static int cmd_screens(int argc, char **argv)
     pages_off();
 #undef SHOT
     return 0;
+}
+
+/* build 36's controls: SHIFT + the scale button draws a root and a scale, the SCALE page up a moment and closed again;
+ * KNOB 2 the FX MIX of the chosen generator's lane, or of the lane chosen, and of no other */
+static int cmd_b36(void)
+{
+    int fails = 0, changed = 0;
+    uint32_t t, l;
+    fw_init();
+    for (t = 0; t < 8u; t++) {
+        uint8_t r0 = ui.root, s0 = ui.scale;
+        key(KEY_SHIFT, 1);
+        press(B_ARP, 50);
+        key(KEY_SHIFT, 0);
+        changed += ui.root != r0 || ui.scale != s0;
+        if (!ui.sc_page)
+            printf("FAIL b36: SHIFT + the scale button did not show the SCALE page\n"), fails++;
+        if (rack_root != SCALE_BASE + ui.root)
+            printf("FAIL b36: the root not the rack's\n"), fails++;
+        fw_run(1378 * 2 + 200);
+        ui_input();
+        if (ui.sc_page)
+            printf("FAIL b36: the SCALE page still up after two seconds\n"), fails++;
+    }
+    if (changed < 6)
+        printf("FAIL b36: the root and scale drawn anew only %d times in 8\n", changed), fails++;
+    for (l = 0; l < NSLOT; l++) {                        /* KNOB 2 on each slot */
+        uint8_t was[NFX];
+        uint32_t ln = l < NGEN ? l : l - NGEN, k;
+        press(SLOT_BTN[l], 50);
+        memcpy(was, (const void *)fx_wet, sizeof was);
+        fm1_in.enc[PANEL_ENC[EN_K2]] = -5;
+        ui_input();
+        for (k = 0; k < NFX; k++)
+            if ((k == ln) != (fx_wet[k] != was[k]))
+                printf("FAIL b36: KNOB 2 on slot %u moved lane %u's mix (%u -> %u)\n", l + 1u, k + 4u, was[k], fx_wet[k]),
+                    fails++;
+    }
+    printf("b36: %d failures\n", fails);
+    return fails ? 1 : 0;
 }
 
 int main(int argc, char **argv)
@@ -4117,6 +4162,8 @@ int main(int argc, char **argv)
         return cmd_mtails();
     if (!strcmp(argv[1], "link"))
         return cmd_link();
+    if (!strcmp(argv[1], "b36"))
+        return cmd_b36();
     if (!strcmp(argv[1], "found"))
         return cmd_found(argc, argv);
     if (!strcmp(argv[1], "bodies"))

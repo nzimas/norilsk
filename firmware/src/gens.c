@@ -865,39 +865,17 @@ static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4
  * none, or all go) */
 static void gen_wire(uint32_t l, gen_patch_t *p, rnd_t *r, int fresh)
 {
-    static const uint8_t NE[3] = {55, 35, 10};
-    static const uint8_t PL[3] = {70, 20, 10};
-    static const uint8_t NE_ROUGH[3] = {25, 45, 30};
-    uint32_t used = 0, k, n, had = p->nent;
-    if (sig_mode == SM_LANES) {                  /* (lanes: into its own lane alone -- at its head, now and then the
-                                                  * second place when rewired -- with a small dry share) */
-        p->nent = 1;
-        p->ent[0] = (uint8_t)(l * FX_N + (!fresh && rnd_chance(r, 30) ? 1u : 0u));
-        if (fresh)
-            p->send = rnd_in(r, LV(0.6), LV(1.0));
-        if (fresh || !had || p->dry >= Q15)
-            p->dry = rnd_in(r, LV(0.05), LV(0.3));
-        p->rewired = 0;
-        return;
-    }
-    n = rnd_chance(r, 5) ? 0u : 1u + rnd_weighted(r, draw_path == DP_ROUGH ? NE_ROUGH : NE, 3);
-    p->nent = 0;
-    for (k = 0; k < n; k++) {
-        uint32_t s = (uint32_t)rnd_below(r, NFX), tries;
-        for (tries = 0; tries < 6u && ((used >> s) & 1u); tries++)
-            s = (uint32_t)rnd_below(r, NFX);
-        used |= 1u << s;
-        p->ent[p->nent++] = (uint8_t)(s * FX_N + rnd_weighted(r, PL, 3));
-    }
-    if (fresh) {
+    uint32_t had = p->nent;
+    /* (lanes, the only flow from build 36: into its own lane alone -- at its head, now and then the second place when
+     * rewired -- with a small dry share. Its modulation by another generator, if any, as it was: made and unmade by
+     * hand, gen_link) */
+    p->nent = 1;
+    p->ent[0] = (uint8_t)(l * FX_N + (!fresh && rnd_chance(r, 30) ? 1u : 0u));
+    if (fresh)
         p->send = rnd_in(r, LV(0.6), LV(1.0));
-        p->dry = p->nent ? rnd_in(r, LV(0.15), LV(0.6)) : Q15;
-    } else if (!p->nent)
-        p->dry = Q15;                            /* (no cable left: all of it heard dry) */
-    else if (!had)
-        p->dry = rnd_in(r, LV(0.15), LV(0.6));   /* (cables where there were none: a share for them) */
-    p->rewired = 0;                              /* (its modulation by another generator, if any, as it was: never
-                                                  * drawn from build 25 -- made and unmade by hand, gen_link) */
+    if (fresh || !had || p->dry >= Q15)
+        p->dry = rnd_in(r, LV(0.05), LV(0.3));
+    p->rewired = 0;
 }
 
 /* HOME on generator l: a new patch from a seed (family -1: any; else that family, on the scene it had: SHIFT + HOME).
@@ -999,34 +977,6 @@ static int gen_link(uint32_t o, uint32_t d, uint32_t seed)
     return p->xsrc == XM_NONE ? XM_N : p->xkind;
 }
 
-/* a session turned to LANES (build 28): generator l cabled into its own lane alone, at its head (kept where it was if
- * already in it), a small dry share if it had none; published as a rewiring (no fade). 0 if busy */
-static int gen_lane(uint32_t l)
-{
-    uint32_t b = g_use[l] ^ 1u, k, t0 = fm1_ms;
-    gen_patch_t *p = &gbuf[l][b];
-    for (;;) {
-        int busy = g_pub[l] != g_use[l];
-        for (k = 0; k < NVOICE; k++)
-            if (vox[k].sounding && vox[k].slot == l && vox[k].dsg == b)
-                busy = 1;
-        if (!busy)
-            break;
-        if ((uint32_t)(fm1_ms - t0) > 40u)
-            return 0;
-        fm1_wdt_feed();
-    }
-    *p = gbuf[l][g_use[l]];
-    p->ent[0] = (uint8_t)(p->nent && p->ent[0] / FX_N == l ? p->ent[0] : l * FX_N);
-    p->nent = 1;
-    if (p->dry >= Q15)
-        p->dry = LV(0.2);
-    p->rewired = 1;
-    p->serial = ++gen_serial;
-    RING_PUBLISH();
-    g_pub[l] = (uint8_t)b;
-    return 1;
-}
 
 /* SHIFT + the first black key on generator l: a new sound of the family it has (the path's way), its cables, send, dry
  * share and modulation by another generator as they are. Published as a draw is (its notes start again on the new
@@ -1186,7 +1136,6 @@ static int gen_set(uint32_t l, const gen_keep_t *k) { return gen_set_x(l, k, 0);
 static void gens_init(uint32_t seed)
 {
     uint32_t l;
-    sig_mode = SM_LANES;                                 /* (at power-on: LANES; a session loaded says its own) */
     memset(vox, 0, sizeof vox);
     memset(vmem, 0, sizeof vmem);
     memset(gbuf, 0, sizeof gbuf);

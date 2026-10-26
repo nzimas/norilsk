@@ -36,6 +36,7 @@ build/host whole
 build/host link
 build/host lanes
 build/host sespage
+build/host b36 | tail -1
 build/host dis
 build/host paths | tail -1
 build/host revalue

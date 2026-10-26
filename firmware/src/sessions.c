@@ -75,7 +75,7 @@ typedef struct {
 typedef struct {
     fx_patch_t f;
     int8_t lvl, pan;
-    uint8_t mute, rsv;
+    uint8_t mute, rsv;           /* rsv: KNOB 2's FX MIX of this lane + 1 (build 36; 0 before) */
 } st_fx_t;
 /* how a generator is played (build 19): its latched notes, and how its loops go -- whether they play, which are held
  * out, their direction, speed, VARY, their own move along the scale (the loops' recordings are the session's) */
@@ -153,13 +153,14 @@ static void st_capture(st_t *t)
         t->x[l].lvl = fx_lvl[l];
         t->x[l].pan = fx_pan[l];
         t->x[l].mute = fx_mute[l];
+        t->x[l].rsv = (uint8_t)(fx_wet[l] + 1u);   /* (build 36: each lane's FX MIX, + 1) */
     }
     memcpy(t->rvp, ui.rvp, sizeof t->rvp);
     memcpy(t->dlp, ui.dlp, sizeof t->dlp);
     memcpy(t->mod, slot_mod, sizeof t->mod);
     t->scale = ui.scale;
     t->root = ui.root;
-    t->fxmix = (uint8_t)(fx_wet + 1u);
+    t->fxmix = (uint8_t)(fx_wet[0] + 1u);
     for (l = 0; l < NGEN; l++) {
         st_play_t *q = &t->p[l];
         const looper_t *lp = &loop[l];
@@ -233,7 +234,10 @@ static void st_apply_play(const st_t *t)
     ui.force = 1;
 }
 /* a state's effects' mix (KNOB 2): as kept, or 100 for a state from before build 33 (its effects alone, as it sounded) */
-static uint8_t st_fxmix(const st_t *t) { return (uint8_t)(t->fxmix ? clampi(t->fxmix - 1, 0, 100) : 100); }
+static uint8_t st_fxmix(const st_t *t, uint32_t l)   /* (lane l's: its own from build 36; builds 33 .. 35 one for all) */
+{
+    return (uint8_t)(t->x[l].rsv ? clampi(t->x[l].rsv - 1, 0, 100) : t->fxmix ? clampi(t->fxmix - 1, 0, 100) : 100);
+}
 /* the state given back: each part checked; returns SES_OK, or SES_BUSY if a slot could not take its patch in time */
 static int st_apply(const st_t *t)
 {
@@ -269,7 +273,8 @@ static int st_apply(const st_t *t)
     ui.scale = (uint8_t)(t->scale < NSCALE ? t->scale : 1u);
     ui.root = (uint8_t)(t->root % 12u);
     rack_root = SCALE_BASE + ui.root;
-    fx_wet = st_fxmix(t);
+    for (l = 0; l < NFX; l++)
+        fx_wet[l] = st_fxmix(t, l);
     lx_post();
     ui.force = 1;
     return ok ? SES_OK : SES_BUSY;
@@ -420,7 +425,8 @@ static void morph_poll(void)
                     f->e[k].p[j] = (uint8_t)mlerp(morph.a.x[l].f.e[k].p[j], morph.b.x[l].f.e[k].p[j], u);
         }
     }
-    fx_wet = (uint8_t)mlerp(st_fxmix(&morph.a), st_fxmix(&morph.b), u);   /* (KNOB 2's mix, glided) */
+    for (l = 0; l < NFX; l++)                           /* (KNOB 2's mixes, glided) */
+        fx_wet[l] = (uint8_t)mlerp(st_fxmix(&morph.a, l), st_fxmix(&morph.b, l), u);
     /* the master: all but SIZE and TIME glided */
     for (k = 1; k < 4u; k++) {
         ui.rvp[k] = (int8_t)mlerp(morph.a.rvp[k], morph.b.rvp[k], u);
@@ -492,10 +498,8 @@ static void morph_poll(void)
 }
 
 /* ------------------------------------------------------------ the signal flow --- */
-/* the session's MODE (build 28, rack.c sig_mode): MESH or LANES. Turned to LANES, the patches playing are rewired into
- * lanes -- each generator into its own effect slot alone, no cables between slots, the slots centre, left, right --
- * nothing redrawn; and so are the session's snapshots (each recalled is segregated too). Turned to MESH: nothing
- * changes, what HOME draws from then on may go anywhere. Returns 0 if a slot was busy (the rest done; again to finish) */
+/* a state of a session of builds 28 .. 35 saved in MESH (rack.c SES_LANES), rewired into lanes as it loads: each
+ * generator into its own effect slot alone, no cables between slots, the slots centre, left, right -- nothing redrawn */
 static void st_lanes(st_t *t)
 {
     uint32_t l, k;
@@ -508,30 +512,11 @@ static void st_lanes(st_t *t)
         if (g->dry >= Q15)
             g->dry = LV(0.2);
     }
-    for (l = 0; l < NFX; l++)
+    for (l = 0; l < NFX; l++) {
         for (k = 0; k < FX_N; k++)
             t->x[l].f.xto[k] = 0;
-}
-static int sig_set(uint32_t m)
-{
-    uint32_t l;
-    int ok = 1;
-    m = m < SM_N ? m : SM_MESH;
-    if (m == SM_LANES) {
-        for (l = 0; l < NGEN; l++)
-            ok &= gen_lane(l);
-        for (l = 0; l < NFX; l++) {
-            ok &= fx_unacross(l);
-            fx_pan[l] = LANE_PAN[l];
-        }
-        for (l = 0; l < NSNAP; l++)
-            if ((snap.used >> l) & 1u)
-                st_lanes(&snap.s[l]);
-        if (morph.on)
-            st_lanes(&morph.b);
+        t->x[l].pan = LANE_PAN[l];
     }
-    sig_mode = (uint8_t)m;
-    return ok;
 }
 
 /* the snapshots (SHIFT + SAVE): in RAM, with the session */
@@ -894,7 +879,7 @@ typedef struct {
     uint16_t snap_used;
     uint8_t morph;               /* KNOB 1's morph time, half seconds (0 in sessions saved before build 13) */
     uint8_t path;                /* the draw's path (rack.c DP_*: 0, anything, before build 18) */
-    uint8_t mode;                /* the signal flow (rack.c SM_*: 0, MESH, before build 28) */
+    uint8_t mode;                /* the signal flow: SES_LANES (1); 0 MESH (builds 28 .. 35, and before build 28) */
     uint8_t rsv;
 } ses_glob_t;
 typedef struct {
@@ -908,6 +893,7 @@ static uint8_t ses_lplay[NGEN];                        /* (a session read: wheth
 /* the body, out (SS_COUNT, SS_WRITE: from the machine) or in (SS_READ: into ses_live, the snapshots, the globals of
  * gl, the latches and loops left in the flash for ses_take_loops) */
 static uint32_t ses_fmt = SES_FORMAT;                  /* (the format of the record being read) */
+static uint8_t ses_mode_save = SES_LANES;             /* (what a save writes as its flow: the host's test writes 0) */
 static void ses_body(ses_glob_t *gl)
 {
     uint32_t l, k;
@@ -1014,7 +1000,7 @@ static void ses_glob_now(ses_glob_t *g)
     g->snap_used = snap.used;
     g->morph = ui.morph;
     g->path = draw_path;
-    g->mode = sig_mode;
+    g->mode = (uint8_t)ses_mode_save;
 }
 
 /* save the machine as session num (a new one, or over the one of that number). Counted, then written a sector at a
@@ -1135,7 +1121,6 @@ static int ses_load(uint32_t i)
     gen_fine = fx_fine = 0;
     ui.morph = (uint8_t)(g.morph <= MORPH_STEPS ? g.morph : 0);
     draw_path = (uint8_t)(g.path < DP_N ? g.path : DP_ANY);
-    sig_mode = (uint8_t)(g.mode < SM_N ? g.mode : SM_MESH);   /* (its state is already as its mode has it) */
     snap.used = g.snap_used;
     snap.cur = (int8_t)(g.snap_cur >= 0 && g.snap_cur < (int8_t)NSNAP ? g.snap_cur : -1);
     ui.gen = (uint8_t)(g.gen < NGEN ? g.gen : 0);
@@ -1148,6 +1133,11 @@ static int ses_load(uint32_t i)
             if (((ui.latch[l] >> k) & 1u) && (ui.latch_note[l][k] > 127u || white_ix(k) < 0))
                 ui.latch[l] &= ~(1u << k);
         ui.latch[l] &= (1u << NKEY) - 1u;
+    }
+    if (g.mode != SES_LANES) {                          /* (a MESH session, builds 28 .. 35: into lanes, every state) */
+        st_lanes(&ses_live);
+        for (k = 0; k < NSNAP; k++)
+            st_lanes(&snap.s[k]);
     }
     st_apply(&ses_live);
     for (l = 0; l < NGEN; l++)                          /* the loops, to the ISR: from their starts */
@@ -1212,15 +1202,6 @@ static int ses_copy(uint32_t from, uint32_t to)
     }
     return ses_commit(to, s, ns, &h);
 }
-/* a saved session's MODE, from its record (the page shows it), or SM_N if none */
-static uint32_t ses_mode_of(uint32_t num)
-{
-    int i = ses_find(num);
-    ses_glob_t g;
-    if (i < 0 || ses_flash_read(SES_LO + ses.sect[i] * SES_SECT + sizeof(ses_head_t), &g, sizeof g))
-        return SM_N;
-    return g.mode < SM_N ? g.mode : SM_MESH;
-}
 static uint32_t ses_current(void) { return ses.current; }
 static int ses_load_slot(uint32_t num)
 {
@@ -1266,10 +1247,9 @@ static void ses_fresh(uint32_t num)
     rv_param(&mrv, ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
     mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
     memset(slot_mod, 0, sizeof slot_mod);
-    ui.scale = 1;
-    ui.root = 0;
-    rack_root = SCALE_BASE;
-    fx_wet = FX_WET_DEF;
+    scale_random(next_seed());                           /* (build 36: a root and a scale drawn) */
+    for (l = 0; l < NFX; l++)
+        fx_wet[l] = FX_WET_DEF;
     ui.lx = 0;
     ui.oct = 0;
     lx_post();
@@ -1280,7 +1260,6 @@ static void ses_fresh(uint32_t num)
     snap_pend.i = -1;
     morph.on = 0;
     gen_fine = fx_fine = 0;
-    sig_mode = SM_LANES;                                 /* (a clean slate: LANES, as at power-on -- build 29) */
     ses.current = (uint16_t)num;
     ui.force = 1;
 }
