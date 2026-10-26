@@ -44,6 +44,20 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-40-2026-10-26-the-work-shared-better-between-the-cores-the-load-page">Build 40 (2026-10-26): the work shared better between the cores; the LOAD page</h2>
+<ul>
+<li><b>The work dealt in units</b>: each voice, each lane, and the master (delay, reverb, drive) is a unit of its own, dealt to either core by what it took its last block, the dearest first. Before, the three lanes and the master were one unit, always on CPU1 — about as heavy as all four voices together, it could not be split. The lanes have had no cables between them since build 36, so each runs apart; their outputs are summed after the join. One core and two give the same sound (<code>host cores</code>).</li>
+<li><b>The master's DRIVE off CPU0's way</b>: it ran on CPU0 alone after everything else, in series with the whole block (on the host, at 60, as dear as all the rest of CPU0's own part). It now runs in the master's unit on the mix of the block before: everything is heard one block (0.73 ms) later; nothing else changes. At 0 still untouched (<code>host drive</code>).</li>
+<li><b>The LOAD page</b> (the 10th black key, beside SHIFT; provisional): CPU 0, CPU 1, VOICES, LANES, MASTER, MIX — each its peak over the last second in % of a block's time, names amber, values white, red from 90 %. To find what is dear on the FM-1 itself (the host's figures are relative only: it has no flash cache, and its 64-bit products cost less).</li>
+<li>Tests: <code>host load</code> (lanes dealt to both cores; the page on, off, closed by another page; its figures); the page in <code>host paint</code>, <code>host fit</code>, <code>host screens</code>.</li>
+</ul>
+<h2 id="build-39-2026-10-26-mute-fades-names-and-values-in-two-colours">Build 39 (2026-10-26): mute fades; names and values in two colours</h2>
+<ul>
+<li><b>A generator's page</b>: SHIFT + its button, let go. KNOB 1 its <b>MUTE FADE IN</b>, KNOB 2 its <b>MUTE FADE OUT</b>, OFF .. 60 s (half seconds to 10 s, whole seconds above): how long its mute (its button held) takes to fade it out, and to bring it back. OFF at power-on and in a new session; OFF is the mute as before, at once. The fade is cubed (an even fall in loudness, near enough); its sends to the lane and to the master fade with it; muted or unmuted again on the way, it turns back from where it stands. Its button, or SHIFT + it again, leaves the page. SHIFT + a generator's button held, then another's, links them as before, with no page.</li>
+<li>Kept in snapshots and sessions (two spare bytes of a generator's state: sessions keep their format; older ones load OFF). A snapshot recalled at once, or a session loaded, sets the mutes at once; a morph starts each generator from where its fade stands.</li>
+<li><b>Names and values in two colours</b> on the DELAY, REVERB and MOD pages (LFOs and routes) and the new page: the name amber, the value white; on the row just turned, black on white with the name dark amber. (The DELAY and REVERB names were white, the MOD page's grey.)</li>
+<li>Tests: <code>host mutefade</code> (OFF silent at once; 2 s out falling and silent after; 1 s in; the knobs' steps and ends; no page after a link; kept in a state, given back at once); the page in <code>host paint</code>, <code>host fit</code> and <code>host screens</code>.</li>
+</ul>
 <h2 id="build-38-2026-10-26-every-word-fits-the-screen-a-generators-pan-pans-its-lane">Build 38 (2026-10-26): every word fits the screen; a generator's pan pans its lane</h2>
 <ul>
 <li><b>Nothing runs past the screen.</b> Every message the firmware can say (each <code>say</code> and <code>say_n</code> with its widest numbers, 4274 screens and messages in all, listed by <code>tools/list_says.py</code>) is drawn on the host and checked against the screen's edges and its own area (<code>host fit</code>, in the tests; 577 overflows found, none left).</li>
