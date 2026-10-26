@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Big+Shoulders+Stencil+Display:wght@700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/site.css?v=ca2e8b9a6d">
+<link rel="stylesheet" href="css/site.css?v=d1a6980616">
 </head>
 <body>
 <div class="layout">
@@ -44,6 +44,29 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-35-2026-10-26-engine-generation-5----found-sounds-in-the-grains">Build 35 (2026-10-26): engine generation 5 — found sounds in the grains</h2>
+<ul>
+<li><b>Grains of found sound</b>: sixteen clips of 0.6 s in the flash (211 KB, <code>firmware/src/found_clips.h</code>), each the steadiest stretch of its source, looping without a seam, coded 8-bit as the grain buffers. A grain may read a clip instead of the operators' sound — anywhere in it, pitched by the cloud's intervals, following the keys only as far as the sound's tracking (0 .. 50 %): no glide.
+<ul>
+<li>Ice and the sea (NOAA PMEL hydrophones): an iceberg calving, an iceberg's harmonic tremor, an icequake (the "Bloop"), an iceberg grounding, a ship heard from the Challenger Deep.</li>
+<li>The aurora's radio (NASA, the Polar spacecraft's plasma wave instrument): auroral hiss (two), auroral kilometric radiation, chorus, "saucer" emissions.</li>
+<li>The plant, rendered offline here (<code>tools/render_found.c</code>): a transformer, an air duct, a furnace, rain on a tin roof, an engine room, wind in wires. Sources and credits: <code>found/CREDITS.md</code>; the clips cut by <code>tools/make_found.c</code>.</li>
+</ul></li>
+<li><b>Three families of them</b>: DEPTHS (ice and the sea, slow and dark, an octave or two down), AURORA (the radio, airy), PLANT (the plant, now and then crushed). One older sound with a cloud in three takes a clip for a third to two thirds of its grains (AMBIENT: the depths and the aurora; EXPERIMENTAL: the plant).</li>
+<li>Every sound of generations 0 .. 4 draws and sounds bit for bit as before (<code>tests/golden</code>, <code>gen5.txt</code> new). The cost is a cloud's (the clips are read from the flash, never during a flash write: those are the main loop's, interrupts off). <code>host found DIR</code> renders the examples.</li>
+</ul>
+<h2 id="build-34-2026-10-26-engine-generation-4----an-exciter-and-a-body">Build 34 (2026-10-26): engine generation 4 — an exciter and a body</h2>
+<ul>
+<li><b>An exciter and a body after the operators</b> (new sounds are drawn on generation 4; every sound of generations 0 .. 3 draws and sounds bit for bit as before, <code>tests/golden</code>). The exciter: the operators' sound, or noise (coloured, at the operators' level, followed slowly: their swell, not their beating), or a bow. The body, tuned to the note:
+<ul>
+<li>TUBE: a waveguide a period long — its loop low-passed and damped to ring 0.3 .. 2.5 s, an allpass for a wire's stiffness, no DC round it; closed at one end, its partials odd.</li>
+<li>MODAL: six resonators on the ratios of a bar, a plate, a bell, a pipe or a hull, pulled off them a little; noise into them raised by the square root of each mode's sharpness; the operators into them with a breath of noise.</li>
+<li>The bow: Smith's bowed string (as the STK's) — neck and bridge, both ends inverting, the bow table (|3 dv| + 0.75)^-4, rosin in the bow; its stroke its own, in over the sound's attack, lifted in a quarter second, the arm wandering +- 20 %. A spent body is let go below -56 dB. Nothing in it moves the pitch.</li>
+</ul></li>
+<li><b>Five families of it</b>: WIRE (a bowed stiff wire), STEAM (noise in a pipe closed at one end, hissing beside it), CHIMNEY (dark noise in a long open tube, an octave down), GIRDER (noise in a bar's or a plate's modes), HULL (the operators droning in a bell's or a hull's modes). One sound in five of the older families is given a body too, most of it still heard as it was. The generator's scenes and paths lean on the new families as on the others.</li>
+<li>Cost: a voice with a body 590 .. 800 ns a block on the host against ~500 without (about what the grain cloud adds); 2 KiB more a voice (8 KiB of the pool).</li>
+<li>Tests: <code>host check</code>, <code>host sustain</code> and <code>host tails</code> over the new families; <code>tests/golden/gen4.txt</code>; <code>host bodies DIR</code> renders the examples (each new family on each path, older sounds without and with a body).</li>
+</ul>
 <h2 id="build-33-2026-10-25-knob-2-the-effects-mix">Build 33 (2026-10-25): KNOB 2, the effects' mix</h2>
 <ul>
 <li><b>KNOB 2, playing: FX MIX</b>, 0 .. 100, every effect of every lane at once — each effect's input and output crossed: 0 every effect passes what reaches it (dry), 100 its own output alone (as every build before). 50 at power-on and in a new session. Shown over the screen as KNOB 1's DISINTEGRATOR is: FX MIX, the value very large, ALL LANES (DRY at 0, WET at 100), a bar. Glided over a block when it moves. Kept in snapshots and sessions, glided by a morph; a session saved before build 33 loads at 100, as it sounded. Test: <code>host modules</code> (at 0 two very different slots sound alike, bit for bit; at 100 not), <code>host whole</code>.</li>
@@ -295,6 +318,6 @@
     </footer>
   </div>
 </div>
-<script src="js/menu.js?v=ca2e8b9a6d"></script>
+<script src="js/menu.js?v=d1a6980616"></script>
 </body>
 </html>

@@ -95,7 +95,6 @@ p.note { color: var(--dim); font-size: 16px; }
 
 /* home */
 .hero { padding: 4px 0 6px; }
-.hero .logo { display: block; width: 100%; max-width: 700px; height: auto; margin: 0 0 30px; }
 .hero h1 { font-size: 40px; line-height: 1.1; max-width: 22em; margin: 0; }
 .hero p { color: var(--fg); font-size: 21px; max-width: 36em; margin: 18px 0 0; }
 .hero p.grim { color: var(--dim); font-size: 19px; }
@@ -239,7 +238,6 @@ main .project h2 { margin: 0; padding: 0; border: 0; font-size: 34px; }
   main h1 { font-size: 40px; }
   main h2 { font-size: 30px; }
   .hero h1 { font-size: 31px; }
-  .hero .logo { display: none; }               /* (the bar above shows it) */
   .features { grid-template-columns: 1fr; gap: 0; }
   .features dd { margin-bottom: 10px; }
   .shot { grid-template-columns: 1fr; gap: 14px; }
