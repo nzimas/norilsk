@@ -22,6 +22,17 @@ State: **build 38**. Each build is described in `CHANGELOG.md`. Norilsk was call
 
 # Manual
 
+## First steps
+
+1. Power on. Generator 1 is chosen; each generator already has a sound and a lane of effects.
+2. Play white keys. Press **FX**, **SEL** or **ENV** to hear the other generators.
+3. Press **HOME** until a generator sounds right to you. **SHIFT + HOME** keeps its family and tries again.
+4. Hold a key and press **SHIFT** to latch it. Latch notes on two or three generators to build a texture.
+5. Turn **KNOB 2** for more or less effect, **KNOB 1** to disintegrate, **KNOB 3** and **KNOB 4** for delay and reverb.
+6. Press **SAVE**, hold a white key 0.8 s: the whole machine is stored in that snapshot. Make a few, set a morph time
+   with **KNOB 1** and move between them.
+7. Hold **SAVE** (outside the SNAPSHOTS page) to keep everything in the FM-1's flash as a session.
+
 ## Cheat sheet
 
 SHIFT is the rightmost black key. Black keys are contextual: a key with no job in the current view does nothing and
@@ -117,17 +128,6 @@ stays dark. "Hold" means 0.8 s unless stated otherwise.
 |---|---|
 | Rescue mode (install again) | Hold **OCT−** while powering on |
 | Chip's own updater | Hold **OCT−** and **OCT+** 5 s |
-
-## First steps
-
-1. Power on. Generator 1 is chosen; each generator already has a sound and a lane of effects.
-2. Play white keys. Press **FX**, **SEL** or **ENV** to hear the other generators.
-3. Press **HOME** until a generator sounds right to you. **SHIFT + HOME** keeps its family and tries again.
-4. Hold a key and press **SHIFT** to latch it. Latch notes on two or three generators to build a texture.
-5. Turn **KNOB 2** for more or less effect, **KNOB 1** to disintegrate, **KNOB 3** and **KNOB 4** for delay and reverb.
-6. Press **SAVE**, hold a white key 0.8 s: the whole machine is stored in that snapshot. Make a few, set a morph time
-   with **KNOB 1** and move between them.
-7. Hold **SAVE** (outside the SNAPSHOTS page) to keep everything in the FM-1's flash as a session.
 
 ## How it is put together
 
