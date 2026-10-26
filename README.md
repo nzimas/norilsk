@@ -133,8 +133,16 @@ its operators reading the sine or one of 28 band-limited single cycles, morphed 
 written into a buffer of about half a second a voice and read back as grains — a CLOUD at a rate of its own, pitched by
 the sound's intervals, reversed, darkened, fed back, FROZEN — or a PULSAR at a ratio of the note.
 
-Twenty **families**: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE, FURNACE,
-HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL. Four **scenes** choose among them: FIELD (ambient), MATERIAL (open),
+From build 34 (engine generation 4) a sound may also have an **exciter and a body**: the operators' sound — or noise,
+or a bow — driving a body tuned to the note. The body is a TUBE (a waveguide: a line one period long, damped, a wire's
+stiffness in it, open or closed at one end) or MODAL (six resonators on the ratios of a bar, a plate, a bell, a pipe or
+a hull). The bow is Smith's bowed string: friction gripping and slipping. A body rings out within the voices' three
+seconds; nothing in it moves the pitch. Five families are made of it, and one older sound in five is given one.
+
+Twenty-five **families**: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE,
+FURNACE, HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL, and generation 4's WIRE (a bowed stiff wire), STEAM (noise in a
+pipe closed at one end), CHIMNEY (wind in a long open tube, an octave down), GIRDER (noise in a bar's or a plate's
+modes), HULL (the operators droning in a bell's or a hull's modes). Four **scenes** choose among them: FIELD (ambient), MATERIAL (open),
 FEEDBACK and EROSION (experimental), each with its own families.
 Four macros — BRIGHTNESS, DETUNE (INHARMONIC on the metallic and noisy bodies), GRAIN, MOTION — moved by the invisible
 hand, by the LFOs, and by you. Every sound is measured as it is made and brought to one level. `docs/ENGINE.md` has the

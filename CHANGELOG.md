@@ -2,6 +2,28 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 34 (2026-10-26): engine generation 4 -- an exciter and a body
+
+- **An exciter and a body after the operators** (new sounds are drawn on generation 4; every sound of generations 0 .. 3
+  draws and sounds bit for bit as before, `tests/golden`). The exciter: the operators' sound, or noise (coloured, at
+  the operators' level, followed slowly: their swell, not their beating), or a bow. The body, tuned to the note:
+  - TUBE: a waveguide a period long -- its loop low-passed and damped to ring 0.3 .. 2.5 s, an allpass for a wire's
+    stiffness, no DC round it; closed at one end, its partials odd.
+  - MODAL: six resonators on the ratios of a bar, a plate, a bell, a pipe or a hull, pulled off them a little; noise
+    into them raised by the square root of each mode's sharpness; the operators into them with a breath of noise.
+  - The bow: Smith's bowed string (as the STK's) -- neck and bridge, both ends inverting, the bow table
+    (|3 dv| + 0.75)^-4, rosin in the bow; its stroke its own, in over the sound's attack, lifted in a quarter second,
+    the arm wandering +- 20 %.
+  A spent body is let go below -56 dB. Nothing in it moves the pitch.
+- **Five families of it**: WIRE (a bowed stiff wire), STEAM (noise in a pipe closed at one end, hissing beside it),
+  CHIMNEY (dark noise in a long open tube, an octave down), GIRDER (noise in a bar's or a plate's modes), HULL (the
+  operators droning in a bell's or a hull's modes). One sound in five of the older families is given a body too, most of
+  it still heard as it was. The generator's scenes and paths lean on the new families as on the others.
+- Cost: a voice with a body 590 .. 800 ns a block on the host against ~500 without (about what the grain cloud adds);
+  2 KiB more a voice (8 KiB of the pool).
+- Tests: `host check`, `host sustain` and `host tails` over the new families; `tests/golden/gen4.txt`; `host bodies DIR`
+  renders the examples (each new family on each path, older sounds without and with a body).
+
 ## Build 33 (2026-10-25): KNOB 2, the effects' mix
 
 - **KNOB 2, playing: FX MIX**, 0 .. 100, every effect of every lane at once -- each effect's input and output crossed:

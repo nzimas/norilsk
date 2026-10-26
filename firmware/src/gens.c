@@ -842,21 +842,21 @@ static uint32_t gen_mods(uint32_t l)
 enum { SC_FIELD, SC_MATERIAL, SC_FEEDBACK, SC_EROSION, SC_N };
 static const char *const SC_NAME[SC_N] = {"FIELD", "MATERIAL", "FEEDBACK", "EROSION"};
 static const uint8_t SC_PATH[SC_N] = {PATH_AMBIENT, PATH_OPEN, PATH_EXP, PATH_EXP};
-static const uint8_t SC_FAM[SC_N][MF_N] = {   /* (generation 3's families after the twelve) */
-    {0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1},
-    {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
-    {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0},
-    {0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0}};
-static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 2, 0, 1, 1, 0, 0};
+static const uint8_t SC_FAM[SC_N][MF_N] = {   /* (generation 3's families after the twelve; generation 4's after them) */
+    {0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1},
+    {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1},
+    {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0},
+    {0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0}};
+static const uint8_t MF_HARSH[MF_N] = {0, 0, 2, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 2, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0};
 /* the paths (rack.c draw_path): the scenes' weights, and each family's lean -- x 3 favoured, 0 left out, 1 as ever
  * (METAL DRONE BRUIT IMPACT PULSE GLASS FORMANT REED CLOUD SHATTER PULSAR FREEZE FURNACE HUM STATIC HOWL SCRAPE DATA
- * ASH TUNNEL) */
+ * ASH TUNNEL WIRE STEAM CHIMNEY GIRDER HULL) */
 static const uint8_t SC_W_ROUGH[SC_N] = {0, 1, 3, 3}, SC_W_DARK[SC_N] = {5, 1, 0, 0};
 static const uint8_t MF_LEAN[DP_N][MF_N] = {
-    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-    {3, 1, 3, 1, 0, 1, 1, 1, 1, 3, 0, 1, 3, 1, 3, 1, 3, 3, 1, 1},    /* ABRASIVE: torn, scraped, burnt, broken */
-    {1, 3, 0, 0, 0, 1, 1, 1, 3, 0, 0, 3, 0, 3, 0, 3, 0, 0, 3, 3}};   /* DARK: drones, hums, tunnels, ash */
-static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4, 3, 5, 4, 4, 4};
+    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+    {3, 1, 3, 1, 0, 1, 1, 1, 1, 3, 0, 1, 3, 1, 3, 1, 3, 3, 1, 1, 3, 1, 1, 3, 1},    /* ABRASIVE: torn, scraped, burnt */
+    {1, 3, 0, 0, 0, 1, 1, 1, 3, 0, 0, 3, 0, 3, 0, 3, 0, 0, 3, 3, 1, 1, 3, 1, 3}};   /* DARK: drones, hums, tunnels, ash */
+static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4, 3, 5, 4, 4, 4, 4, 3, 3, 5, 4};
 
 /* generator l's cables, drawn into p (HOME's rules, after Vascular's abstract path): the effects it is wired into --
  * none one time in twenty, else one (0.55), two (0.35) or three (0.1), each in an effect slot of its own if it can,

@@ -102,13 +102,6 @@ AINL int32_t res_run(res_s *s, const res_c *c, int32_t x)
     s->x1 = x;
     return y < 0 ? -((-y) >> 8) : y >> 8;
 }
-/* a Q15 product rounded towards zero: in a loop of gain under one it takes a little each trip, so the loop dies out
- * to nothing once its input is silent (truncating towards minus infinity leaves a level, or a tone, ringing on) */
-AINL int32_t mulz15(int32_t a, int32_t b)
-{
-    int64_t m = (int64_t)a * b;
-    return (int32_t)(m < 0 ? -((-m) >> 15) : m >> 15);
-}
 /* a note's frequency, Hz Q8 (MIDI, + cents) */
 static int32_t note_hz8(int32_t note, int32_t cents)
 {

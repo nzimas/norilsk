@@ -273,6 +273,10 @@ static stat_t play(mo_design_t *d, int note, double hold, double tail, const int
 static void print_design(const mo_design_t *d)
 {
     int n;
+    if (d->bd.body)
+        printf("  body %u ex %u ratio %u closed %u disp %u ring %u tone %u set %u spread %u color %u press %u dry %u\n",
+               d->bd.body, d->bd.ex, d->bd.ratio, d->bd.closed, d->bd.disp, d->bd.ring, d->bd.tone, d->bd.set, d->bd.spread,
+               d->bd.color, d->bd.press, d->bd.dry);
     printf("  %s (body %s) path %s seed %u alg %d fb %d gain %d\n", MF_NAME[d->family], MF_NAME[d->body],
            PATH_NAME[d->path], d->seed, d->p[FP_ALG] + 1, d->p[FP_FB], d->gain);
     for (n = 1; n <= 6; n++) {
@@ -357,6 +361,53 @@ static int cmd_one(int argc, char **argv)
     return 0;
 }
 
+/* generation 4's bodies, to listen to (build 34): each new family three times (one draw on each path), C3 held 8 s
+ * and let go; and older sounds that draw a body on generation 4 against the same draw on generation 3 (the body the
+ * only difference). Mono WAVs into DIR, a line each */
+static int cmd_bodies(int argc, char **argv)
+{
+    static const char *const BD[3] = {"none", "tube", "modal"}, *const EXN[3] = {"operators", "noise", "bow"};
+    static const char *const SETN[BS_N] = {"bar", "plate", "bell", "pipe", "hull"};
+    const char *dir = argc > 2 ? argv[2] : "build/bodies";
+    char name[512];
+    int f, path, n;
+    uint32_t seed;
+    for (f = MF_G4; f < MF_N; f++)
+        for (path = 0; path < PATH_N; path++) {
+            stat_t st;
+            seed = 4400u + (uint32_t)f * 17u + (uint32_t)path * 5u;
+            mo_design(&design, f, seed, (uint32_t)path, 4);
+            mo_measure(&design);
+            st = play(&design, 48, 8.0, 3.5, 0, wav);
+            snprintf(name, sizeof name, "%s/%s-%s-%u.wav", dir, MF_NAME[f], PATH_NAME[path], seed);
+            wav_write(name, wav, st.len ? st.len : FS * 12);
+            printf("%-8s %-8s seed %u: %s, %s%s%s, ring %.1f s, dry %u%%, peak %.2f rms %.3f -> %s\n", MF_NAME[f],
+                   PATH_NAME[path], seed, BD[design.bd.body % 3], EXN[design.bd.ex % 3],
+                   design.bd.body == BD_MODAL ? ", " : "", design.bd.body == BD_MODAL ? SETN[design.bd.set % BS_N] : "",
+                   design.bd.ring / 10.0, design.bd.dry, st.peak / 32768.0, st.rms, name);
+        }
+    for (n = 0, seed = 700u; n < 4 && seed < 2000u; seed++) {   /* older sounds given a body */
+        static const int8_t OLD[4] = {MF_DRONE, MF_GLASS, MF_METAL, MF_CLOUD};
+        int g;
+        f = OLD[n];
+        mo_design(&design, f, seed, PATH_OPEN, 4);
+        if (design.bd.body == BD_NONE)
+            continue;
+        for (g = 3; g <= 4; g++) {
+            stat_t st;
+            mo_design(&design, f, seed, PATH_OPEN, (uint32_t)g);
+            mo_measure(&design);
+            st = play(&design, 48, 8.0, 3.5, 0, wav);
+            snprintf(name, sizeof name, "%s/old-%s-%u-gen%d.wav", dir, MF_NAME[f], seed, g);
+            wav_write(name, wav, st.len ? st.len : FS * 12);
+            printf("%-8s seed %u generation %d: %s%s%s -> %s\n", MF_NAME[f], seed, g, g == 4 ? BD[design.bd.body % 3] : "no body",
+                   g == 4 && design.bd.body == BD_MODAL ? ", " : "",
+                   g == 4 && design.bd.body == BD_MODAL ? SETN[design.bd.set % BS_N] : "", name);
+        }
+        n++;
+    }
+    return 0;
+}
 static int cmd_check(void)
 {
     static const int8_t MACS[9][4] = {{0, 0, 0, 0}, {64, 0, 0, 0}, {-64, 0, 0, 0}, {0, 64, 0, 0}, {0, -64, 0, 0},
@@ -517,13 +568,14 @@ static int cmd_golden(uint32_t gen)
     int f, s, path;
     int32_t blk[CTL];
     for (path = 0; path < PATH_N; path++)
-        for (f = 0; f < (gen < 3u ? MF_N_OLD : MF_N); f++)   /* (each generation over the families it knows) */
+        for (f = 0; f < (gen < 3u ? MF_N_OLD : gen < 4u ? MF_N_G3 : MF_N); f++)   /* (each generation over its families) */
             for (s = 0; s < 8; s++) {
                 uint32_t seed = 100u + (uint32_t)f * 31u + (uint32_t)s + (uint32_t)path * 503u, h, b;
                 mo_design(&design, f, seed, (uint32_t)path, gen);
                 mo_measure(&design);
                 /* (the design as generations 0 .. 2 laid it out: generation 3's fields after it, zero before it) */
-                h = fnv(2166136261u, &design, gen < 3u ? (uint32_t)__builtin_offsetof(mo_design_t, hand) : (uint32_t)sizeof design);
+                h = fnv(2166136261u, &design, gen < 3u ? (uint32_t)__builtin_offsetof(mo_design_t, hand)
+                                              : gen < 4u ? (uint32_t)__builtin_offsetof(mo_design_t, bd) : (uint32_t)sizeof design);
                 memset(&voice, 0, sizeof voice - MO_GR_N);
                 mo_note_on(&voice, &design, 60, 1);
                 for (b = 0; b < 2756u; b++) {            /* 2 s */
@@ -1955,12 +2007,25 @@ static int cmd_morph(void)
 /* a morph ends as a recall would: for many pairs of snapshots (every slot drawn anew between them, a slot muted, a
  * generator quieter), a note latched -- the machine after a morph from A into B against B applied at once to a fresh
  * machine with the same note latched: the same state, and the same loudness (nothing of A left behind) */
+static int fresh_keep;                           /* (generator 1 the sound the DISINTEGRATOR's test was made on) */
 static void ends_fresh(uint32_t seed)
 {
     fm1_in.notes = fm1_in.buttons = 0;
     ui_init();
     ui.seed = seed;
     gens_init(ui.seed);
+    if (fresh_keep) {                            /* (build 34: generation 3's DATA, as builds 18 .. 33 drew it here --
+                                                  * the test's thresholds were set on it) */
+        gen_keep_t k;
+        gen_keep(0, &k);
+        k.family = MF_DATA;
+        k.dseed = 2532491484u;
+        k.path = PATH_EXP;
+        k.gen = 3;
+        k.gain = 2156;
+        gen_set(0, &k);
+        fw_run(10);
+    }
     ses_init(1);
     master_q12 = 4096;
     press(B_FX, 50);
@@ -2336,6 +2401,7 @@ static int cmd_dis(void)
     int fails = 0;
     uint32_t i, k;
     double prev = 0;
+    fresh_keep = 1;                                      /* (build 34: the sound it was made on, whatever the seed draws now) */
     ends_fresh(4711u);                                   /* a note latched on generator 1 */
     {
         uint32_t h0 = dis_run(-1, ref, DIS_T), h1;
@@ -2374,6 +2440,7 @@ static int cmd_dis(void)
     dis_run(0, 0, 70);
     if (dis[0].g != Q15 || dis[0].m || dis[0].pan)
         printf("FAIL dis: back at 0, still touched (gain %d, wet %d, pan %d)\n", dis[0].g, dis[0].m, dis[0].pan), fails++;
+    fresh_keep = 0;
     printf("dis: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -4007,6 +4074,8 @@ int main(int argc, char **argv)
         return cmd_mtails();
     if (!strcmp(argv[1], "link"))
         return cmd_link();
+    if (!strcmp(argv[1], "bodies"))
+        return cmd_bodies(argc, argv);
     if (!strcmp(argv[1], "demo"))
         return cmd_demo(argc, argv);
     if (!strcmp(argv[1], "whole"))

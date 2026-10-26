@@ -37,15 +37,24 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
  * (FORMANT, REED) given an inharmonic modulator one time in two; a freeze never before the body's attack is over;
  * 2 from build 5: textures and drones only -- every sound swells in, holds and keeps moving (mol.c mo_gen2); IMPACT
  * and PULSE are not drawn; 3 from build 10: Anima's invisible hand on each voice, Russolo's grit (the small DAC, XOR
- * logic, stutters, bent grains), eight new families (FURNACE HUM STATIC HOWL SCRAPE DATA ASH TUNNEL) */
-#define GEN_NOW 3u
-#define GEN_N 4u
+ * logic, stutters, bent grains), eight new families (FURNACE HUM STATIC HOWL SCRAPE DATA ASH TUNNEL); 4 from build
+ * 34: an exciter and a body after the operators (noise or a bow into a waveguide, or the operators' sound into six
+ * resonators), five families of it (WIRE STEAM CHIMNEY GIRDER HULL), one older sound in five given a body */
+#define GEN_NOW 4u
+#define GEN_N 5u
 /* EDIT's four macros on a sound: -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
 #define NMAC 4u
 
 AINL int32_t clampi(int32_t x, int32_t lo, int32_t hi) { return x < lo ? lo : x > hi ? hi : x; }
 AINL int32_t mulq15(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }
+/* a Q15 product rounded towards zero: in a loop of gain under one it takes a little each trip, so the loop dies out
+ * to nothing once its input is silent (rack.c's; here from build 34, the engine's body uses it too) (truncating towards minus infinity leaves a level, or a tone, ringing on) */
+AINL int32_t mulz15(int32_t a, int32_t b)
+{
+    int64_t m = (int64_t)a * b;
+    return (int32_t)(m < 0 ? -((-m) >> 15) : m >> 15);
+}
 AINL int32_t mulq16(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 16); }
 AINL int32_t mulq12(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 12); }
 AINL int32_t absi(int32_t x) { return x < 0 ? -x : x; }

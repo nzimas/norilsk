@@ -51,11 +51,14 @@
 enum { MF_METAL, MF_DRONE, MF_BRUIT, MF_IMPACT, MF_PULSE, MF_GLASS, MF_FORMANT, MF_REED,
        MF_BODY_N,
        MF_CLOUD = MF_BODY_N, MF_SHATTER, MF_PULSAR, MF_FREEZE,
-       MF_G3, MF_FURNACE = MF_G3, MF_HUM, MF_STATIC, MF_HOWL, MF_SCRAPE, MF_DATA, MF_ASH, MF_TUNNEL, MF_N };
+       MF_G3, MF_FURNACE = MF_G3, MF_HUM, MF_STATIC, MF_HOWL, MF_SCRAPE, MF_DATA, MF_ASH, MF_TUNNEL,
+       MF_G4, MF_WIRE = MF_G4, MF_STEAM, MF_CHIMNEY, MF_GIRDER, MF_HULL, MF_N };
 #define MF_N_OLD MF_G3           /* the families generations 0 .. 2 know */
+#define MF_N_G3 MF_G4            /* .. and generation 3 */
 static const char *const MF_NAME[MF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "PULSE", "GLASS", "FORMANT", "REED",
                                           "CLOUD", "SHATTER", "PULSAR", "FREEZE",
-                                          "FURNACE", "HUM", "STATIC", "HOWL", "SCRAPE", "DATA", "ASH", "TUNNEL"};
+                                          "FURNACE", "HUM", "STATIC", "HOWL", "SCRAPE", "DATA", "ASH", "TUNNEL",
+                                          "WIRE", "STEAM", "CHIMNEY", "GIRDER", "HULL"};
 /* the families' weights on each path (generation 0) */
 static const uint8_t MF_W[PATH_N][MF_N] = {
     {2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3},
@@ -83,10 +86,16 @@ static const uint8_t MF_W3[PATH_N][MF_N] = {
     {2, 4, 1, 0, 0, 4, 2, 1, 4, 1, 2, 3, 2, 3, 1, 4, 1, 1, 5, 6},
     {2, 1, 4, 0, 0, 1, 2, 1, 2, 3, 3, 2, 5, 3, 6, 3, 5, 6, 2, 1},
 };
+/* generation 4: the bodies' families (WIRE .. HULL) a fifth of the draws, leaning by path */
+static const uint8_t MF_W4[PATH_N][MF_N] = {
+    {2, 3, 2, 0, 0, 2, 1, 1, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3, 3, 3},
+    {2, 4, 1, 0, 0, 4, 2, 1, 4, 1, 2, 3, 2, 3, 1, 4, 1, 1, 5, 6, 3, 2, 5, 2, 6},
+    {2, 1, 4, 0, 0, 1, 2, 1, 2, 3, 3, 2, 5, 3, 6, 3, 5, 6, 2, 1, 5, 5, 2, 5, 1},
+};
 static const uint8_t *mo_fam_w(uint32_t path, uint32_t gen)
 {
     path = path >= PATH_N ? PATH_OPEN : path;
-    return gen >= 3u ? MF_W3[path] : gen >= 2u ? MF_W2[path] : MF_W[path];
+    return gen >= 4u ? MF_W4[path] : gen >= 3u ? MF_W3[path] : gen >= 2u ? MF_W2[path] : MF_W[path];
 }
 
 /* the grain recipe */
@@ -138,13 +147,32 @@ typedef struct {
         uint8_t bend;            /* grains read with an address bit bent, % */
         uint8_t mix;             /* the crushed and logical share, 0 .. 100 */
     } grit;
+    /* generation 4 (zero before it, and nothing below runs then): an exciter and a body after the operators */
+    struct {
+        uint8_t body;            /* BD_NONE (none), BD_TUBE (a waveguide), BD_MODAL (six resonators) */
+        uint8_t ex;              /* what drives it: EX_FM (the operators' sound), EX_NOISE, EX_BOW */
+        uint8_t ratio;           /* its tuning, x / 8 of the note (4: an octave down .. 16: an octave up) */
+        uint8_t closed;          /* TUBE: closed at one end (odd partials) */
+        uint8_t disp;            /* TUBE: stiffness 0 .. 100 (a wire's partials pulled apart) */
+        uint8_t ring;            /* how long it rings, tenths of a second (3 .. 25) */
+        uint8_t tone;            /* TUBE: its loop's brightness 0 .. 100 */
+        uint8_t set;             /* MODAL: its modes (BS_*) */
+        uint8_t spread;          /* MODAL: the modes pulled off the set, 0 .. 100 */
+        uint8_t color;           /* NOISE: dark 0 .. bright 100 */
+        uint8_t press;           /* BOW: its pressure 0 .. 100 */
+        uint8_t dry;             /* the exciter heard as it is beside the body, 0 .. 100 */
+    } bd;
 } mo_design_t;
+enum { BD_NONE, BD_TUBE, BD_MODAL };
+enum { EX_FM, EX_NOISE, EX_BOW };
+enum { BS_BAR, BS_PLATE, BS_BELL, BS_PIPE, BS_HULL, BS_N };
 /* the hand's controllers (Anima's) and its destinations here */
 enum { HS_X, HS_Y, HS_SIZE, HS_SPEED, HS_ANGLE, HS_DIST, HS_AGE, HS_GX, HS_GY, HS_COUNT, HS_N };
 enum { HD_BRIGHT, HD_GRAIN, HD_LEVEL, HD_GRIT, HD_GLITCH, HD_DARK, HD_N };
 
 #define MO_GR_N 12288u           /* the grain buffer: samples at FS / 2 (0.557 s), mu-law */
 #define MO_GR_MAXG 4u            /* grains at once */
+#define MO_BD_N 1024u            /* generation 4: a TUBE's line, samples (43 Hz: lower notes an octave up) */
 #define MO_VEL 100
 #define MO_TARGET_RMS 3277       /* 0.1 Q15: what a sound's loudest window is brought to */
 
@@ -197,11 +225,29 @@ typedef struct {
     uint16_t hquiet;             /* blocks let go and silent (generation 3: the hand may keep the operators from settling) */
     uint8_t g3;                  /* the sound is of generation 3 or later (the grains' fix) */
     int32_t lenv;                /* the grit's follower of the sound's level */
+    /* generation 4: the body (mo_body_start, mo_body_run) */
+    uint8_t bdon, bclosed, bnm;
+    int32_t xenv;                /* the exciter's level: the operators' sound followed (Q8 above the sample) */
+    int32_t nlp, ncol;           /* NOISE: its colour's low-pass, its step (Q15) */
+    rnd_t brnd;
+    int32_t bL;                  /* TUBE: its length, Q8 samples */
+    int32_t bg, bkin, btone, bdisp, bbow, bdry;   /* loop gain, input, loop low-pass step, allpass, bow, dry: Q15 */
+    int32_t blp, bapx, bapy, bhx, bhy;           /* (the loop's low-pass, allpass, DC blocker) */
+    int32_t bLb, bvb;            /* BOW: the bridge's side, samples (the neck's is bL); the bow's speed this block */
+    int32_t bramp, bup, bwand, bwt; /* BOW: its stroke, Q15 (in over the attack, out in a quarter second), its step up;
+                                     * the arm's wander and where it is going (Q15 around 1) */
+    uint32_t bw2;
+    uint32_t bw;
+    int32_t ma1[6], ma2[6], mg[6], mgn[6], my1[6], my2[6];   /* MODAL: Q29 coefficients, Q30 inputs (the operators',
+                                                              * the noise's), states Q23 */
+    int16_t bline[MO_BD_N];
     uint8_t buf[MO_GR_N];
 } mo_voice_t;
 
 /* ------------------------------------------------------------ the voice --- */
 static void mo_hand_start(mo_voice_t *v, const mo_design_t *d);   /* (generation 3: below) */
+static void mo_body_start(mo_voice_t *v, const mo_design_t *d);   /* (generation 4: below) */
+static void mo_env_adsr(const mo_design_t *d, int32_t *a);
 static void mo_note_on(mo_voice_t *v, const mo_design_t *d, int32_t note, int fresh)
 {
     const uint8_t *p = d->p;
@@ -234,6 +280,7 @@ static void mo_note_on(mo_voice_t *v, const mo_design_t *d, int32_t note, int fr
     fm6_lfo_key(&v->lfo);
     v->live = 1;
     v->g3 = (uint8_t)(d->gen >= 3u);
+    mo_body_start(v, d);                         /* (generation 4: the body, tuned to the note; off before) */
     if (d->gen >= 3u) {                          /* (generation 3: the hand put down, the grit from silence) */
         if (fresh && d->hand.on)
             mo_hand_start(v, d);
@@ -832,6 +879,231 @@ static FAST void mo_grit(mo_voice_t *v, const mo_design_t *d, int32_t *y)
 
 /* ------------------------------------------------------------- the block --- */
 /* one block (CTL samples), Q15 into out; 0 when the voice is silent for good. mac: EDIT's macros (0: none) */
+/* ------------------------------------------------------- generation 4 --- */
+/* The exciter and the body: the operators' sound -- or noise, or a bow, following the operators' level, so the swell
+ * and the hold are theirs -- drives a body tuned to the note:
+ *   TUBE    a waveguide: a line one period long, its loop damped and low-passed, an allpass in it for a wire's
+ *           stiffness (its partials pulled apart); closed at one end, its partials odd
+ *   MODAL   six resonators on the ratios of a bar, a plate, a bell, a pipe or a hull, pulled off them a little
+ * The bow is a friction: the string's speed against the bow's, gripping while they are close, slipping when apart.
+ * A body rings RING tenths of a second (60 dB down) at most, so a released note dies within the voices' three
+ * seconds; nothing in it moves the pitch */
+#define MSR(x) ((uint32_t)((x) * 65536u / 1000u))   /* a ratio x 1000 as Q16 */
+static const uint32_t BS_RATIO[BS_N][6] = {
+    {MSR(1000), MSR(2756), MSR(5404), MSR(8933), MSR(13344), MSR(18640)},   /* a bar, free at its ends */
+    {MSR(1000), MSR(1594), MSR(2136), MSR(2296), MSR(2653), MSR(2918)},     /* a plate */
+    {MSR(500), MSR(1000), MSR(1183), MSR(1506), MSR(2000), MSR(2514)},      /* a bell: hum, prime, third, fifth, octave */
+    {MSR(1000), MSR(3000), MSR(5000), MSR(7000), MSR(9000), MSR(11000)},    /* a pipe closed at one end */
+    {MSR(1000), MSR(1412), MSR(1890), MSR(2312), MSR(2770), MSR(3195)},     /* a hull: a large plate, its modes crowded */
+};
+static const int16_t BOW_TAB[129] = {   /* Smith's bow: (u + 0.75)^-4 clipped to 1, u = |3 dv| from 0 to 4 in 32nds, Q15 */
+    32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 28972, 25711, 22896, 20456, 18333, 16478, 14852,
+    13421, 12159, 11042, 10050, 9167, 8379, 7674, 7041, 6472, 5960, 5497, 5079, 4699, 4354, 4041, 3755,
+    3494, 3255, 3036, 2835, 2651, 2482, 2325, 2181, 2048, 1925, 1811, 1705, 1607, 1516, 1431, 1352,
+    1279, 1210, 1146, 1086, 1030, 977, 928, 882, 839, 798, 760, 724, 690, 658, 628, 600,
+    573, 548, 524, 501, 480, 459, 440, 422, 405, 388, 373, 358, 344, 330, 317, 305,
+    294, 283, 272, 262, 253, 243, 235, 226, 218, 211, 203, 196, 190, 183, 177, 171,
+    166, 160, 155, 150, 145, 141, 136, 132, 128, 124, 120, 117, 113, 110, 107, 103,
+    100, 98, 95, 92, 89, 87, 85, 82, 80, 78, 76, 74, 72, 70, 68, 66,
+    64};
+#define BOW_NECK 896u            /* (the bow: the line's first 896 samples the neck's, the rest the bridge's) */
+static void mo_body_start(mo_voice_t *v, const mo_design_t *d)
+{
+    int32_t hz8, ring = clampi(d->bd.ring, 3, 25), k;
+    v->bdon = (uint8_t)(d->gen >= 4u && d->bd.body != BD_NONE);
+    if (!v->bdon)
+        return;
+    hz8 = (int32_t)(((uint64_t)440u * 256u * exp2_q16((v->note - 69) * 65536 / 12)) >> 16);   /* the note, Hz Q8 */
+    hz8 = clampi(clampi(hz8, 8 << 8, 12000 << 8) * clampi(d->bd.ratio, 4, 16) / 8, 8 << 8, 12000 << 8);
+    v->xenv = 0;
+    v->nlp = 0;
+    v->ncol = 1500 + d->bd.color * 28500 / 100;
+    v->bdry = d->bd.dry * (Q15 / 100);
+    rnd_seed(&v->brnd, d->seed ^ 0x424F4459u ^ (uint32_t)v->note * 2654435761u);
+    if (d->bd.body == BD_TUBE) {
+        int32_t c = -(int32_t)clampi(d->bd.disp, 0, 100) * (Q15 * 6 / 10) / 100, L, trips, x16, g;
+        memset(v->bline, 0, sizeof v->bline);
+        v->bw = 0;
+        v->blp = v->bapx = v->bapy = v->bhx = v->bhy = 0;
+        v->bclosed = (uint8_t)(d->bd.closed != 0);
+        for (;;) {
+            L = (int32_t)(((uint32_t)FS << 16) / (uint32_t)hz8);   /* a period, Q8 samples */
+            if (v->bclosed)
+                L >>= 1;                             /* (closed: the line half the period, the trip inverted) */
+            if (L <= (int32_t)(MO_BD_N - 8u) << 8)
+                break;
+            hz8 <<= 1;                               /* (too low for the line: an octave up) */
+        }
+        L -= ((Q15 - c) << 8) / (Q15 + c);       /* (the allpass's own delay at the bottom: in tune) */
+        v->bL = clampi(L, 4 << 8, (int32_t)(MO_BD_N - 8u) << 8);
+        v->bdisp = c;
+        v->bw2 = 0;
+        if (d->bd.ex == EX_BOW) {                /* (the bow an eighth of the way along: bridge and neck; the string
+                                                  * stirred, faintly, so the bow catches it) */
+            for (k = 0; k < (int32_t)MO_BD_N; k++)
+                v->bline[k] = (int16_t)(rnd_bi(&v->brnd) >> 9);
+            int32_t P = clampi(L, 16 << 8, (int32_t)(BOW_NECK + 120u) << 8);
+            v->bLb = clampi((P >> 3) >> 8, 2, (int32_t)(MO_BD_N - BOW_NECK) - 2);
+            v->bL = clampi(P - (v->bLb << 8), 4 << 8, (int32_t)(BOW_NECK - 4u) << 8);
+        }
+        trips = (int32_t)(((uint32_t)FS << 8) / (uint32_t)v->bL);   /* trips round the loop a second */
+        x16 = 6531317 / (ring * (trips ? trips : 1));    /* 9.966 / (T trips), Q16: 60 dB in T */
+        g = (int32_t)(exp2_q16(-x16) >> 1);
+        v->bg = clampi(g, 3277, 32700);
+        v->btone = d->bd.ex == EX_BOW ? 20000 + clampi(d->bd.tone, 0, 100) * 11000 / 100   /* (a bowed string's bridge
+                                                  * keeps its highs: the stick and slip need them) */
+                                      : 3000 + clampi(d->bd.tone, 0, 100) * 29000 / 100;
+        v->bkin = clampi((Q15 - v->bg) * (d->bd.ex == EX_FM ? 2 : 6), 300, Q15);   /* (the operators' partials on the
+                                                  * tube's own harmonics: about twice them at the peak; noise more) */
+        v->bbow = 4000 + clampi(d->bd.press, 0, 100) * 5000 / 100;   /* (the bow's top speed: 0.12 .. 0.27) */
+        v->bvb = 0;
+        v->bramp = 0;
+        v->bwand = v->bwt = Q15;
+        if (d->bd.ex == EX_BOW) {                /* (its stroke in over the sound's attack: 0.3 .. 1.5 s) */
+            int32_t a[4];
+            mo_env_adsr(d, a);
+            v->bup = Q15 / (int32_t)maxi((int32_t)ms_blocks((uint32_t)clampi(a[0], 300, 1500)), 1);
+        }
+        v->bnm = 0;
+    } else {
+        rnd_t rr;
+        rnd_seed(&rr, d->seed ^ 0x4D4F4445u);
+        v->bnm = 0;
+        for (k = 0; k < 6; k++) {
+            int32_t det = 65536 + rnd_bi(&rr) * clampi(d->bd.spread, 0, 100) / 1250;   /* Q16 (+- 4 % at the most) */
+            int64_t f64 = ((((int64_t)hz8 * BS_RATIO[d->bd.set % BS_N][k]) >> 16) * det) >> 16;
+            int32_t f8, ringk, rq, c15, s15;
+            uint32_t ph;
+            if (f64 > 16000 << 8 || f64 < 20 << 8)
+                continue;
+            f8 = (int32_t)f64;
+            ph = (uint32_t)(((uint64_t)(uint32_t)f8 * 24931869u) >> 16);   /* 2 pi f / FS as a phase (2^40 / FS / 256) */
+            c15 = sin_ph(ph + 0x40000000u);
+            s15 = absi(sin_ph(ph));
+            ringk = maxi(2, ring * 100 / (100 + 25 * k));   /* (the higher modes shorter) */
+            rq = (int32_t)((1u << 29) - 3708600000u / (uint32_t)(ringk * 4410));   /* r, Q29: 60 dB in T */
+            v->ma1[v->bnm] = (int32_t)(((int64_t)rq * c15) >> 14);
+            v->ma2[v->bnm] = (int32_t)(((int64_t)rq * rq) >> 29);
+            v->mg[v->bnm] = (int32_t)(((int64_t)((1 << 29) - rq) * s15) >> 13) * 100 / (100 + 40 * k);   /* 2 (1 - r) sin w */
+            /* (noise: the narrower a mode, the less of it reaches it -- its input raised by the square root of the
+             * mode's sharpness, 1 / (1 - r)) */
+            v->mgn[v->bnm] = v->mg[v->bnm] * (int32_t)isqrt32((1u << 29) / (uint32_t)maxi((1 << 29) - rq, 1));
+            v->my1[v->bnm] = v->my2[v->bnm] = 0;
+            v->bnm++;
+        }
+    }
+}
+/* the body over the operators' sound y (Q15), in place */
+static FAST void mo_body_run(mo_voice_t *v, const mo_design_t *d, int32_t *y)
+{
+    uint32_t i, k;
+    int32_t ex = d->bd.ex, bpk = 0;
+    if (ex == EX_BOW) {                          /* the bow's speed: its stroke (in over the attack while the key is down,
+                                                  * lifted in a quarter second after), the arm wandering +- 20 % */
+        v->bramp = v->n.down || v->hold ? mini(v->bramp + v->bup, Q15) : maxi(v->bramp - Q15 / 345, 0);
+        if (!(v->blocks & 255u))                 /* (a new place for the arm every 0.19 s) */
+            v->bwt = Q15 + mulq15(rnd_bi(&v->brnd), LV(0.2));
+        v->bwand += (v->bwt - v->bwand) >> 6;
+        v->bvb = mulq15(mulq15(v->bramp, v->bwand), v->bbow);
+    }
+    for (i = 0; i < CTL; i++) {
+        int32_t fm = y[i], src, o;
+        v->xenv += (absi(fm) * 256 - v->xenv) >> (ex == EX_FM ? 7 : 12);   /* (the operators' level followed, Q8 above
+                                                  * the sample -- slowly for the noise, ~90 ms: their swell, not their
+                                                  * beating; nothing pulsed) */
+        int32_t nz = 0;
+        if (ex != EX_FM || d->bd.body == BD_MODAL) {   /* noise, coloured, at the operators' level */
+            v->nlp += mulz15(rnd_bi(&v->brnd) - v->nlp, v->ncol);
+            nz = mulq15(v->nlp, mini((v->xenv >> 8) * 3, Q15));
+        }
+        src = ex == EX_FM ? fm : nz;
+        if (d->bd.body == BD_MODAL) {            /* (the operators into the modes with a breath of noise beside them, a
+                                                  * quarter of their level: so the modes sound whatever the partials) */
+            int32_t in23 = ex == EX_FM ? fm * 256 : 0, nz23 = (ex == EX_FM ? nz / 4 : nz) * 256, acc = 0;
+            for (k = 0; k < v->bnm; k++) {
+                int64_t m = (int64_t)v->ma1[k] * v->my1[k] - (int64_t)v->ma2[k] * v->my2[k];
+                int32_t yk = (int32_t)(m < 0 ? -((-m) >> 29) : m >> 29) + (int32_t)(((int64_t)in23 * v->mg[k]) >> 30) +
+                             (int32_t)(((int64_t)nz23 * v->mgn[k]) >> 30);
+                v->my2[k] = v->my1[k];
+                v->my1[k] = yk;
+                acc += yk;
+            }
+            o = acc / 256;
+        } else if (ex == EX_BOW) {                   /* the bowed string (Smith's): neck and bridge, both ends inverting; the
+                                                  * bow's speed against the string's, its grip from the bow table */
+            uint32_t rp = (v->bw << 8) + (BOW_NECK << 8) - (uint32_t)v->bL, i0 = rp >> 8, i1, f = rp & 255u, rb;
+            int32_t nut, br, t, sv, dv, u, ix, r, nv;
+            if (i0 >= BOW_NECK)
+                i0 -= BOW_NECK;
+            i1 = i0 + 1u >= BOW_NECK ? 0u : i0 + 1u;
+            nut = -(v->bline[i0] + (((v->bline[i1] - v->bline[i0]) * (int32_t)f) >> 8));
+            rb = v->bw2 + (MO_BD_N - BOW_NECK) - (uint32_t)v->bLb;
+            if (rb >= MO_BD_N - BOW_NECK)
+                rb -= MO_BD_N - BOW_NECK;
+            t = v->bline[BOW_NECK + rb];
+            v->blp += mulz15(t - v->blp, v->btone);  /* (the bridge: a low-pass, the loss, inverted) */
+            t = mulz15(v->bdisp, v->blp - v->bapy) + v->bapx;   /* (the stiffness) */
+            v->bapx = v->blp;
+            v->bapy = t;
+            {
+                int32_t h = t - v->bhx + mulz15(v->bhy, 32604);
+                v->bhx = t;
+                v->bhy = h;
+                t = h;
+            }
+            br = -mulz15(t, v->bg);
+            sv = br + nut;
+            dv = v->bvb + mulq15(rnd_bi(&v->brnd), v->bvb >> 5) - sv;   /* (the rosin: a grain of noise in the bow) */
+            u = absi(dv) * 3;                        /* (the table: u = |3 dv|, 0 .. 4 in 32nds) */
+            ix = mini(u >> 10, 127);
+            r = BOW_TAB[ix] + (((BOW_TAB[ix + 1] - BOW_TAB[ix]) * (u & 1023)) >> 10);
+            nv = mulq15(dv, r);
+            v->bline[v->bw] = (int16_t)clampi(br + nv, -32767, 32767);
+            v->bline[BOW_NECK + v->bw2] = (int16_t)clampi(nut + nv, -32767, 32767);
+            if (++v->bw >= BOW_NECK)
+                v->bw = 0;
+            if (++v->bw2 >= MO_BD_N - BOW_NECK)
+                v->bw2 = 0;
+            o = mulq12(br, d->gain);                 /* (the bridge's motion out, at the sound's measured gain) */
+        } else {                                     /* the tube */
+            uint32_t rp = (v->bw << 8) + (MO_BD_N << 8) - (uint32_t)v->bL, i0 = rp >> 8, i1, f = rp & 255u;
+            int32_t s, t, fb, e;
+            if (i0 >= MO_BD_N)
+                i0 -= MO_BD_N;
+            i1 = i0 + 1u >= MO_BD_N ? 0u : i0 + 1u;
+            s = v->bline[i0] + (((v->bline[i1] - v->bline[i0]) * (int32_t)f) >> 8);
+            v->blp += mulz15(s - v->blp, v->btone);  /* (the loop's low-pass; towards zero: it dies out to nothing) */
+            t = mulz15(v->bdisp, v->blp - v->bapy) + v->bapx;   /* (the stiffness: an allpass) */
+            v->bapx = v->blp;
+            v->bapy = t;
+            {   /* (no DC round the loop: a bow gripping steadily would push a constant speed round it) */
+                int32_t h = t - v->bhx + mulz15(v->bhy, 32604);   /* (~25 Hz) */
+                v->bhx = t;
+                v->bhy = h;
+                t = h;
+            }
+            fb = mulz15(t, v->bg);
+            if (v->bclosed)
+                fb = -fb;
+            e = mulq15(src, v->bkin);
+            v->bline[v->bw] = (int16_t)clampi(fb + e, -32767, 32767);
+            if (++v->bw >= MO_BD_N)
+                v->bw = 0;
+            o = fb;
+        }
+        bpk = maxi(bpk, absi(o));
+        y[i] = clampi(o + mulq15(src, v->bdry), -4 * Q15, 4 * Q15);
+    }
+    if (!(ex == EX_BOW ? v->bramp : v->xenv) && bpk && bpk < 52) {           /* nothing driving it and under -56 dB: let go at once (the roundings of
+                                                  * a long loop may otherwise keep a whisper going round) */
+        if (d->bd.body == BD_TUBE)
+            memset(v->bline, 0, sizeof v->bline);
+        v->blp = v->bapx = v->bapy = v->bhx = v->bhy = 0;
+        for (k = 0; k < 6u; k++)
+            v->my1[k] = v->my2[k] = 0;
+    }
+}
+
 static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, const int8_t *mac)
 {
     const uint8_t *p = d->p;
@@ -914,6 +1186,8 @@ static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, con
             }
         }
     }
+    if (v->bdon)
+        mo_body_run(v, d, y);                    /* (generation 4: the exciter and the body) */
     if (d->gen >= 3u && (d->grit.bits | d->grit.hold | d->grit.logic | d->grit.stut | (uint32_t)v->hoff[HD_GLITCH]))
         mo_grit(v, d, y);                        /* (generation 3: Russolo's grit) */
     mo_grains(v, gr, y, out, gmac, motion);
@@ -928,7 +1202,10 @@ static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, con
         if (v->hquiet > 345u)
             return (v->live = 0);
     }
-    /* alive? the operators sounding; else the cloud, until it has let go */
+    /* alive? the operators sounding; else the cloud, until it has let go (generation 4: a body rings on until it is
+     * silent, as above) */
+    if (v->bdon)
+        return v->live;
     if (!v->fm_done)
         return 1;
     if (!gr)
@@ -1759,6 +2036,105 @@ static void mo_fam3(mo_design_t *d, int32_t f, rnd_t *r)
         break;
     }
 }
+/* generation 4's families: a body each, the operators' sound under it (as generation 3's, a body borrowed) */
+static int mo_fam4_body(int32_t f, rnd_t *r)
+{
+    switch (f) {
+    case MF_WIRE: case MF_CHIMNEY: return MF_DRONE;
+    case MF_STEAM: return rnd_chance(r, 50) ? MF_DRONE : MF_GLASS;
+    case MF_GIRDER: return rnd_chance(r, 50) ? MF_DRONE : MF_GLASS;   /* (bodies that hold: the noise follows them) */
+    default: return rnd_chance(r, 60) ? MF_DRONE : MF_METAL;   /* HULL */
+    }
+}
+static void mo_fam4(mo_design_t *d, int32_t f, rnd_t *r)
+{
+    uint8_t *p = d->p;
+    switch (f) {
+    case MF_WIRE:                                /* a bowed wire: a stiff string drawn by friction, the operators its arm */
+        d->bd.body = BD_TUBE;
+        d->bd.ex = EX_BOW;
+        d->bd.ratio = (uint8_t)(rnd_chance(r, 30) ? 4 : 8);
+        d->bd.disp = (uint8_t)rnd_in(r, 20, 80);
+        d->bd.ring = (uint8_t)rnd_in(r, 8, 20);
+        d->bd.tone = (uint8_t)rnd_in(r, 45, 85);
+        d->bd.press = (uint8_t)rnd_in(r, 40, 95);
+        if (rnd_chance(r, 35)) {
+            mo_cloud(&d->gr, r);
+            d->gr.mix = (uint8_t)rnd_in(r, 20, 50);
+            d->gr.freeze_ms = 0;
+        }
+        break;
+    case MF_STEAM:                               /* steam in pipes: noise into a tube closed at one end, hissing beside */
+        d->bd.body = BD_TUBE;
+        d->bd.ex = EX_NOISE;
+        d->bd.closed = 1;
+        d->bd.ratio = (uint8_t)(rnd_chance(r, 50) ? 8 : 16);
+        d->bd.disp = (uint8_t)rnd_in(r, 0, 25);
+        d->bd.ring = (uint8_t)rnd_in(r, 3, 10);
+        d->bd.tone = (uint8_t)rnd_in(r, 30, 75);
+        d->bd.color = (uint8_t)rnd_in(r, 55, 100);
+        d->bd.dry = (uint8_t)rnd_in(r, 10, 35);
+        break;
+    case MF_CHIMNEY:                             /* wind in a chimney: dark noise in a long open tube, an octave down */
+        p[FP_TRNSP] = 12;
+        d->bd.body = BD_TUBE;
+        d->bd.ex = EX_NOISE;
+        d->bd.ratio = 4;
+        d->bd.disp = (uint8_t)rnd_in(r, 0, 15);
+        d->bd.ring = (uint8_t)rnd_in(r, 5, 14);
+        d->bd.tone = (uint8_t)rnd_in(r, 15, 45);
+        d->bd.color = (uint8_t)rnd_in(r, 10, 40);
+        d->bd.dry = (uint8_t)rnd_in(r, 15, 40);
+        if (rnd_chance(r, 40)) {
+            mo_cloud(&d->gr, r);
+            d->gr.dark = (uint8_t)rnd_in(r, 50, 85);
+            d->gr.mix = (uint8_t)rnd_in(r, 30, 60);
+            d->gr.freeze_ms = 0;
+        }
+        break;
+    case MF_GIRDER:                              /* a girder in the wind: a bar's or a plate's modes, noise in them */
+        d->bd.body = BD_MODAL;
+        d->bd.ex = EX_NOISE;                     /* (the operators' partials meet a bar's modes only as they begin: struck) */
+        d->bd.set = (uint8_t)(rnd_chance(r, 50) ? BS_BAR : BS_PLATE);
+        d->bd.ratio = (uint8_t)(rnd_chance(r, 50) ? 4 : 8);
+        d->bd.ring = (uint8_t)rnd_in(r, 10, 25);
+        d->bd.spread = (uint8_t)rnd_in(r, 0, 40);
+        d->bd.color = (uint8_t)rnd_in(r, 30, 80);
+        d->bd.dry = (uint8_t)rnd_in(r, 0, 20);
+        break;
+    default:                                     /* HULL: a bell's partials or a hull's, the operators droning in them */
+        p[FP_TRNSP] = 12;
+        d->bd.body = BD_MODAL;
+        d->bd.ex = EX_FM;
+        d->bd.set = (uint8_t)(rnd_chance(r, 50) ? BS_BELL : BS_HULL);
+        d->bd.ratio = 8;
+        d->bd.ring = (uint8_t)rnd_in(r, 12, 25);
+        d->bd.spread = (uint8_t)rnd_in(r, 0, 30);
+        d->bd.dry = (uint8_t)rnd_in(r, 10, 40);
+        break;
+    }
+}
+/* generation 4: a sound of an older family given a body one time in five -- the operators' sound into a tube or a
+ * body's modes, most of it still heard as it is */
+static void mo_body4_old(mo_design_t *d, rnd_t *r)
+{
+    if (!rnd_chance(r, 20))
+        return;
+    d->bd.ex = EX_FM;
+    if (rnd_chance(r, 50)) {
+        d->bd.body = BD_MODAL;
+        d->bd.set = (uint8_t)rnd_below(r, BS_N);
+        d->bd.spread = (uint8_t)rnd_in(r, 0, 40);
+    } else {
+        d->bd.body = BD_TUBE;
+        d->bd.disp = (uint8_t)rnd_in(r, 0, 60);
+        d->bd.tone = (uint8_t)rnd_in(r, 30, 80);
+        d->bd.closed = (uint8_t)rnd_chance(r, 30);
+    }
+    d->bd.ratio = (uint8_t)(rnd_chance(r, 70) ? 8 : 4);
+    d->bd.ring = (uint8_t)rnd_in(r, 6, 18);
+    d->bd.dry = (uint8_t)rnd_in(r, 40, 75);
+}
 /* the hand drawn: most sounds of generation 3 have one; what it moves leans on the family (the glitchy ones' speed
  * on their glitches, the dark ones' age on the cloud's darkness); paced by the path (AMBIENT slower) */
 static void mo_hand_draw(mo_design_t *d, int32_t f, uint32_t path, rnd_t *r)
@@ -1824,7 +2200,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     d->gen = (uint8_t)gen;
     d->gain = 4096;
     mo_defaults(d);
-    if (f >= MF_G3)                                      /* (generation 3's families: a body borrowed) */
+    if (f >= MF_G4)                                      /* (generation 4's families: a body borrowed) */
+        body = mo_fam4_body(f, r);
+    else if (f >= MF_G3)                                 /* (generation 3's families: a body borrowed) */
         body = mo_fam3_body(f, r);
     else if (f < MF_BODY_N)
         body = f;
@@ -1846,7 +2224,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     case MF_PULSAR: mo_pulsar(&d->gr, r); break;
     case MF_FREEZE: mo_freeze(&d->gr, r); break;
     default:
-        if (f >= MF_G3)
+        if (f >= MF_G4)
+            mo_fam4(d, f, r);
+        else if (f >= MF_G3)
             mo_fam3(d, f, r);
         break;
     }
@@ -1874,6 +2254,8 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
             mo_grit_draw(d, path, r);
         mo_hand_draw(d, f, path, r);
     }
+    if (gen >= 4u && f < MF_G4)                          /* generation 4: an older family given a body now and then */
+        mo_body4_old(d, r);
     mo_sanitize(d);
     if (gen >= 1u && d->gr.freeze_ms) {                  /* (generation 1: never frozen before the body has sounded) */
         int32_t a[4], fz;
