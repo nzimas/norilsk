@@ -44,6 +44,14 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-37-2026-10-26-names-on-the-screen-lanes-1-to-3-the-masters-drive-engine-generation-6">Build 37 (2026-10-26): names on the screen; lanes 1 to 3; the master's DRIVE; engine generation 6</h2>
+<ul>
+<li><b>What a generator is, on the screen</b>: choosing a generator says its family (GEN 1 WIRE); HOME says what it drew (the family; a lane, its recipe). <b>OVERLOAD</b> when the FM-1 had to let a held note go to keep up (the load past a block: gens.c shed) — a sound that never plays may be that.</li>
+<li><b>The lanes are 1, 2, 3</b> on the screen (LANE 1 MUTED, LANE 2 REWIRED, the MOD page's L1 .. L3, KNOB 2's GEN 1 LANE 1); 4, 5, 6 before.</li>
+<li><b>SHIFT + KNOB 1: the master's DRIVE</b>, 0 (off) .. 100, over everything after the master delay and reverb. Tonitor's distortion (two valve-like stages at twice the rate, the highs lifted before and lowered after, the level held to the dry signal's), rougher: x 64 at the most, a hard clip blended in above 50, the tone closing only to 9 kHz. Shown as KNOB 1's (DRIVE, MASTER); kept in snapshots, glided by a morph; off at power-on and in a new session. At 0 the master is untouched, bit for bit (<code>host drive</code>).</li>
+<li><b>Engine generation 6: timbres</b>. Eight families — ORGAN, CHOIR, FOGHORN, SWARM, CORONA, SUBSTRATE, GLASSHARP, OXIDE — and one older sound in four given other waves (its carriers on the harmonic sets or the bells, bent by their envelopes now and then). Every sound of generations 0 .. 5 draws and sounds as before (<code>tests/golden</code>, <code>gen6.txt</code> new). <code>host timbres DIR</code> renders the examples and the drive.</li>
+<li>No family on its own is silent on any path at notes 36 .. 72 (10 080 renders), nor any generator through its lane at the master (900 draws): a silence on the FM-1 is the machine's, hence OVERLOAD.</li>
+</ul>
 <h2 id="build-36-2026-10-26-lanes-only-fx-mix-a-lanes-own-the-scale-drawn">Build 36 (2026-10-26): lanes only; FX MIX a lane's own; the scale drawn</h2>
 <ul>
 <li><b>Lanes only</b>: MESH is gone, and with it the session page's MODE row. Each generator runs through its own lane, as LANES did; HOME held draws the three generators and their lanes. A session saved in MESH (builds 28 .. 35) loads rewired into lanes — the playing state and every snapshot, nothing redrawn. Sessions keep their format.</li>
