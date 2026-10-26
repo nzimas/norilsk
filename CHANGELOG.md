@@ -553,7 +553,7 @@ The owner's model: synthesizers sharing a pedalboard.
 
 The owner's design after trying 0.01.
 
-- **Six slots**, a MOLECULE generator each, on the top row's six buttons: pressed, the slot chosen; held 0.8 s, the
+- **Six slots**, a generator each, on the top row's six buttons: pressed, the slot chosen; held 0.8 s, the
   slot on, or off again. Only slot 1 is on at the start. The keys play the slot chosen; a key lifted ends its note
   on the slot it was played on. Six voices shared by the slots.
 - **A rack of twelve modules**, always there, in the signal's order: FILTER, FOLD, MULAW, SHIFT (a frequency
@@ -580,7 +580,7 @@ The owner's design after trying 0.01.
 
 The first installable build: a patch played from the keys.
 
-- **The patch** (`patch.c`): one generator (MOLECULE, `mol.c`) and a chain of up to four processors, drawn whole by
+- **The patch** (`patch.c`): one generator (the engine, `mol.c`) and a chain of up to four processors, drawn whole by
   HOME after Vascular's abstract path: a scene (FIELD, MATERIAL, FEEDBACK, EROSION) leans the generator's family
   and the chain's kinds; a harshness budget of 0, 1 or 2 pays for the rough families and the destructive or
   resonant kinds; a chain never has two kinds of one character nor two destructive ones; the reverb comes last,
@@ -604,7 +604,7 @@ The first installable build: a patch played from the keys.
 
 ## 0.00 (2026-10-23): the engine stage
 
-MOLECULE: six-operator FM (msfa in Felucca's integer port as Tonitor shaped it) with waves in its operators (28
+The engine (FURNACE from build 37): six-operator FM (msfa in Felucca's integer port as Tonitor shaped it) with waves in its operators (28
 band-limited single cycles, morph, phase distortion, the bend following the envelope) and a grain cloud after
 them (CLOUD, PULSAR, FREEZE). Twelve families on three paths, four macros, every sound measured to one level;
 the host harness and the golden hashes of generation 0.

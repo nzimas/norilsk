@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * NORILSK: MOLECULE, the engine -- six-operator FM with waves in its operators and a grain cloud on its
+ * NORILSK: FURNACE, the engine -- six-operator FM with waves in its operators and a grain cloud on its
  * output, one voice a note.
  *
  * The synthesis is msfa (Dexed's core, Apache-2.0) as Felucca ported it to integer C and Tonitor shaped it
@@ -205,7 +205,7 @@ typedef struct {
     fm6_note_t n;
     fm6_lfo_t lfo;
     int32_t note;                /* MIDI note, transposed */
-    int32_t lp;                  /* (SATURATION below the middle -- unused by MOLECULE's macros; kept for the host) */
+    int32_t lp;                  /* (SATURATION below the middle -- unused by FURNACE's macros; kept for the host) */
     uint32_t tph;                /* MOTION above the middle: its tremolo's phase */
     uint8_t live, hold;
     uint8_t fm_done;             /* the operators have fallen silent for good (or are frozen out) */

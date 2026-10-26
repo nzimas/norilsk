@@ -51,8 +51,15 @@
 <a href="#the-screen">The screen</a>
 <a href="#the-generators">The generators</a>
 <a href="#the-disintegrator" class="sub">The DISINTEGRATOR</a>
+<a href="#furnace-the-engine">FURNACE: the engine</a>
+<a href="#a-voice-stage-by-stage" class="sub">A voice, stage by stage</a>
+<a href="#the-found-sounds-generation-5" class="sub">The found sounds (generation 5)</a>
+<a href="#how-a-sound-is-drawn" class="sub">How a sound is drawn</a>
+<a href="#the-generations" class="sub">The generations</a>
+<a href="#the-families" class="sub">The families</a>
+<a href="#the-macros" class="sub">The macros</a>
 <a href="#the-effect-slots">The effect slots</a>
-<a href="#mesh-and-lanes">MESH and LANES</a>
+<a href="#the-lanes">The lanes</a>
 <a href="#the-paths">The paths</a>
 <a href="#modulation">Modulation</a>
 <a href="#snapshots-and-sessions">Snapshots and sessions</a>
@@ -61,10 +68,11 @@
 <a href="#usb-audio">USB audio</a>
 </nav>
 <h2 id="how-it-is-put-together">How it is put together</h2>
+<p>Think of the city it is named after. Each of the three generators is a <b>furnace</b>: it burns a sound, and the sound never stops changing as it burns. The furnaces feed the <b>pipes</b> — the effect slots, where the sound is crushed, corroded and smeared on its way through — and out of the pipes the <b>fumes</b> pour over the city: the master delay and plate reverb, the air where everything hangs before it thins out. In plain terms:</p>
 <p>Three <b>generators</b> make sound; three <b>effect slots</b> wreck it; a master <b>delay</b> and <b>plate reverb</b> close the chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared between the three generators.</p>
 <ul>
-<li>By default each generator runs through its own <b>lane</b>: generator 1 through effect slot 4, 2 through 5, 3 through 6, with a small dry share of its own straight to the master (LANES). A session may be MESH instead: each generator wired by cables into one, two or three effects anywhere in the slots, effects wired across into later slots. One generator may modulate another (ring, amplitude, filter) — only when you link them: SHIFT, hold one generator's button, then the other's.</li>
-<li>Each effect slot is a chain of two or three effects, drawn from a recipe; an effect before the last may also go out to the master on its own. <b>KNOB 2</b> sets how much of every effect is heard at once: FX MIX, dry to wet, 50 at power-on.</li>
+<li>Each generator runs through its own <b>lane</b>: generator 1 through effect slot 4, 2 through 5, 3 through 6, with a small dry share of its own straight to the master. One generator may modulate another (ring, amplitude, filter) — only when you link them: SHIFT, hold one generator's button, then the other's.</li>
+<li>Each effect slot is a chain of two or three effects, drawn from a recipe; an effect before the last may also go out to the master on its own. <b>KNOB 2</b> sets how much of a lane's effects is heard: FX MIX, dry to wet, 50 at power-on — the chosen generator's lane, or the lane chosen.</li>
 <li>Each generator has its level, pan, mute, delay and reverb sends, a looper, and a DISINTEGRATOR; each effect slot its level, pan and mute.</li>
 <li>The first processor core renders the voices; the second runs the effects and the master delay and reverb, a block behind.</li>
 </ul>
@@ -72,10 +80,10 @@
 <h2 id="randomness-level-by-level">Randomness, level by level</h2>
 <p>Almost nothing in Norilsk is set by hand at the start: it is drawn. What you do is choose, keep, throw again, and play.</p>
 <ol>
-<li><b>The sound.</b> MOLECULE, the engine, draws a sound from a family, a seed, a path and an engine generation, bit for bit the same every time: a sound is kept as its seed, and a session brings it back exactly.</li>
+<li><b>The sound.</b> FURNACE, the engine, draws a sound from a family, a seed, a path and an engine generation, bit for bit the same every time: a sound is kept as its seed, and a session brings it back exactly.</li>
 <li><b>The note in motion.</b> In every voice an invisible hand (after Anima) keeps drifting the four macros; Russolo's grit cuts bits, crosses the sound with itself and stutters it from points of its own; the grains are taken from places that wander. The same key held twice never sounds the same twice.</li>
 <li><b>The generator</b> (HOME on a generator): a scene, a family weighed by how harsh it may be, how many effects it is cabled into and where, its dry share.</li>
-<li><b>The effect slot</b> (HOME on an effect slot): one of 24 recipes, each place filled from the recipe's choices that fit the slot's memory, every value drawn around its home, the outs (in MESH, the cables across to the slots after it). In LANES, HOME on a generator draws its lane's chain with it.</li>
+<li><b>The effect slot</b> (HOME on an effect slot): one of 24 recipes, each place filled from the recipe's choices that fit the slot's memory, every value drawn around its home, the outs. HOME on a generator draws its lane's chain with it.</li>
 <li><b>The paths.</b> ABRASIVE and DARK lean every draw above: the scenes, the families, the recipes, the effects' values.</li>
 <li><b>Partial throws.</b> REWIRE draws only the cables; RAND PARAMS only an effect slot's values, or a generator's sound within its family; SHIFT + HOME keeps the family or the recipe; HOME held throws all six slots at once.</li>
 <li><b>Modulation.</b> SHIFT + SEQ throws a slot's two LFOs and two to six of its eight routes; the STEPS and DRIFT shapes and the RANDOM source keep drawing as it plays.</li>
@@ -95,9 +103,9 @@
 <tr><td>a white key held, then <b>SHIFT</b></td><td>its note latched (the key stays lit); <b>SHIFT</b> held, then the lit key: let go</td></tr>
 <tr><td><b>SELECT / ALGORITHM</b></td><td>the level / pan of the generator chosen (or chosen last). At power-on: 1 middle, 2 left, 3 right</td></tr>
 <tr><td><b>OCT− / OCT+</b></td><td>the octave, −3 to +3</td></tr>
-<tr><td><b>ARP</b></td><td>the SCALE page: SELECT the root, ALGORITHM the scale (23)</td></tr>
+<tr><td><b>ARP</b></td><td>the SCALE page: SELECT the root, ALGORITHM the scale (23). <b>SHIFT + ARP</b>: a root and a scale drawn at random, shown a moment. At power-on and in a new session the root and scale are drawn too</td></tr>
 <tr><td><b>KNOB 1</b></td><td>playing: the DISINTEGRATOR of the generator the keys play, 0 to 100. On the SNAPSHOTS page: the morph time, 0 to 30 s</td></tr>
-<tr><td><b>KNOB 2</b></td><td>playing: FX MIX, every effect of every lane at once, 0 (dry) to 100 (wet); 50 at power-on</td></tr>
+<tr><td><b>KNOB 2</b></td><td>playing: FX MIX of the chosen generator's lane (or of the lane chosen), 0 (dry) to 100 (wet); 50 at power-on</td></tr>
 <tr><td><b>KNOB 3 / KNOB 4</b></td><td>the delay send / reverb send of the generator the keys play</td></tr>
 <tr><td><b>SEQ</b></td><td>the DELAY page, again the REVERB page, again the MOD page, again back: KNOB 1 to 4 set the four rows</td></tr>
 <tr><td><b>SHIFT + SEQ</b></td><td>the chosen slot's modulation thrown anew</td></tr>
@@ -108,7 +116,7 @@
 <tr><td>3rd black key</td><td>the DARK path on or off (lit while on). One path at a time; neither: anything goes</td></tr>
 <tr><td><b>SAVE</b></td><td>the SNAPSHOTS page (again: back)</td></tr>
 <tr><td><b>SAVE</b> held (playing)</td><td>save into the session loaded or chosen</td></tr>
-<tr><td><b>SHIFT + SAVE</b></td><td>the SESSIONS list; SAVE opens a session's page: BACK, LOAD, SAVE, COPY, DELETE, MODE (MESH or LANES)</td></tr>
+<tr><td><b>SHIFT + SAVE</b></td><td>the SESSIONS list; SAVE opens a session's page: BACK, LOAD, SAVE, COPY, DELETE</td></tr>
 <tr><td><b>REC</b></td><td>the looper of the generator the keys play: arm a loop (the first note starts it), end it (it plays at once), again to overdub; up to 10 loops</td></tr>
 <tr><td><b>REC</b> held 1 s</td><td>empty that generator's loops</td></tr>
 <tr><td><b>SHIFT + REC</b></td><td>VARY: each note the loops play drawn anew (level, length, now and then changed or joined)</td></tr>
@@ -125,12 +133,82 @@
 <h2 id="the-screen">The screen</h2>
 <p>Made for low vision: few words, very large, high contrast. The main view is a place. At the top, smog, drifting slowly, the audio's load at the left and the battery at the right on black. Under the ground, the three effect slots as rusty pipes, one above another, each effect a section between bolted flanges, its name on a dark plate: FLT filter, FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, TAP tape, RVS reverse, SPR spring, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank, SMR smear, DIF diffuse, SLW slew, XOR xor, DST dust. Under each name a band in the colours of the generators feeding it; the plates the chosen generator feeds are filled with its colour; a section glows hotter as sound passes through it; a muted pipe is cold grey. At the foot, the three generators as brick furnaces, the fire in the mouth in their colours (red, blue, green), brighter as they sound, dark when muted. The chosen slot is framed in white. No cables are drawn. KNOB 1 shows its value on a dial over the whole screen.</p>
 <h2 id="the-generators">The generators</h2>
-<p>Each generator is a <b>MOLECULE</b>: six-operator FM (msfa, Dexed's core, in Felucca's integer port as Tonitor shaped it), its operators reading the sine or one of 28 band-limited single cycles, morphed and bent by phase distortion; its sound written into a buffer of about half a second a voice and read back as grains — a CLOUD at a rate of its own, pitched by the sound's intervals, reversed, darkened, fed back, FROZEN — or a PULSAR at a ratio of the note.</p>
-<p>From build 34 (engine generation 4) a sound may also have an <b>exciter and a body</b>: the operators' sound — or noise, or a bow — driving a body tuned to the note. The body is a TUBE (a waveguide: a line one period long, damped, a wire's stiffness in it, open or closed at one end) or MODAL (six resonators on the ratios of a bar, a plate, a bell, a pipe or a hull). The bow is Smith's bowed string: friction gripping and slipping. A body rings out within the voices' three seconds; nothing in it moves the pitch. Five families are made of it, and one older sound in five is given one.</p>
-<p>From build 35 (generation 5) the grains may also read <b>found sound</b>: sixteen short clips in the flash — ice and the sea from NOAA's hydrophones (an iceberg calving, its tremor, an icequake, a grounding, a ship above the Challenger Deep), the aurora's radio from NASA's Polar spacecraft (auroral hiss, kilometric radiation, chorus, "saucers"), and a plant rendered here (a transformer, an air duct, a furnace, rain on tin, an engine room, wind in wires). Sources and credits: <code>found/CREDITS.md</code>.</p>
-<p>Twenty-eight <b>families</b>: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE, FURNACE, HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL, and generation 4's WIRE (a bowed stiff wire), STEAM (noise in a pipe closed at one end), CHIMNEY (wind in a long open tube, an octave down), GIRDER (noise in a bar's or a plate's modes), HULL (the operators droning in a bell's or a hull's modes); and generation 5's DEPTHS, AURORA and PLANT, clouds of found sound. Four <b>scenes</b> choose among them: FIELD (ambient), MATERIAL (open), FEEDBACK and EROSION (experimental), each with its own families. Four macros — BRIGHTNESS, DETUNE (INHARMONIC on the metallic and noisy bodies), GRAIN, MOTION — moved by the invisible hand, by the LFOs, and by you. Every sound is measured as it is made and brought to one level. <code>docs/ENGINE.md</code> has the design in full.</p>
+<p>Each generator is a furnace: an instance of <b>FURNACE</b>, the engine, burning one sound drawn from twenty-eight families. The four voices are shared between the three generators, and each voice is a whole furnace of its own: the same sound on two keys burns twice, never quite alike. How the engine is built: <a href="#furnace-the-engine">FURNACE: the engine</a> below.</p>
 <h3 id="the-disintegrator">The DISINTEGRATOR</h3>
 <p>KNOB 1 while playing: an unstable gate on the generator the keys play, 0 to 100, after its sound is made and before its cables, so the effects hear it too. The sound goes as a chain of pulses of uneven length. A pulse lets it through, gates it down (to nothing from 60 up), stutters a slice of what it has just made (10 to 90 ms, repeated), or crushes it (bits and rate), and may throw its dry part across the stereo image. The higher, the shorter and less even the pulses, the more of them act, the deeper and wider. Every edge glides over about 1.5 ms: no clicks. At 0 nothing is touched. Each generator keeps its own, in snapshots and sessions. (Ideas from Destroy FX's Skidder and from buffer repeaters; none of their code.)</p>
+<h2 id="furnace-the-engine">FURNACE: the engine</h2>
+<p>FURNACE is what burns in each generator: Tonitor's FM engine taken apart and rebuilt around one idea, a sound that is never struck, never still and never quite the same twice. It works one voice, one note and one block of 32 samples (0.73 ms at 44.1 kHz) at a time, in integers only (the chip has no floating point), its per-sample code run from RAM. The code: <code>firmware/src/mol.c</code> (the voice and the draw), <code>fm6_core.c</code> (the operators), <code>wt.c</code> (the waves), <code>found_clips.h</code> (the found sounds).</p>
+<h3 id="a-voice-stage-by-stage">A voice, stage by stage</h3>
+<p>Every block, in this order:</p>
+<ol>
+<li><b>The hand</b> (generation 3). An invisible hand rests on the voice (after Anima: Tonitor's, from Vascular): one finger dragging figures across a surface — orbits, figures of eight, scribbles, slow glides, now and then a flick — pressing in slow swells, lifting to land somewhere else; a second, ghost finger comes and goes. Where the fingers are, how hard and fast they move, their angle, distance and age are read once a block and mapped, two to four ways drawn with the sound, onto its brightness, its cloud, its level, its grit, its glitches and the cloud's darkness. Never its pitch.</li>
+<li><b>The operators.</b> Six-operator FM: msfa (Dexed's core) in Felucca's integer port as Tonitor shaped it — the DX7's 32 algorithms, four-rate / four-level envelopes, keyboard scaling, ratio or fixed frequencies, feedback, an LFO. Each operator reads the sine or one of 28 band-limited single cycles (four primitives, Bigorna's sixteen harmonic sets, eight made for bells), morphed towards the next of its bank, its phase bent as the Casio CZ bent it (a sine that opens like a filter, a square whose width follows its envelope). Each wave has eight levels of detail; one is chosen every block from the operator's frequency, so the wave itself never aliases. The macros act here: BRIGHTNESS on the modulators' index, DETUNE (or INHARMONIC) on the ratios, MOTION on the LFO and a tremolo. A 7 Hz high-pass takes out what FM leaves at 0 Hz, and the sound's measured gain is applied.</li>
+<li><b>The exciter and the body</b> (generation 4). The operators' sound — or noise, or a bow — drives a body tuned to the note. A <b>TUBE</b> is a waveguide: a delay line one period long, damped and low-passed in its loop, an allpass in it for a wire's stiffness (its partials pulled apart), open, or closed at one end (odd partials only). A <b>MODAL</b> body is six resonators on the ratios of a bar, a plate, a bell, a closed pipe or a hull, pulled a little off them. The bow is Smith's bowed string: a friction that grips while the string moves with the bow and slips when it does not. A body rings 2.5 s at most and never bends the pitch.</li>
+<li><b>The grit</b> (generation 3). Russolo's, after Robert Heel's Noisferatu: a small DAC (bits dropped, each sample held a few times over), the sample XOR'd with a triangle at a ratio of the note (logic oscillators), and stutters — the last 5 to 120 ms of the sound looped 3 to 12 times, then on as before. Mixed with the clean sound; the hand moves the mix and the stutters' chance.</li>
+<li><b>The grains.</b> Everything above is written, all the time, into the voice's own buffer: 12288 samples at 22.05 kHz in 8-bit mu-law, 0.56 s. Up to four grains at once read it back, two ways. As a <b>CLOUD</b>: grains of 2 to 400 ms at a rate of their own (1 to 400 a second), started behind the write head at a place that drifts, jittered in time and level, pitched by the sound's intervals, now and then reversed, darkened by a low-pass, fed back into the buffer so the cloud smears on itself; and, when the sound asks for it, <b>FROZEN</b>: the buffer stops listening a moment after the note begins and the cloud keeps turning over what it holds. As <b>PULSARS</b> (after Curtis Roads): grains at a ratio of the note's period, a half to four a period: one grain a period reads the sound back as a formant; a burst mask drops some of them, so the note grows a sub-harmonic. From generation 5 a share of the grains reads a found sound instead (below). The GRAIN macro moves the cloud's share and rate, and gives a sound without a cloud the cloud drawn with it.</li>
+<li><b>The hand's press</b> on the level, last.</li>
+</ol>
+<p>A voice is done when its note is let go and it has been silent for a quarter of a second, or when its operators, its body and its cloud have nothing left. On top of that, the host fades a released voice out within three seconds.</p>
+<h3 id="the-found-sounds-generation-5">The found sounds (generation 5)</h3>
+<p>Sixteen clips of 0.6 s in the flash, 8-bit like the grain buffers, each looping without a seam: ice and the sea from NOAA's hydrophones (an iceberg calving, its tremor, an icequake, a grounding, a ship above the Challenger Deep), the aurora's radio from NASA's Polar spacecraft (auroral hiss twice, kilometric radiation, chorus, "saucers"), and a plant rendered here (a transformer, an air duct, a furnace, rain on tin, an engine room, wind in wires). A grain reads its clip from anywhere in it, at a rate that follows the keys only by a drawn share, so the clip is barely transposed. DEPTHS, AURORA and PLANT take 70 to 100 % of their grains from a clip; an older sound with a cloud takes one, one time in three, for 30 to 60 %. Sources and credits: <code>found/CREDITS.md</code>.</p>
+<h3 id="how-a-sound-is-drawn">How a sound is drawn</h3>
+<p>A sound is a design drawn from four things — a family, a seed, a path and a generation — bit for bit the same every time: a session keeps the seed, not the sound, and brings it back exactly. The draw:</p>
+<ol>
+<li><b>The family</b>, from the generator's scene and a budget of harshness (HOME), or kept (SHIFT + HOME). The scene leans the draw's path: FIELD the ambient one, MATERIAL the open one, FEEDBACK and EROSION the experimental one.</li>
+<li><b>A body</b>: one of eight FM bodies. The newer families each borrow one and are made what they are on top of it.</li>
+<li><b>The family's own</b>: a cloud, shattered grains, pulsars, a freeze; grit and logic; an exciter and a body; a found sound.</li>
+<li><b>The path's leaning</b>: AMBIENT slower and darker (attacks and releases longer, the modulators down, the cloud longer, an octave down one time in three); EXPERIMENTAL harsher (modulators and feedback up, mutated more often than not); the open path mutated one time in three. A mutation nails a partial to a frequency, turns an envelope over, pushes the feedback, moves an octave, puts a wave in place of a sine, or bends one.</li>
+<li><b>Care</b>: modulators on high ratios turned down, the index scaled down the keyboard, rate scaling on the carriers.</li>
+<li><b>Generation 2's rule</b>: every sound swells in, holds and keeps moving — a slow LFO (0.1 to 1 Hz) on the modulators' levels, no pitch envelope, a cloud that fades in.</li>
+<li><b>The later generations' additions</b>: the hand on most sounds (85 %), grit on some older families on the experimental path; a body for one older sound in five; a found sound for one older cloud in three.</li>
+<li><b>The sanitiser</b>: every value within its range.</li>
+<li><b>The measurement</b>: the sound is rendered for 2.5 s at middle C, off the audio path, and its loudest 46 ms brought to one level (by at most +15.6 dB, so a slow swell stays a swell).</li>
+</ol>
+<h3 id="the-generations">The generations</h3>
+<p>A sound keeps the generation it was drawn under, and a generation never changes what it draws (the tests hold a hash of hundreds of sounds of each): a session from an older build sounds as it did. New sounds are drawn on the newest.</p>
+<table>
+<tr><th>Generation</th><th>What it added</th></tr>
+<tr><td>0</td><td>FM with waves in the operators, the grains, twelve families</td></tr>
+<tr><td>1</td><td>the bodies kept from bending pitch (no zaps, no bleeps), the tonal ones roughened; no freeze before the body has sounded</td></tr>
+<tr><td>2</td><td>textures and drones only: no IMPACT or PULSE drawn; every sound swells in, holds and keeps moving</td></tr>
+<tr><td>3</td><td>the hand, the grit, eight families</td></tr>
+<tr><td>4</td><td>the exciter and the body, five families</td></tr>
+<tr><td>5</td><td>the found sounds, three families</td></tr>
+</table>
+<h3 id="the-families">The families</h3>
+<table>
+<tr><th>Family</th><th>Gen.</th><th>What burns</th></tr>
+<tr><td>METAL</td><td>0</td><td>Risset's bells and gongs: many carriers on inharmonic ratios, the high partials dying first</td></tr>
+<tr><td>DRONE</td><td>0</td><td>slow pairs, near-harmonic, detuned to beat, an index that wanders</td></tr>
+<tr><td>BRUIT</td><td>0</td><td>noise from feedback and high ratios, scattered by a sample-and-hold LFO</td></tr>
+<tr><td>IMPACT</td><td>0</td><td>a struck body, its modulators dying first (not drawn from generation 2)</td></tr>
+<tr><td>PULSE</td><td>0</td><td>a sound pulsed by its own LFO (not drawn from generation 2)</td></tr>
+<tr><td>GLASS</td><td>0</td><td>carriers on the bell waves, morphed, barely modulated</td></tr>
+<tr><td>FORMANT</td><td>0</td><td>the CZ: carriers bent by their envelopes under a modulator at the fundamental</td></tr>
+<tr><td>REED</td><td>0</td><td>a saw or a square whose width is its envelope, under a feedback operator</td></tr>
+<tr><td>CLOUD</td><td>0</td><td>a body under a slow cloud: long grains, pitched, dark, smeared</td></tr>
+<tr><td>SHATTER</td><td>0</td><td>a body broken into short grains: fast, jittered, reversed, scattered</td></tr>
+<tr><td>PULSAR</td><td>0</td><td>a sustained body read back a grain a period: formants, sub-harmonics</td></tr>
+<tr><td>FREEZE</td><td>0</td><td>a body frozen into a cloud a moment after it begins</td></tr>
+<tr><td>FURNACE</td><td>3</td><td>low and roaring, crushed, a dark cloud over it</td></tr>
+<tr><td>HUM</td><td>3</td><td>a machine room: carriers nailed near 50 and 100 Hz, beating, XOR'd</td></tr>
+<tr><td>STATIC</td><td>3</td><td>noise from feedback, crushed hard, stuttering, shattered</td></tr>
+<tr><td>HOWL</td><td>3</td><td>formants an octave down under long dark grains</td></tr>
+<tr><td>SCRAPE</td><td>3</td><td>scraping metal: high inharmonic partials, bent grains, held samples</td></tr>
+<tr><td>DATA</td><td>3</td><td>glass through bitwise logic, crushed, stuttering, bent pulsars</td></tr>
+<tr><td>ASH</td><td>3</td><td>a dark drone under a sparse, dusty crackle</td></tr>
+<tr><td>TUNNEL</td><td>3</td><td>deep below: a huge dark cloud fed back, sometimes frozen</td></tr>
+<tr><td>WIRE</td><td>4</td><td>a stiff wire bowed by friction, the operators its arm</td></tr>
+<tr><td>STEAM</td><td>4</td><td>noise in a pipe closed at one end, hissing beside it</td></tr>
+<tr><td>CHIMNEY</td><td>4</td><td>wind in a long open tube, an octave down</td></tr>
+<tr><td>GIRDER</td><td>4</td><td>a girder in the wind: noise in a bar's or a plate's modes</td></tr>
+<tr><td>HULL</td><td>4</td><td>the operators droning in a bell's or a hull's modes</td></tr>
+<tr><td>DEPTHS</td><td>5</td><td>ice breaking and grinding, a ship far above: slow, dark</td></tr>
+<tr><td>AURORA</td><td>5</td><td>hiss and radio from above the ice: airy, drifting</td></tr>
+<tr><td>PLANT</td><td>5</td><td>hum, ducts, a furnace, rain on tin, engines, wires</td></tr>
+</table>
+<h3 id="the-macros">The macros</h3>
+<p>Four, on the EDIT page, -64 to 64, 0 the sound as drawn, bit for bit; each felt early (the square root of the turn). <b>BRIGHTNESS</b>: the modulators' index about 27 dB either way, the higher carriers tilted up, the feedback with it. <b>DETUNE</b>: the carriers pulled apart (up to 40 cents), the modulators off their carriers; on the metallic and noisy bodies <b>INHARMONIC</b>, every operator but the lowest carrier off its ratio. <b>GRAIN</b>: the cloud wetter and faster, or drier and slower; on a sound with none, its drawn cloud from dry to wet. <b>MOTION</b>: the LFO's depths, a tremolo of its own (1.5 to 6 Hz) and the grains' drift. The hand, the LFOs (SEQ) and you all move them at once.</p>
 <h2 id="the-effect-slots">The effect slots</h2>
 <p>Twenty-two effects, two or three to a slot (the last five from build 32, their names provisional). The delay and the plate reverb are the master's alone (build 30); a session saved with them in a slot loads them as TAPE and SPRING:</p>
 <table>
@@ -159,13 +237,9 @@
 <tr><td>DUST</td><td>hiss and crackle where the sound moves, none where it is still (after Airwindows' TapeDust)</td></tr>
 </table>
 <p>Twenty-four <b>recipes</b> decide what may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST, SPECTRAL, RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE, SPUTTER, SMOG, STATIC. Every effect, given nothing, falls silent: none sounds on by itself.</p>
-<h2 id="mesh-and-lanes">MESH and LANES</h2>
-<p>A session's MODE (its page, SHIFT + SAVE) sets how the signal runs:</p>
-<ul>
-<li><b>MESH</b> (as it always was): a generator may be cabled into any effect of any slot, an effect across into any later slot. Rich, and often a smear.</li>
-<li><b>LANES</b>: generator 1 runs through effect slot 4 alone, generator 2 through slot 5, generator 3 through slot 6 — cabled into its lane's head, with a small dry share; no cables between lanes; the lanes centre, left, right. HOME on a generator draws its lane's chain with it, so the chain is part of its patch (SHIFT + HOME: the same family and the same recipe); HOME on an effect slot draws that lane anew, its generator kept; REWIRE inside a lane redraws where its generator enters and which effects also go out to the master. HOME held draws the three generators and their lanes.</li>
-</ul>
-<p>Turned to LANES, a session is rewired, nothing redrawn: each generator into its own lane, the cables between lanes cut, its snapshots likewise. Turned back to MESH, nothing changes until something is drawn. LANES is the default (build 29): at power-on and in a new session. Sessions saved before build 28 are MESH.</p>
+<h2 id="the-lanes">The lanes</h2>
+<p>Generator 1 runs through effect slot 4 alone, generator 2 through slot 5, generator 3 through slot 6 — cabled into its lane's head, with a small dry share; no cables between lanes; the lanes centre, left, right. HOME on a generator draws its lane's chain with it, so the chain is part of its patch (SHIFT + HOME: the same family and the same recipe); HOME on an effect slot draws that lane anew, its generator kept; REWIRE inside a lane redraws where its generator enters and which effects also go out to the master. HOME held draws the three generators and their lanes.</p>
+<p>(From build 28 to 35 a session could also be MESH, any generator cabled into any effect and effects across slots; it mostly smeared. From build 36 there are only lanes: a MESH session loads rewired into them, its snapshots too, nothing redrawn.)</p>
 <h2 id="the-paths">The paths</h2>
 <p>Two black keys lean everything HOME draws (and RAND PARAMS):</p>
 <ul>
@@ -178,7 +252,7 @@
 <h2 id="snapshots-and-sessions">Snapshots and sessions</h2>
 <p><b>A snapshot is the whole machine</b>: every slot's sound, effects, values and cables, levels, pans, mutes and sends, the DISINTEGRATORs, the FX MIX, the master delay and reverb, the modulation, the scale and root, the octave, the path — and how it is played: the latched notes, whether each generator's loops play, which loops are held out, their direction, speed, VARY and moves along the scale. (The loops' recordings themselves belong to the session.) Sixteen to a session.</p>
 <p><b>SAVE</b> brings up the SNAPSHOTS page: a white key let go recalls its snapshot; held 0.8 s, it stores the machine as it is into it; SHIFT held too, it empties it. KNOB 1 there sets the <b>morph time</b>, 0 to 30 s: a snapshot recalled flows into place over it — levels, pans, sends, values and LFOs glide; sounds cross over on voices of their own and effect chains are faded out and in, in turn; what has no between switches at the middle. The square and key of the snapshot it flows into blink until it is there.</p>
-<p><b>SHIFT + SAVE</b> brings up the SESSIONS list, as Bigorna's: four to a page, PRESETS through 64 slots (a saved session white, an empty slot grey, the one loaded marked at its right). SAVE opens that slot's page, as Bigorna's: <b>BACK</b>; <b>LOAD</b> (on an empty slot <b>NEW</b>, a clean slate there); <b>SAVE</b> (over another session, asked first); <b>COPY</b> (to a slot PRESETS chooses, the first empty one offered; over a session, asked); <b>DELETE</b> (asked); and the session's <b>MODE</b>, MESH or LANES (SAVE, PRESETS, SAVE: the session playing's only). PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back a level. Playing, SAVE held saves at once into the session loaded. A session keeps the machine, its sixteen snapshots, the latched notes and every loop, in the FM-1's flash.</p>
+<p><b>SHIFT + SAVE</b> brings up the SESSIONS list, as Bigorna's: four to a page, PRESETS through 64 slots (a saved session white, an empty slot grey, the one loaded marked at its right). SAVE opens that slot's page, as Bigorna's: <b>BACK</b>; <b>LOAD</b> (on an empty slot <b>NEW</b>, a clean slate there); <b>SAVE</b> (over another session, asked first); <b>COPY</b> (to a slot PRESETS chooses, the first empty one offered; over a session, asked); <b>DELETE</b> (asked). PRESETS moves through the rows, SAVE runs one, SHIFT + SAVE goes back a level. Playing, SAVE held saves at once into the session loaded. A session keeps the machine, its sixteen snapshots, the latched notes and every loop, in the FM-1's flash.</p>
 <p>Norilsk writes only to blank flash or to its own retired sessions, never over another firmware's data. Other firmware does not return the favour: back your sessions up before installing another.</p>
 <h2 id="the-looper">The looper</h2>
 <p>Tonitor's looper, on each generator: up to ten free-running loops, each on its own clock — no tempo, no grid. REC arms a loop (the first note starts it), REC again ends it and it plays at once; again, while they play, an overdub. A note held across the end of a loop is tied over. PLAY held shows the loops on the white keys to take out or bring back, and lights the 4th to 8th black keys: REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED. SHIFT + OCT moves every loop along the scale. SHIFT + REC: VARY.</p>

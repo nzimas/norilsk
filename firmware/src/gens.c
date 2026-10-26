@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * NORILSK: the three generator slots -- a MOLECULE generator each (mol.c) -- the voices they share, their wiring
+ * NORILSK: the three generator slots -- a FURNACE each (the engine, mol.c) -- the voices they share, their wiring
  * into the effect slots (rack.c) and to each other, the two cores, and the mix.
  *
  * A generator slot's patch is drawn whole by HOME (gen_draw, the main loop): the generator's sound; the effects it

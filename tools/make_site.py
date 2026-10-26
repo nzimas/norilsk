@@ -239,7 +239,7 @@ def fragments():
 
 
 SCREENS = ["playing", "fx-chosen", "dis-dial", "fxmix", "snapshots", "morph-dial", "sessions", "session-page",
-           "session-mode", "mod-gen", "delay", "looper-rec", "loops", "scale"]
+           "mod-gen", "delay", "looper-rec", "loops", "scale"]
 
 
 def screens():

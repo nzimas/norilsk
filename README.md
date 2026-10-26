@@ -24,6 +24,11 @@ State: **build 36**. Each build is described in `CHANGELOG.md`. Norilsk was call
 
 ## How it is put together
 
+Think of the city it is named after. Each of the three generators is a **furnace**: it burns a sound, and the sound
+never stops changing as it burns. The furnaces feed the **pipes** -- the effect slots, where the sound is crushed,
+corroded and smeared on its way through -- and out of the pipes the **fumes** pour over the city: the master delay and
+plate reverb, the air where everything hangs before it thins out. In plain terms:
+
 Three **generators** make sound; three **effect slots** wreck it; a master **delay** and **plate reverb** close the
 chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared between the three
 generators.
@@ -47,7 +52,7 @@ delay's and reverb's tails ring out whole, whatever is let go or muted.
 
 Almost nothing in Norilsk is set by hand at the start: it is drawn. What you do is choose, keep, throw again, and play.
 
-1. **The sound.** MOLECULE, the engine, draws a sound from a family, a seed, a path and an engine generation, bit for
+1. **The sound.** FURNACE, the engine, draws a sound from a family, a seed, a path and an engine generation, bit for
    bit the same every time: a sound is kept as its seed, and a session brings it back exactly.
 2. **The note in motion.** In every voice an invisible hand (after Anima) keeps drifting the four macros; Russolo's grit
    cuts bits, crosses the sound with itself and stutters it from points of its own; the grains are taken from places
@@ -126,32 +131,10 @@ slot is framed in white. No cables are drawn. KNOB 1 shows its value on a dial o
 
 ## The generators
 
-Each generator is a **MOLECULE**: six-operator FM (msfa, Dexed's core, in Felucca's integer port as Tonitor shaped it),
-its operators reading the sine or one of 28 band-limited single cycles, morphed and bent by phase distortion; its sound
-written into a buffer of about half a second a voice and read back as grains — a CLOUD at a rate of its own, pitched by
-the sound's intervals, reversed, darkened, fed back, FROZEN — or a PULSAR at a ratio of the note.
-
-From build 34 (engine generation 4) a sound may also have an **exciter and a body**: the operators' sound — or noise,
-or a bow — driving a body tuned to the note. The body is a TUBE (a waveguide: a line one period long, damped, a wire's
-stiffness in it, open or closed at one end) or MODAL (six resonators on the ratios of a bar, a plate, a bell, a pipe or
-a hull). The bow is Smith's bowed string: friction gripping and slipping. A body rings out within the voices' three
-seconds; nothing in it moves the pitch. Five families are made of it, and one older sound in five is given one.
-
-From build 35 (generation 5) the grains may also read **found sound**: sixteen short clips in the flash — ice and the
-sea from NOAA's hydrophones (an iceberg calving, its tremor, an icequake, a grounding, a ship above the Challenger
-Deep), the aurora's radio from NASA's Polar spacecraft (auroral hiss, kilometric radiation, chorus, "saucers"), and a
-plant rendered here (a transformer, an air duct, a furnace, rain on tin, an engine room, wind in wires). Sources and
-credits: `found/CREDITS.md`.
-
-Twenty-eight **families**: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE,
-FURNACE, HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL, and generation 4's WIRE (a bowed stiff wire), STEAM (noise in a
-pipe closed at one end), CHIMNEY (wind in a long open tube, an octave down), GIRDER (noise in a bar's or a plate's
-modes), HULL (the operators droning in a bell's or a hull's modes); and generation 5's DEPTHS, AURORA and PLANT, clouds of
-found sound. Four **scenes** choose among them: FIELD (ambient), MATERIAL (open),
-FEEDBACK and EROSION (experimental), each with its own families.
-Four macros — BRIGHTNESS, DETUNE (INHARMONIC on the metallic and noisy bodies), GRAIN, MOTION — moved by the invisible
-hand, by the LFOs, and by you. Every sound is measured as it is made and brought to one level. `docs/ENGINE.md` has the
-design in full.
+Each generator is a furnace: an instance of **FURNACE**, the engine, burning one sound drawn from twenty-eight
+families. The four voices are shared between the three generators, and each voice is a whole furnace of its own: the
+same sound on two keys burns twice, never quite alike. How the engine is built: [FURNACE: the engine](#furnace-the-engine)
+below.
 
 ### The DISINTEGRATOR
 
@@ -162,6 +145,145 @@ it (bits and rate), and may throw its dry part across the stereo image. The high
 pulses, the more of them act, the deeper and wider. Every edge glides over about 1.5 ms: no clicks. At 0 nothing is
 touched. Each generator keeps its own, in snapshots and sessions. (Ideas from Destroy FX's Skidder and from buffer
 repeaters; none of their code.)
+
+## FURNACE: the engine
+
+FURNACE is what burns in each generator: Tonitor's FM engine taken apart and rebuilt around one idea, a sound that is
+never struck, never still and never quite the same twice. It works one voice, one note and one block of 32 samples
+(0.73 ms at 44.1 kHz) at a time, in integers only (the chip has no floating point), its per-sample code run from RAM.
+The code: `firmware/src/mol.c` (the voice and the draw), `fm6_core.c` (the operators), `wt.c` (the waves),
+`found_clips.h` (the found sounds).
+
+### A voice, stage by stage
+
+Every block, in this order:
+
+1. **The hand** (generation 3). An invisible hand rests on the voice (after Anima: Tonitor's, from Vascular): one
+   finger dragging figures across a surface -- orbits, figures of eight, scribbles, slow glides, now and then a flick
+   -- pressing in slow swells, lifting to land somewhere else; a second, ghost finger comes and goes. Where the
+   fingers are, how hard and fast they move, their angle, distance and age are read once a block and mapped, two to
+   four ways drawn with the sound, onto its brightness, its cloud, its level, its grit, its glitches and the cloud's
+   darkness. Never its pitch.
+2. **The operators.** Six-operator FM: msfa (Dexed's core) in Felucca's integer port as Tonitor shaped it -- the
+   DX7's 32 algorithms, four-rate / four-level envelopes, keyboard scaling, ratio or fixed frequencies, feedback, an
+   LFO. Each operator reads the sine or one of 28 band-limited single cycles (four primitives, Bigorna's sixteen
+   harmonic sets, eight made for bells), morphed towards the next of its bank, its phase bent as the Casio CZ bent it
+   (a sine that opens like a filter, a square whose width follows its envelope). Each wave has eight levels of detail;
+   one is chosen every block from the operator's frequency, so the wave itself never aliases. The macros act here:
+   BRIGHTNESS on the modulators' index, DETUNE (or INHARMONIC) on the ratios, MOTION on the LFO and a tremolo. A
+   7 Hz high-pass takes out what FM leaves at 0 Hz, and the sound's measured gain is applied.
+3. **The exciter and the body** (generation 4). The operators' sound -- or noise, or a bow -- drives a body tuned to
+   the note. A **TUBE** is a waveguide: a delay line one period long, damped and low-passed in its loop, an allpass in
+   it for a wire's stiffness (its partials pulled apart), open, or closed at one end (odd partials only). A **MODAL**
+   body is six resonators on the ratios of a bar, a plate, a bell, a closed pipe or a hull, pulled a little off them.
+   The bow is Smith's bowed string: a friction that grips while the string moves with the bow and slips when it does
+   not. A body rings 2.5 s at most and never bends the pitch.
+4. **The grit** (generation 3). Russolo's, after Robert Heel's Noisferatu: a small DAC (bits dropped, each sample held
+   a few times over), the sample XOR'd with a triangle at a ratio of the note (logic oscillators), and stutters -- the
+   last 5 to 120 ms of the sound looped 3 to 12 times, then on as before. Mixed with the clean sound; the hand moves
+   the mix and the stutters' chance.
+5. **The grains.** Everything above is written, all the time, into the voice's own buffer: 12288 samples at 22.05 kHz
+   in 8-bit mu-law, 0.56 s. Up to four grains at once read it back, two ways. As a **CLOUD**: grains of 2 to 400 ms at a rate of their own (1 to 400 a second), started behind the write head at a
+   place that drifts, jittered in time and level, pitched by the sound's intervals, now and then reversed, darkened
+   by a low-pass, fed back into the buffer so the cloud smears on itself; and, when the sound asks for it,
+   **FROZEN**: the buffer stops listening a moment after the note begins and the cloud keeps turning over what it
+   holds. As **PULSARS** (after Curtis Roads): grains at a ratio of the note's period, a half to four a period: one grain a
+   period reads the sound back as a formant; a burst mask drops some of them, so the note grows a sub-harmonic.
+   From generation 5 a share of the grains reads a found sound instead (below). The GRAIN macro moves the cloud's
+   share and rate, and gives a sound without a cloud the cloud drawn with it.
+6. **The hand's press** on the level, last.
+
+A voice is done when its note is let go and it has been silent for a quarter of a second, or when its operators, its
+body and its cloud have nothing left. On top of that, the host fades a released voice out within three seconds.
+
+### The found sounds (generation 5)
+
+Sixteen clips of 0.6 s in the flash, 8-bit like the grain buffers, each looping without a seam: ice and the sea from
+NOAA's hydrophones (an iceberg calving, its tremor, an icequake, a grounding, a ship above the Challenger Deep), the
+aurora's radio from NASA's Polar spacecraft (auroral hiss twice, kilometric radiation, chorus, "saucers"), and a plant
+rendered here (a transformer, an air duct, a furnace, rain on tin, an engine room, wind in wires). A grain reads its
+clip from anywhere in it, at a rate that follows the keys only by a drawn share, so the clip is barely transposed.
+DEPTHS, AURORA and PLANT take 70 to 100 % of their grains from a clip; an older sound with a cloud takes one, one time
+in three, for 30 to 60 %. Sources and credits: `found/CREDITS.md`.
+
+### How a sound is drawn
+
+A sound is a design drawn from four things -- a family, a seed, a path and a generation -- bit for bit the same every
+time: a session keeps the seed, not the sound, and brings it back exactly. The draw:
+
+1. **The family**, from the generator's scene and a budget of harshness (HOME), or kept (SHIFT + HOME). The scene
+   leans the draw's path: FIELD the ambient one, MATERIAL the open one, FEEDBACK and EROSION the experimental one.
+2. **A body**: one of eight FM bodies. The newer families each borrow one and are made what they are on top of it.
+3. **The family's own**: a cloud, shattered grains, pulsars, a freeze; grit and logic; an exciter and a body; a
+   found sound.
+4. **The path's leaning**: AMBIENT slower and darker (attacks and releases longer, the modulators down, the cloud
+   longer, an octave down one time in three); EXPERIMENTAL harsher (modulators and feedback up, mutated more often than
+   not); the open path mutated one time in three. A mutation nails a partial to a frequency, turns an envelope over,
+   pushes the feedback, moves an octave, puts a wave in place of a sine, or bends one.
+5. **Care**: modulators on high ratios turned down, the index scaled down the keyboard, rate scaling on the carriers.
+6. **Generation 2's rule**: every sound swells in, holds and keeps moving -- a slow LFO (0.1 to 1 Hz) on the
+   modulators' levels, no pitch envelope, a cloud that fades in.
+7. **The later generations' additions**: the hand on most sounds (85 %), grit on some older families on the
+   experimental path; a body for one older sound in five; a found sound for one older cloud in three.
+8. **The sanitiser**: every value within its range.
+9. **The measurement**: the sound is rendered for 2.5 s at middle C, off the audio path, and its loudest 46 ms brought
+   to one level (by at most +15.6 dB, so a slow swell stays a swell).
+
+### The generations
+
+A sound keeps the generation it was drawn under, and a generation never changes what it draws (the tests hold a hash
+of hundreds of sounds of each): a session from an older build sounds as it did. New sounds are drawn on the newest.
+
+| Generation | What it added |
+|---|---|
+| 0 | FM with waves in the operators, the grains, twelve families |
+| 1 | the bodies kept from bending pitch (no zaps, no bleeps), the tonal ones roughened; no freeze before the body has sounded |
+| 2 | textures and drones only: no IMPACT or PULSE drawn; every sound swells in, holds and keeps moving |
+| 3 | the hand, the grit, eight families |
+| 4 | the exciter and the body, five families |
+| 5 | the found sounds, three families |
+
+### The families
+
+| Family | Gen. | What burns |
+|---|---|---|
+| METAL | 0 | Risset's bells and gongs: many carriers on inharmonic ratios, the high partials dying first |
+| DRONE | 0 | slow pairs, near-harmonic, detuned to beat, an index that wanders |
+| BRUIT | 0 | noise from feedback and high ratios, scattered by a sample-and-hold LFO |
+| IMPACT | 0 | a struck body, its modulators dying first (not drawn from generation 2) |
+| PULSE | 0 | a sound pulsed by its own LFO (not drawn from generation 2) |
+| GLASS | 0 | carriers on the bell waves, morphed, barely modulated |
+| FORMANT | 0 | the CZ: carriers bent by their envelopes under a modulator at the fundamental |
+| REED | 0 | a saw or a square whose width is its envelope, under a feedback operator |
+| CLOUD | 0 | a body under a slow cloud: long grains, pitched, dark, smeared |
+| SHATTER | 0 | a body broken into short grains: fast, jittered, reversed, scattered |
+| PULSAR | 0 | a sustained body read back a grain a period: formants, sub-harmonics |
+| FREEZE | 0 | a body frozen into a cloud a moment after it begins |
+| FURNACE | 3 | low and roaring, crushed, a dark cloud over it |
+| HUM | 3 | a machine room: carriers nailed near 50 and 100 Hz, beating, XOR'd |
+| STATIC | 3 | noise from feedback, crushed hard, stuttering, shattered |
+| HOWL | 3 | formants an octave down under long dark grains |
+| SCRAPE | 3 | scraping metal: high inharmonic partials, bent grains, held samples |
+| DATA | 3 | glass through bitwise logic, crushed, stuttering, bent pulsars |
+| ASH | 3 | a dark drone under a sparse, dusty crackle |
+| TUNNEL | 3 | deep below: a huge dark cloud fed back, sometimes frozen |
+| WIRE | 4 | a stiff wire bowed by friction, the operators its arm |
+| STEAM | 4 | noise in a pipe closed at one end, hissing beside it |
+| CHIMNEY | 4 | wind in a long open tube, an octave down |
+| GIRDER | 4 | a girder in the wind: noise in a bar's or a plate's modes |
+| HULL | 4 | the operators droning in a bell's or a hull's modes |
+| DEPTHS | 5 | ice breaking and grinding, a ship far above: slow, dark |
+| AURORA | 5 | hiss and radio from above the ice: airy, drifting |
+| PLANT | 5 | hum, ducts, a furnace, rain on tin, engines, wires |
+
+### The macros
+
+Four, on the EDIT page, -64 to 64, 0 the sound as drawn, bit for bit; each felt early (the square root of the turn).
+**BRIGHTNESS**: the modulators' index about 27 dB either way, the higher carriers tilted up, the feedback with it.
+**DETUNE**: the carriers pulled apart (up to 40 cents), the modulators off their carriers; on the metallic and noisy
+bodies **INHARMONIC**, every operator but the lowest carrier off its ratio. **GRAIN**: the cloud wetter and faster, or
+drier and slower; on a sound with none, its drawn cloud from dry to wet. **MOTION**: the LFO's depths, a tremolo of its
+own (1.5 to 6 Hz) and the grains' drift. The hand, the LFOs (SEQ) and you all move them at once.
 
 ## The effect slots
 
@@ -308,7 +430,7 @@ website: `tools/make_logo.py`, `tools/make_demos.sh`, then `tools/make_site.py` 
 | `firmware/src/norilsk.c` | the single compilation unit: the sources in order |
 | `firmware/hal/`, `crt0.S`, `app.ld`, `loader/` | the board layer, boot, memory map and update loader (Tonitor's, from Felucca and SLOOP) |
 | `firmware/src/main.c`, `usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c` | boot and interrupts, USB, the installer's handshake, the rescue mode, the screen |
-| `firmware/src/mol.c`, `fm6_core.c`, `wt.c` | MOLECULE: the voice, the grains, the hand, the grit, the families; the FM core; the waves |
+| `firmware/src/mol.c`, `fm6_core.c`, `wt.c` | FURNACE: the voice, the grains, the hand, the grit, the families; the FM core; the waves |
 | `firmware/src/gens.c` | the three generators: the draw, the voices, the two cores, the DISINTEGRATOR, the mix |
 | `firmware/src/rack.c`, `reverb.c` | the effect slots: the twenty-two effects, the recipes, the paths, the memory, the cables |
 | `firmware/src/mod.c`, `loop.c`, `master.c` | the modulation; the loopers; the master delay and reverb |
@@ -316,7 +438,7 @@ website: `tools/make_logo.py`, `tools/make_demos.sh`, then `tools/make_site.py` 
 | `firmware/src/ui.c` | the panel and the screen |
 | `tools/` | the build, the installer, the sessions tool, the tables, fonts, logo, demos and website |
 | `tests/host/host.c` | the host harness: every test named above, `render`, `one`, `replay` |
-| `docs/` | the website (GitHub Pages); `docs/ENGINE.md` the engine's design |
+| `docs/` | the website (GitHub Pages); `docs/ENGINE.md` the engine's first design (0.01) |
 | `site/` | the website's pages, before `tools/make_site.py` frames them |
 
 # Licensing

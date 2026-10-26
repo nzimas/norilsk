@@ -1,6 +1,8 @@
-# MOLECULE: the engine
+# FURNACE: the engine, its first design
 
-The engine of Norilsk, as built at the engine stage (version 0.01). Everything below is in
+The engine of Norilsk as first built (version 0.01, engine generation 0). The engine as it stands -- the hand, the
+grit, the exciter and the body, the found sounds, 28 families -- is described in the manual (README.md, "FURNACE: the
+engine"); what follows is still true of generation 0. Everything below is in
 `firmware/src/mol.c`, `fm6_core.c` and `wt.c`.
 
 ## What it is

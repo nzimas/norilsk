@@ -5,7 +5,7 @@
  * Built on Tonitor (Nuno Zimas), itself on Felucca (Leo Kuroshita, Hügelton Instruments) and SLOOP (isod89),
  * GPL-3.0: the HAL, the boot, the USB stack, the update entry and loader, the rescue mode, the screen. FM is msfa
  * (Google, Pascal Gauthier, Apache-2.0) in Felucca's integer port, with waves in its operators and a grain cloud
- * after them (MOLECULE, mol.c). */
+ * after them (FURNACE, mol.c). */
 #include <stdint.h>
 #ifndef NORILSK_ID
 #define NORILSK_ID "FM-1_700"    /* the package identity (tools/build.py sets it) */
