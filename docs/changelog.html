@@ -44,6 +44,14 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-38-2026-10-26-every-word-fits-the-screen-a-generators-pan-pans-its-lane">Build 38 (2026-10-26): every word fits the screen; a generator's pan pans its lane</h2>
+<ul>
+<li><b>Nothing runs past the screen.</b> Every message the firmware can say (each <code>say</code> and <code>say_n</code> with its widest numbers, 4274 screens and messages in all, listed by <code>tools/list_says.py</code>) is drawn on the host and checked against the screen's edges and its own area (<code>host fit</code>, in the tests; 577 overflows found, none left).</li>
+<li>A message too wide for one line takes two (LANE 2 / REWIRED, GEN 1 / GLASSHARP), split at the space that evens them, over the top bar and the first lane's row. A line still too wide drops one size (GLASSHARP, BROADCAST, TELEPHONE).</li>
+<li>KNOB 1's MORPH value at 30.0 s: the whole part in the largest type, the tenths one size down. OFF on the dials one size down. The MOD page's title and its destinations take a smaller size or the short name when the long one does not fit.</li>
+<li><b>A generator's pan pans its lane</b> and every effect in it; the lane has no pan of its own. The MOD page offers no pan destination on a lane, and the random routes no longer draw one. Old sessions load as before; a lane's saved pan is ignored (<code>host lanepan</code>).</li>
+<li>The screens test leaves the session pages as build 36's page now does (its SAVE, SNAPSHOTS and MORPH pictures were wrong from build 36).</li>
+</ul>
 <h2 id="build-37-2026-10-26-names-on-the-screen-lanes-1-to-3-the-masters-drive-engine-generation-6">Build 37 (2026-10-26): names on the screen; lanes 1 to 3; the master's DRIVE; engine generation 6</h2>
 <ul>
 <li><b>What a generator is, on the screen</b>: choosing a generator says its family (GEN 1 WIRE); HOME says what it drew (the family; a lane, its recipe). <b>OVERLOAD</b> when the FM-1 had to let a held note go to keep up (the load past a block: gens.c shed) — a sound that never plays may be that.</li>

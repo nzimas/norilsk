@@ -84,7 +84,7 @@
 <tr><td>Choose generator 1, 2 or 3 (keys play it)</td><td>Press <b>FX</b>, <b>SEL</b> or <b>ENV</b></td></tr>
 <tr><td>Choose effect slot (lane) 1, 2 or 3</td><td>Press <b>LFO</b>, <b>EDIT</b> or <b>GLO</b></td></tr>
 <tr><td>Mute or unmute a slot</td><td>Hold its button</td></tr>
-<tr><td>Level / pan of chosen generator</td><td>Turn <b>SELECT</b> / <b>ALGORITHM</b></td></tr>
+<tr><td>Level / pan of chosen generator (pan moves its lane too)</td><td>Turn <b>SELECT</b> / <b>ALGORITHM</b></td></tr>
 <tr><td>Link two generators (first modulates second)</td><td>Hold <b>SHIFT</b>, hold first generator's button, then hold second's. Repeat to unlink</td></tr>
 </table>
 <h3 id="playing">Playing</h3>
@@ -177,7 +177,7 @@
 <li>Each generator plays through its own <b>lane</b> of effects: generator 1 through lane 1, 2 through 2, 3 through 3. A small dry part of each generator also goes straight to the master.</li>
 <li>Each lane is a chain of two or three effects, drawn from a recipe. An effect before the last can also send to the master on its own.</li>
 <li>White keys play the generator chosen last, in the current scale. Four voices are shared by the three generators.</li>
-<li>Each generator has level, pan, mute, delay and reverb sends, a looper and a DISINTEGRATOR. Each effect slot has level, pan and mute.</li>
+<li>Each generator has level, pan, mute, delay and reverb sends, a looper and a DISINTEGRATOR. Each lane has level and mute. A generator's pan also pans its lane and every effect in it: panning is set on the generator only.</li>
 <li>One generator can modulate another (ring, amplitude or filter), but only if you link them by hand: hold SHIFT, hold one generator's button, then the other's.</li>
 </ul>
 <p>CPU core 1 renders the voices. Core 2 runs the effects, delay and reverb, one block (0.73 ms) behind.</p>
@@ -200,6 +200,7 @@
 <p>Main view is drawn as a place. Smog drifts slowly across the top, with audio load on the left and battery on the right. Below ground, the three effect slots are rusty pipes, one above the other. Each effect is a section between bolted flanges, its name on a dark plate: FLT filter, FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, TAP tape, RVS reverse, SPR spring, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank, SMR smear, DIF diffuse, SLW slew, XOR xor, DST dust.</p>
 <p>Under each name, a band shows the colours of the generators feeding it. Plates fed by the chosen generator are filled with its colour. A section glows hotter while sound passes through it; a muted pipe is cold grey.</p>
 <p>At the bottom, the generators are brick furnaces, fire in their mouths in their colours (red, blue, green): brighter while they sound, dark when muted. Chosen slot has a white frame. Cables are not drawn. KNOB 1 shows its value on a full-screen dial.</p>
+<p>Messages (LANE 2 REWIRED, GEN 1 WIRE, OVERLOAD) cover the top of the screen for a moment. One too wide for a line takes two; a line still too wide drops one size. No word runs off the screen.</p>
 <h2 id="generators">Generators</h2>
 <p>Each generator runs an instance of <b>FURNACE</b>, the engine, playing one sound drawn from thirty-six families. Four voices are shared by the three generators, and each voice is a complete instance of the engine. Because of this, one sound on two keys never sounds quite the same. Details: <a href="#furnace-engine">FURNACE engine</a> below.</p>
 <h3 id="disintegrator">DISINTEGRATOR</h3>
@@ -333,7 +334,7 @@
 <p>Twenty-four <b>recipes</b> decide which effects may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST, SPECTRAL, RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE, SPUTTER, SMOG, STATIC.</p>
 <p>Every effect falls silent with nothing coming in. None sounds on by itself.</p>
 <h2 id="lanes">Lanes</h2>
-<p>Generator 1 plays through lane 1 only, generator 2 through lane 2, generator 3 through lane 3. Each generator is cabled into the head of its lane, with a small dry share. No cables between lanes. Lanes sit centre, left and right.</p>
+<p>Generator 1 plays through lane 1 only, generator 2 through lane 2, generator 3 through lane 3. Each generator is cabled into the head of its lane, with a small dry share. No cables between lanes. A lane has no pan of its own: it and every effect in it follow its generator's pan (centre, left and right at power-on).</p>
 <p>HOME on a generator also draws its lane's chain, so the chain is part of the generator's patch (SHIFT + HOME keeps family and recipe). HOME on an effect slot redraws that lane and keeps its generator. REWIRE inside a lane redraws where the generator enters and which effects also send to the master. Holding HOME draws all three generators and their lanes.</p>
 <p>From build 28 to 35 a session could also be MESH: any generator cabled into any effect, effects cabled across slots. In practice it mostly produced smear, so from build 36 there are only lanes. A MESH session loads rewired into lanes, snapshots included, nothing redrawn.</p>
 <h2 id="paths">Paths</h2>
@@ -349,7 +350,7 @@
 <li>LFO shapes: SINE, TRI, SAW UP, SAW DOWN, SQUARE, STEPS, DRIFT. Each LFO runs FREE, restarts on each NOTE, or runs ONCE, and has a fade-in.</li>
 <li>A route goes from a source (LFO 1, LFO 2, VELOCITY, KEY, RANDOM) to a destination, by an amount.</li>
 <li>Generator destinations: four macros, level, pan, sends, LFO rates.</li>
-<li>Effect slot destinations: effect values by place, level, pan, LFO rates. Routes point at a place, not at an effect, so after HOME draws new effects the LFO moves the new effect's value at that place.</li>
+<li>Effect slot destinations: effect values by place, level, LFO rates (a lane's pan is its generator's). Routes point at a place, not at an effect, so after HOME draws new effects the LFO moves the new effect's value at that place.</li>
 </ul>
 <p>SEQ's third page sets them; SHIFT + SEQ draws them at random.</p>
 <h2 id="snapshots-and-sessions">Snapshots and sessions</h2>

@@ -18,7 +18,7 @@ at will: as fit for noise experiments as for slow, dark ambient.
 
 **Website, browser installer and session backup: <https://nzimas.github.io/norilsk/>**
 
-State: **build 37**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
+State: **build 38**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
 
 # Manual
 
@@ -34,7 +34,7 @@ stays dark. "Hold" means 0.8 s unless stated otherwise.
 | Choose generator 1, 2 or 3 (keys play it) | Press **FX**, **SEL** or **ENV** |
 | Choose effect slot (lane) 1, 2 or 3 | Press **LFO**, **EDIT** or **GLO** |
 | Mute or unmute a slot | Hold its button |
-| Level / pan of chosen generator | Turn **SELECT** / **ALGORITHM** |
+| Level / pan of chosen generator (pan moves its lane too) | Turn **SELECT** / **ALGORITHM** |
 | Link two generators (first modulates second) | Hold **SHIFT**, hold first generator's button, then hold second's. Repeat to unlink |
 
 ### Playing
@@ -192,6 +192,9 @@ with its colour. A section glows hotter while sound passes through it; a muted p
 At the bottom, the generators are brick furnaces, fire in their mouths in their colours (red, blue, green): brighter
 while they sound, dark when muted. Chosen slot has a white frame. Cables are not drawn. KNOB 1 shows its value on a
 full-screen dial.
+
+Messages (LANE 2 REWIRED, GEN 1 WIRE, OVERLOAD) cover the top of the screen for a moment. One too wide for a line
+takes two; a line still too wide drops one size. No word runs off the screen.
 
 ## Generators
 
@@ -411,7 +414,8 @@ Every effect falls silent with nothing coming in. None sounds on by itself.
 ## Lanes
 
 Generator 1 plays through lane 1 only, generator 2 through lane 2, generator 3 through lane 3. Each generator is
-cabled into the head of its lane, with a small dry share. No cables between lanes. Lanes sit centre, left and right.
+cabled into the head of its lane, with a small dry share. No cables between lanes. A lane has no pan of its own: it and every effect in it follow its generator's pan
+(centre, left and right at power-on).
 
 HOME on a generator also draws its lane's chain, so the chain is part of the generator's patch (SHIFT + HOME keeps
 family and recipe). HOME on an effect slot redraws that lane and keeps its generator. REWIRE inside a lane redraws
@@ -529,7 +533,7 @@ tests/run_tests.sh
 Needs `clang` and `python3` with Pillow. It checks the firmware unit for anything the chip's runtime lacks (no float,
 no 64-bit division), renders thousands of sounds (none silent, none clipping, none running away), plays the panel
 through the real firmware code, checks every effect falls silent, every recipe fits its slot's memory, snapshots and
-morphs land exactly, sessions survive power cuts and never touch another firmware's flash, and that the engine's
+morphs land exactly, every message fits the screen, sessions survive power cuts and never touch another firmware's flash, and that the engine's
 generations still draw what they drew. Renders land in `build/sounds` (WAV), the screens in `build/screens` (PNG). The
 website: `tools/make_logo.py`, `tools/make_demos.sh`, then `tools/make_site.py` (into `docs/`, served by GitHub Pages).
 

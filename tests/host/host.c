@@ -3936,6 +3936,7 @@ static int cmd_screens(int argc, char **argv)
     slot_mod[0].s[0].src = MSRC_L1;
     slot_mod[0].s[0].dst = GMD_MAC1;
     slot_mod[0].s[0].amt = 45;
+    ui.mod_ix = 0;                                       /* (from LFO 1: the mod-lane shot left it on H) */
     fm1_in.enc[PANEL_ENC[EN_PRESET]] = 2;
     ui_input();
     fw_run(300);

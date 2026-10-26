@@ -238,7 +238,7 @@ def fragments():
         "Ableton Move, the Akai MPC One and macOS."))
 
 
-SCREENS = ["playing", "fx-chosen", "dis-dial", "fxmix", "snapshots", "morph-dial", "sessions", "session-page",
+SCREENS = ["playing", "fx-chosen", "dis-dial", "fxmix", "msg-lane-rewired", "snapshots", "morph-dial", "sessions", "session-page",
            "mod-gen", "delay", "looper-rec", "loops", "scale"]
 
 
