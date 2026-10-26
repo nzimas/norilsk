@@ -2,6 +2,23 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 41 (2026-10-26): CLEAR; the black keys glow where they work
+
+- **CLEAR** (the 10th black key, beside SHIFT): asks NEW SESSION? -- NO first, PRESETS to YES, SAVE to answer; the key
+  again, or SHIFT + SAVE, leaves it. YES: a clean slate in place of the session loaded, as NEW on an empty slot
+  (every slot drawn anew, a root and scale drawn, the snapshots and loops empty, every setting at its default). The
+  session saved in the flash is not touched until SAVE is held over it. None loaded: a clean slate, unnumbered.
+- **The black keys glow dimly in each view where they do something**, lit when on: playing (and on the other pages),
+  the 1st (REWIRE), 2nd and 3rd (the paths), the 10th (CLEAR) and SHIFT; PLAY held, the 4th .. 8th (the loops'
+  modes) and SHIFT; the SNAPSHOTS page, SHIFT. Dark otherwise.
+- **The LOAD page is gone** (his: the load at the top left is enough); its key is CLEAR. The work is still dealt in
+  units to both cores (build 40).
+- Tests: `host load` (the dealing; CLEAR asked, NO, again, YES); the question in `host paint`, `host fit`, `host
+  screens`. `host mtails` and `host ends` draw their patches from fixed seeds: through HOME the host's clock went into
+  them, and removing the LOAD page's clock reads drew other patches (a quieter one in mtails, now passed from 100
+  rather than 300 -- a cut tail is under 33; in ends, one with REVERSE slices and FREEZE, whose sound depends on the
+  moment it was taken, as a frozen CLOUD's).
+
 ## Build 40 (2026-10-26): the work shared better between the cores; the LOAD page
 
 - **The work dealt in units**: each voice, each lane, and the master (delay, reverb, drive) is a unit of its own,

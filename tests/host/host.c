@@ -1803,8 +1803,11 @@ static int cmd_paint(void)
     ui.gs_page = 2;
     fails += paint_one("generator");
     pages_off();
-    ui.ld_page = 1;
-    fails += paint_one("load");
+    ui.ses_page = SP_ASK;
+    ui.ses_ask = AK_CLEAR;
+    ui.ses_new = 3;
+    fails += paint_one("clear");
+    ui.ses_ask = 0;
     pages_off();
     ui.morph = 9;
     ui.dial_until = fm1_ms + 1500u;
@@ -2117,9 +2120,11 @@ static int cmd_ends(void)
         double ra, rb;
         ends_fresh(seed);
         snap_store(0);                                   /* A, then everything anew (a slot muted, a generator quieter) */
-        for (l = 0; l < NSLOT; l++) {
-            press(SLOT_BTN[l], 50);
-            press(B_HOME, 50);
+        for (l = 0; l < NSLOT; l++) {                    /* (build 41: from fixed seeds -- through HOME the host's clock
+                                                          * went into them; see mtails) */
+            ui.seed = seed * 7u + l;
+            host_ticks = 0;
+            new_patch(l, 0);
             fw_run(60);
         }
         fx_mute[seed % NFX] = 1;
@@ -2894,10 +2899,12 @@ static int cmd_mtails(void)
     int32_t late = 0, out[2 * CTL], pk;
     fw_init();
     fx_wet[0] = fx_wet[1] = fx_wet[2] = 100;             /* (with the effects alone: KNOB 2 at 100, build 33) */
-    ui.seed = 777u;
-    for (l = 0; l < NSLOT; l++) {
-        press(SLOT_BTN[l], 50);
-        press(B_HOME, 50);
+    for (l = 0; l < NSLOT; l++) {                        /* (build 41: drawn from fixed seeds -- through HOME the host's
+                                                          * clock went into them, and any change to how often the code
+                                                          * reads it drew another patch) */
+        ui.seed = 777u + l;
+        host_ticks = 0;
+        new_patch(l, 0);
         fw_run(30);
     }
     ui.rvp[1] = 90;                                      /* a long DECAY (RT60 ~17 s), a high FEEDBACK */
@@ -2929,7 +2936,8 @@ static int cmd_mtails(void)
     }
     printf("mtails: 6 .. 8 s after the last key the master's tails peak at %d; silent %.1f s after\n", late,
            2.0 + quiet_at / 1378.0);
-    if (late < 300)
+    if (late < 100)                                      /* (cut, they would be silent: under 33; build 41: 300 before,
+                                                          * a patch's own level -- 135 on another draw, still ringing) */
         printf("FAIL mtails: the master delay and reverb tails were cut\n"), fails++;
     if (quiet_at >= 1378u * 88u)
         printf("FAIL mtails: the master's tails never end\n"), fails++;
@@ -3969,18 +3977,12 @@ static int cmd_screens(int argc, char **argv)
     SHOT("generator");
     gen_fin[0] = gen_fout[0] = 0;
     pages_off();
-    ui.ld_page = 1;                                      /* (build 40) the LOAD page, a second's figures */
-    ld_pk.all = LD_BLK * 72u / 100u;
-    ld_pk.c1 = LD_BLK * 64u / 100u;
-    ld_pk.vox = LD_BLK * 81u / 100u;
-    ld_pk.lanes = LD_BLK * 38u / 100u;
-    ld_pk.mst = LD_BLK * 95u / 100u;
-    ld_pk.ser = LD_BLK * 12u / 100u;
-    ui.ld_at = fm1_ms - 1000u;
-    ui.force = 1;
-    ui_draw();
-    SHOT("load");
-    ui.ld_page = 0;
+    ui.ses_page = SP_ASK;                                /* (build 41) the CLEAR key: asked */
+    ui.ses_ask = AK_CLEAR;
+    ui.ses_new = 3;
+    ui.ses_yes = 0;
+    SHOT("clear");
+    pages_off();
     press(B_FX, 50);
     key(KEY_SHIFT, 1);
     press(B_SAVE, 50);                                   /* SHIFT + SAVE: the SESSIONS page */
@@ -4391,7 +4393,7 @@ static int cmd_mutefade(void)
 }
 
 /* build 40: the work dealt by units -- voices, lanes, the master -- to both cores (one core and two the same sound:
- * host cores); the LOAD page (the 10th black key) on and off, its figures taken once a second */
+ * host cores); build 41: the CLEAR key (the 10th black key) -- asked, a new session in place */
 static int cmd_load(void)
 {
     int fails = 0;
@@ -4418,28 +4420,36 @@ static int cmd_load(void)
     printf("load: lanes on CPU0 %u, on CPU1 %u; the master on CPU0 %u, on CPU1 %u (blocks x units)\n", lane0, lane1, mst0, mst1);
     if (!lane0 || !lane1)
         printf("FAIL load: the lanes not dealt to both cores\n"), fails++;
-    key(KEY_LOAD, 1);                                    /* the LOAD page */
-    key(KEY_LOAD, 0);
-    if (!ui.ld_page)
-        printf("FAIL load: the 10th black key brought no page\n"), fails++;
-    ld_pk.all = LD_BLK / 2u;                             /* (the figures: as the ISR leaves them) */
-    ld_pk.c1 = LD_BLK * 95u / 100u;
-    ui.ld_at = fm1_ms - 1000u;
-    ui.force = 1;
-    ui_draw();
-    if (ui.ld_v[0] != 50u || ui.ld_v[1] != 95u || ui.ld_v[2])
-        printf("FAIL load: the figures %u %u %u\n", ui.ld_v[0], ui.ld_v[1], ui.ld_v[2]), fails++;
-    key(KEY_LOAD, 1);
-    key(KEY_LOAD, 0);
-    if (ui.ld_page)
-        printf("FAIL load: the page stays up\n"), fails++;
-    key(KEY_LOAD, 1);
-    key(KEY_LOAD, 0);
-    press(B_SEQ, 50);                                    /* another page: this one down */
-    if (ui.ld_page || ui.fx_page != 1u)
-        printf("FAIL load: SEQ left it up\n"), fails++;
-    fm1_in.notes = 0;
-    ui_input();
+    {   /* (build 41) the CLEAR key: asked; NO: nothing; again: not asked; YES: a clean slate in the session's place */
+        uint32_t seed0 = gbuf[0][g_use[0]].seed;
+        memset(hflash, 0xFF, sizeof hflash);
+        ses_init(1);
+        if (ses_save(3) != SES_OK)
+            printf("FAIL load: session 3 not saved\n"), fails++;
+        key(KEY_CLEAR, 1);
+        key(KEY_CLEAR, 0);
+        if (ui.ses_page != SP_ASK || ui.ses_ask != AK_CLEAR || ui.ses_yes || ui.ses_new != 3u)
+            printf("FAIL load: CLEAR not asked (page %u ask %u yes %u)\n", ui.ses_page, ui.ses_ask, ui.ses_yes), fails++;
+        press(B_SAVE, 50);                               /* NO */
+        if (ui.ses_page || gbuf[0][g_use[0]].seed != seed0)
+            printf("FAIL load: NO cleared it\n"), fails++;
+        key(KEY_CLEAR, 1);
+        key(KEY_CLEAR, 0);
+        key(KEY_CLEAR, 1);                               /* again: not asked any more */
+        key(KEY_CLEAR, 0);
+        if (ui.ses_page)
+            printf("FAIL load: CLEAR again left the question up\n"), fails++;
+        key(KEY_CLEAR, 1);
+        key(KEY_CLEAR, 0);
+        fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;            /* YES */
+        ui_input();
+        press(B_SAVE, 50);
+        fw_run(50);
+        if (ui.ses_page || ses_current() != 3u || gbuf[0][g_pub[0]].seed == seed0 || !ses_has(3) || snap.used)
+            printf("FAIL load: YES -- page %u, session %u, the sound %s, session 3 %s\n", ui.ses_page, ses_current(),
+                   gbuf[0][g_pub[0]].seed == seed0 ? "the same" : "new", ses_has(3) ? "kept in the flash" : "gone"), fails++;
+        printf("load: CLEAR -- asked, NO, YES: a new session in session 3's place (saved one kept until SAVE)\n");
+    }
     printf("load: %d failures\n", fails);
     return fails ? 1 : 0;
 }
@@ -4554,7 +4564,7 @@ static int cmd_fit(void)
         fit("a session's page");
     }
     ui.ses_page = SP_ASK;
-    for (k = 0; k < 4u; k++, n++) {
+    for (k = 0; k <= AK_CLEAR; k++, n++) {
         ui.ses_ask = (uint8_t)k;
         ui.ses_new = 64;
         fit("a session's question");
@@ -4577,13 +4587,6 @@ static int cmd_fit(void)
     }
     ui.snap_page = 1;                                      /* the SNAPSHOTS page */
     fit("the SNAPSHOTS page");
-    pages_off();
-    ui.ld_page = 1;                                        /* the LOAD page (build 40): its widest figures */
-    for (k = 0; k < 6u; k++)
-        ui.ld_v[k] = 999;
-    ui.ld_at = fm1_ms;
-    fit("the LOAD page");
-    n++;
     pages_off();
     for (l = 0; l < NGEN; l++)                             /* a generator's page (build 39): OFF, 4.5 S, 60 S, turned */
         for (k = 0; k < 3u; k++, n++) {

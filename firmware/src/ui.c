@@ -78,10 +78,10 @@
  *   SEQ (third press)         the MOD page of the slot chosen (Tonitor's): PRESETS through LFO 1, LFO 2, MOD A .. H
  *                             (eight from build 18),
  *                             KNOB 1 .. 4 their values. SHIFT + SEQ: the slot's modulation thrown anew
- *   the 10th black key        (beside SHIFT; build 40, provisional) the LOAD page on or off, lit while on: each part of a
- *                             block's work, its longest in the last second, in % of the block's time -- CPU 0 (the
- *                             whole block), CPU 1 (its share), VOICES, LANES, MASTER (delay, reverb, drive), MIX (CPU0's
- *                             own part: before and after the two cores' render)
+ *   the 10th black key        (beside SHIFT; build 41) CLEAR: asked NEW SESSION? (NO first), PRESETS to YES, SAVE: a
+ *                             clean slate in place of the session loaded (as NEW on an empty slot: not saved until
+ *                             SAVE is held). Again, or SHIFT + SAVE: not cleared
+ *   the black keys            each glows dimly in a view where it does something (build 41); lit when on
  *   USB MIDI notes            as the keys, on the generator chosen last
  *   MASTER (knob)             the level
  *
@@ -112,7 +112,7 @@ static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO
 #define KEY_RAND 13u             /* the 6th: RANDOM, forwards from a note drawn at random each time the next is due */
 #define KEY_HALF 15u             /* the 7th: half speed (again: normal) */
 #define KEY_DOUBLE 17u           /* the 8th: double speed */
-#define KEY_LOAD 22u             /* (build 40) the 10th black key, beside SHIFT: the LOAD page on or off (provisional) */
+#define KEY_CLEAR 22u            /* (build 41) the 10th black key, beside SHIFT: CLEAR -- asked, a new session in place */
 
 /* the scales: the white keys play their degrees, from the root, up (Tonitor's) */
 #define NSCALE 23
@@ -190,9 +190,6 @@ static struct {
     uint8_t btn_sh[NSLOT];       /* (build 39) a generator's button pressed with SHIFT: 1 its page on letting go, 2 its page
                                   * was up (closed by the press), 0 neither or something else done with it */
     uint8_t gs_page;             /* (build 39) a generator's page up: the generator + 1 (0: none) */
-    uint8_t ld_page;             /* (build 40) the LOAD page up */
-    uint32_t ld_at;              /* when its figures were last taken */
-    uint16_t ld_v[6], shown_ld[6];   /* its figures, % of a block; as drawn (0xFFFF: not yet) */
     int8_t gs_touched;           /* the row just turned (-1 none), until gs_touch_until */
     uint32_t gs_touch_until;
     int16_t shown_gs[2];
@@ -257,7 +254,8 @@ static struct {
 } ui;
 enum { SP_LIST = 1, SP_ASK = 2, SP_PAGE = 3, SP_COPY = 4 };
 enum { SR_BACK, SR_LOAD, SR_SAVE, SR_COPY, SR_DELETE, SR_N };   /* (MODE gone with MESH, build 36) */   /* a session's page, its rows */
-enum { AK_SAVE_NEW, AK_OVER, AK_DEL, AK_COPY };                           /* what SP_ASK asks */
+enum { AK_SAVE_NEW, AK_OVER, AK_DEL, AK_COPY, AK_CLEAR };                 /* what SP_ASK asks (AK_CLEAR: the CLEAR key,
+                                                                           * build 41) */
 #define C_SES RGB(255, 200, 60)
 #define C_FULL RGB(255, 60, 60)
 #define C_SNAP RGB(120, 220, 255)
@@ -482,7 +480,7 @@ static void fade_text(char *v, uint32_t hs)    /* OFF, 4.5 S, 60 S */
 /* every page down: back to playing */
 static void pages_off(void)
 {
-    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = ui.ld_page = 0;
+    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = 0;
     ui.force = 1;
 }
 /* a session's or a snapshot's outcome, on the whole screen, saying which (build 27): SESSION or SNAPSHOT, in its
@@ -556,9 +554,17 @@ static void save_short(void)
         uint32_t num = ui.ses_new;
         ui.force = 1;
         if (!ui.ses_yes) {
-            ui.ses_page = ui.ses_ask == AK_SAVE_NEW ? 0 : SP_PAGE;
+            ui.ses_page = ui.ses_ask == AK_SAVE_NEW || ui.ses_ask == AK_CLEAR ? 0 : SP_PAGE;
             if (ui.ses_ask == AK_SAVE_NEW || ui.ses_ask == AK_OVER)
                 say("NOT SAVED", 1500);
+            if (ui.ses_ask == AK_CLEAR)
+                say("NOT CLEARED", 1500);
+            return;
+        }
+        if (ui.ses_ask == AK_CLEAR) {            /* CLEAR: a clean slate where the session loaded was (none: none) */
+            ui.ses_page = 0;
+            ses_fresh(num);
+            ses_done(SES_OK, SD_SES, "NEW", num);
             return;
         }
         if (ui.ses_ask == AK_DEL) {
@@ -728,7 +734,7 @@ static void ui_input(void)
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_sh[l] = (uint8_t)(l < NGEN && shift_held() ? (ui.gs_page == l + 1u ? 2u : 1u) : 0u);
             ui.btn_t0[l] = fm1_ms;
-            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page || ui.ld_page)
+            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page)
                 pages_off();
             for (o = 0; l < NGEN && shift_held() && o < NGEN; o++)   /* SHIFT, generator o held, then generator l: o
                                                                     * modulates l, or no more (gens.c gen_link) */
@@ -819,7 +825,7 @@ static void ui_input(void)
                                                   * (a value being set: left as it was) */
         if (ui.ses_page == SP_PAGE)
             ui.ses_page = SP_LIST;
-        else if ((ui.ses_page == SP_ASK && ui.ses_ask != AK_SAVE_NEW) || ui.ses_page == SP_COPY)
+        else if ((ui.ses_page == SP_ASK && ui.ses_ask != AK_SAVE_NEW && ui.ses_ask != AK_CLEAR) || ui.ses_page == SP_COPY)
             ui.ses_page = SP_PAGE;
         else if (ui.ses_page)
             pages_off();
@@ -1147,12 +1153,15 @@ static void ui_input(void)
         draw_path = draw_path == want ? DP_ANY : want;
         say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : "ANY PATH", 1200);
     }
-    if (!ui.ovd && ((ch & keys) >> KEY_LOAD & 1u)) {   /* the 10th black key: the LOAD page on or off (build 40) */
-        uint8_t was = ui.ld_page;
+    if (!ui.ovd && ((ch & keys) >> KEY_CLEAR & 1u)) {  /* the 10th black key: CLEAR, asked (build 41); again: not */
+        int asked = ui.ses_page == SP_ASK && ui.ses_ask == AK_CLEAR;
         pages_off();
-        ui.ld_page = (uint8_t)!was;
-        ui.ld_at = fm1_ms - 1000u;
-        memset((void *)&ld_pk, 0, sizeof ld_pk);
+        if (!asked) {
+            ui.ses_page = SP_ASK;
+            ui.ses_ask = AK_CLEAR;
+            ui.ses_new = (uint16_t)ses_current();
+            ui.ses_yes = 0;
+        }
     }
     if (((ch & keys) >> KEY_SHIFT & 1u) && ui.sel < NGEN)   /* SHIFT pressed: the keys held latched */
         for (k = 0; k < NKEY; k++)
@@ -1242,23 +1251,25 @@ static void ui_leds(void)
         int32_t w = white_ix(k);
         const looper_t *p = &loop[ui.gen];
         int stored = ui.snap_page && w >= 0 && w < (int32_t)NSNAP && snap_has((uint32_t)w);
-        led_dim_key(14u + k, stored);            /* (the SNAPSHOTS page: every stored snapshot glows dimly) */
+        int mk = k == KEY_REV || k == KEY_PEND || k == KEY_RAND || k == KEY_HALF || k == KEY_DOUBLE;
+        int fn = w < 0 && (k == KEY_SHIFT || (ui.ovd && mk) ||   /* (build 41: a black key that does something in
+                                                                  * this view glows dimly) */
+                           (!ui.ovd && !ui.snap_page && (k == KEY_REWIRE || k == KEY_ROUGH || k == KEY_DARK || k == KEY_CLEAR)));
+        led_dim_key(14u + k, stored || fn);      /* (the SNAPSHOTS page: every stored snapshot glows dimly) */
         if (ui.snap_page)                        /* .. the one chosen lit, the one a morph flows into blinking */
             fm1_led_key(14u + k, stored && (w == snap_morph_target() ? (int)((fm1_ms / 250u) & 1u)
                                                                      : w == snap_current() && snap_morph_target() < 0));
         else if (ui.ovd && w >= 0)               /* PLAY held: the loops that play, lit */
             fm1_led_key(14u + k, (uint32_t)w < p->ntrk && !((p->mute >> w) & 1u));
-        else if (ui.ovd) {                       /* .. the loops' modes: each glows dimly, the ones on lit (Tonitor's) */
-            int mk = k == KEY_REV || k == KEY_PEND || k == KEY_RAND || k == KEY_HALF || k == KEY_DOUBLE;
-            led_dim_key(14u + k, mk);
+        else if (ui.ovd)                         /* .. the loops' modes, the ones on lit (Tonitor's) */
             fm1_led_key(14u + k, mk && ((k == KEY_REV && p->dmode == LD_REV) || (k == KEY_PEND && p->dmode == LD_PEND) ||
                                         (k == KEY_RAND && p->dmode == LD_RAND) || (k == KEY_HALF && p->rate == LS_HALF) ||
                                         (k == KEY_DOUBLE && p->rate == LS_DOUBLE)));
-        } else if (w >= 0)                       /* (an effect slot chosen: no notes, nothing lit) */
+        else if (w >= 0)                         /* (an effect slot chosen: no notes, nothing lit) */
             fm1_led_key(14u + k, ui.sel < NGEN && (((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u)));
-        else                                     /* playing: the path chosen lit; the other black keys dark */
+        else                                     /* playing: the path chosen lit; CLEAR while it asks */
             fm1_led_key(14u + k, (k == KEY_ROUGH && draw_path == DP_ROUGH) || (k == KEY_DARK && draw_path == DP_DARK) ||
-                                 (k == KEY_LOAD && ui.ld_page));
+                                 (k == KEY_CLEAR && ui.ses_page == SP_ASK && ui.ses_ask == AK_CLEAR));
     }
     fm1_led_key(14u + KEY_SHIFT, shift_held());
 }
@@ -1760,48 +1771,6 @@ static void draw_gs_page(void)
     ui.shown_gs_touch = (int8_t)t;
 }
 
-/* (build 40) the LOAD page: LOAD; six rows, a part of the block's work each -- its name amber, its longest in the
- * last second white (red from 90 %), in % of the block's time (CTL samples: 725.6 us) */
-#define LD_BLK (FM1_TICKS_PER_US * 7256u / 10u)
-static const char *const LD_NAME[6] = {"CPU 0", "CPU 1", "VOICES", "LANES", "MASTER", "MIX"};
-static void ld_take(void)                        /* (once a second: the longest of each, then from nothing again) */
-{
-    uint32_t t[6], k;
-    t[0] = ld_pk.all;
-    t[1] = ld_pk.c1;
-    t[2] = ld_pk.vox;
-    t[3] = ld_pk.lanes;
-    t[4] = ld_pk.mst;
-    t[5] = ld_pk.ser;
-    memset((void *)&ld_pk, 0, sizeof ld_pk);
-    for (k = 0; k < 6u; k++)
-        ui.ld_v[k] = (uint16_t)(t[k] / (LD_BLK / 100u) < 999u ? t[k] / (LD_BLK / 100u) : 999u);
-    ui.ld_at = fm1_ms;
-}
-static void draw_ld_page(void)
-{
-    uint32_t j;
-    if ((uint32_t)(fm1_ms - ui.ld_at) >= 1000u)
-        ld_take();
-    if (ui.force) {
-        cv_begin(240, 48, C_BLACK);
-        cv_text_c((48 - FONT_M.h) / 2, &FONT_M, "LOAD", C_WHITE);
-        cv_blit(0, 0);
-    }
-    for (j = 0; j < 6u; j++) {
-        char v[8];
-        if (!ui.force && ui.shown_ld[j] == ui.ld_v[j])
-            continue;
-        fmt_int(v, ui.ld_v[j]);
-        str_cpy(v + str_len(v), " %", 3);
-        cv_begin(240, 32, C_BLACK);
-        cv_text(6, (32 - FONT_S.h) / 2, &FONT_S, LD_NAME[j], C_LABEL);
-        cv_text(234 - text_w(&FONT_S, v), (32 - FONT_S.h) / 2, &FONT_S, v, ui.ld_v[j] >= 90u ? C_FULL : C_WHITE);
-        cv_blit(0, 48 + 32 * j);
-        ui.shown_ld[j] = ui.ld_v[j];
-    }
-}
-
 /* a dial's value, very large: FONT_XL, or FONT_L if it does not fit (4.5 fits, 30.0 does not) */
 static void dial_value(const char *v)
 {
@@ -2064,16 +2033,23 @@ static void draw_ses_rows(void)
 static void draw_ses_ask(void)
 {
     const char *q = ui.ses_ask == AK_DEL ? "DELETE?" : ui.ses_ask == AK_COPY ? "COPY OVER?"
-                  : ui.ses_ask == AK_OVER ? "OVERWRITE?" : "SAVE NEW?";
+                  : ui.ses_ask == AK_OVER ? "OVERWRITE?" : ui.ses_ask == AK_CLEAR ? "NEW SESSION?" : "SAVE NEW?";
     uint16_t qc = ui.ses_ask == AK_SAVE_NEW ? C_SES : C_FULL;
     char t[16] = "SESSION ";
     uint32_t r;
     fmt_int(t + 8, (int32_t)ui.ses_new);
-    ses_title(t, ses_col(ui.ses_new));
+    if (ui.ses_ask == AK_CLEAR)                  /* (the CLEAR key: CLEAR, over the session it clears, if any) */
+        ses_title("CLEAR", C_SES);
+    else
+        ses_title(t, ses_col(ui.ses_new));
     for (r = 0; r < 4u; r++) {
         cv_begin(240, SES_ROW_H, C_BLACK);
-        if (r == 1u)
-            cv_text_c((SES_ROW_H - (int32_t)FONT_M.h) / 2, text_w(&FONT_M, q) <= 236 ? &FONT_M : &FONT_S, q, qc);
+        if (r == 0u && ui.ses_ask == AK_CLEAR && ui.ses_new)   /* (the session cleared) */
+            cv_text_c((SES_ROW_H - (int32_t)FONT_S.h) / 2, &FONT_S, t, ses_col(ui.ses_new));
+        else if (r == 1u) {
+            const font_t *f = fit_font(&FONT_M, &FONT_S, q, 236);
+            cv_text_fit((SES_ROW_H - (int32_t)f->h) / 2, f, q, qc);
+        }
         else if (r == 2u) {
             cv_rect(10, 2, 100, SES_ROW_H - 4, ui.ses_yes ? C_BLACK : C_WHITE);
             cv_rect(130, 2, 100, SES_ROW_H - 4, ui.ses_yes ? C_WHITE : C_BLACK);
@@ -2311,14 +2287,6 @@ static void ui_draw(void)
         }
         ui.shown_page = 2;
         draw_ovd_page();
-        ui.force = 0;
-        return;
-    }
-    if (ui.ld_page) {                            /* the LOAD page (build 40) */
-        if (ui.shown_page != 13u)
-            ui.force = 1;
-        ui.shown_page = 13;
-        draw_ld_page();
         ui.force = 0;
         return;
     }

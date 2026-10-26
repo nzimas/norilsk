@@ -445,9 +445,6 @@ static void unit_run(uint32_t u)
     else
         mst_unit();
 }
-/* (build 40) what a block took, for the LOAD page (ui.c): each part's longest since the page last read it, ticks */
-static volatile struct { uint32_t all, c0, c1, vox, lanes, mst, ser; } ld_pk;
-static uint32_t ld_c[2];                         /* (this block's work on each core) */
 /* CPU1's share of a block */
 static void blk_job(void *ctx)
 {
@@ -514,29 +511,6 @@ static void blk_render(void)
         }
     }
     rack_sum();
-    {   /* (the LOAD page's figures: each core's work, the voices', the lanes', the master's) */
-        uint32_t v = 0, ln = lane_ticks[0] + lane_ticks[1] + lane_ticks[2];
-        ld_c[0] = ld_c[1] = 0;
-        for (u = 0; u < NUNIT; u++) {
-            uint32_t t;
-            if (u < U_LANE && !vox[u].sounding && !vr_ticks[u])
-                continue;
-            t = u < U_LANE ? vr_ticks[u] : u < U_MST ? lane_ticks[u - U_LANE] : mst_ticks;
-            ld_c[u_core[u]] += t;
-            if (u < U_LANE)
-                v += t;
-        }
-        if (v > ld_pk.vox)
-            ld_pk.vox = v;
-        if (ln > ld_pk.lanes)
-            ld_pk.lanes = ln;
-        if (mst_ticks > ld_pk.mst)
-            ld_pk.mst = mst_ticks;
-        if (ld_c[0] > ld_pk.c0)
-            ld_pk.c0 = ld_c[0];
-        if (ld_c[1] > ld_pk.c1)
-            ld_pk.c1 = ld_c[1];
-    }
 }
 
 /* a generator's limiter, after its voices: never past LIM. The peak of a block sets the gain of the next (instant
@@ -733,7 +707,7 @@ static int32_t usb_blk[2 * CTL];                 /* (the block for USB audio: th
 static void mix_block(int32_t *out)
 {
     int32_t l_[CTL], r_[CTL], pk[NGEN], dlin[CTL], rvin[CTL], g_rs[NGEN], g_ds[NGEN];
-    uint32_t i, l, k, t0 = fm1_ticks(), tr;
+    uint32_t i, l, k;
     events_take();
     loops_run();                                        /* (the loops' notes for this block) */
     gens_take();
@@ -799,9 +773,7 @@ static void mix_block(int32_t *out)
         fx_rsend[k] = n ? rs / n : 0;
         fx_dsend[k] = n ? ds / n : 0;
     }
-    tr = fm1_ticks();
     blk_render();                                       /* the effects and the voices, on the two cores */
-    tr = fm1_ticks() - tr;
     memset(ebus_next, 0, EBUS_SIZE);
     ebus_fed = 0;
     for (i = 0; i < CTL; i++) {
@@ -895,13 +867,6 @@ static void mix_block(int32_t *out)
         drv_r[i] = r_[i];
     }
     blk_clock++;
-    {   /* (the LOAD page: the whole block, and CPU0's own part of it -- all but the two cores' render) */
-        uint32_t all = fm1_ticks() - t0;
-        if (all > ld_pk.all)
-            ld_pk.all = all;
-        if (all - tr > ld_pk.ser)
-            ld_pk.ser = all - tr;
-    }
 }
 
 static int gens_sounding(void)
