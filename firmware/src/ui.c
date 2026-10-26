@@ -47,6 +47,7 @@
  *                             black keys do what the view they are in gives them
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
+ *   SHIFT + KNOB 1            playing: the master's DRIVE, 0 (off) .. 100 (build 37), laid out as KNOB 1's
  *   KNOB 2                    playing: the FX MIX of the chosen generator's lane, or of the lane chosen, 0 (dry) ..
  *                             100 (wet), 50 at power-on (build 36; every lane's at once from build 33); laid out over
  *                             the screen as KNOB 1's
@@ -192,6 +193,7 @@ static struct {
     uint32_t latch[NGEN];        /* each generator's keys latched */
     uint8_t latch_note[NGEN][NKEY];
     uint8_t was_on;              /* (CPU1 running, last time: its loss said once) */
+    uint8_t shed_seen;           /* (build 37) the held notes let go to keep up, as last said (gens.c shed_held_n) */
     /* the loopers (Tonitor's gestures) */
     uint8_t rec_down, rec_done, play_down, ovd;   /* REC, PLAY down; held: done; PLAY held: the loops on the keys */
     uint32_t rec_t0, play_t0;
@@ -227,7 +229,8 @@ static struct {
     int32_t shown_ses, shown_snap;
     uint8_t morph;               /* KNOB 1: a snapshot's morph time, half seconds (0: at once) */
     uint32_t dial_until;         /* KNOB 1's dial over the screen, until (KNOB 1 turned) */
-    uint8_t dial_shown, dial_kind;   /* dial_kind: 0 MORPH, 1 DISINTEGRATOR, 2 FX MIX (KNOB 2, build 33) */
+    uint8_t dial_shown, dial_kind;   /* dial_kind: 0 MORPH, 1 DISINTEGRATOR, 2 FX MIX (KNOB 2, build 33), 3 DRIVE (SHIFT +
+                                      * KNOB 1, build 37) */
     uint32_t lk_until;           /* (build 25) two generators linked or unlinked: the message over the screen, until */
     uint8_t lk_from, lk_to, lk_kind, lk_shown;   /* .. which to which; XM_* the kind made, XM_N undone */
     int32_t shown_dial;
@@ -367,6 +370,15 @@ static uint32_t next_seed(void)
     ui.seed = ui.seed * 1664525u + 1013904223u + fm1_ticks();
     return ui.seed;
 }
+/* a slot's name on the screen (build 37): GEN 1 .. 3, LANE 1 .. 3 (the lanes 4 .. 6 before), then t */
+static void say_slot(uint32_t l, const char *t, uint32_t ms)
+{
+    char b[24];
+    str_cpy(b, l < NGEN ? "GEN 1 " : "LANE 1 ", sizeof b);
+    b[l < NGEN ? 4 : 5] = (char)('1' + (l < NGEN ? l : l - NGEN));
+    str_cpy(b + str_len(b), t, sizeof b - str_len(b));
+    say(b, ms);
+}
 /* HOME on slot l (same: of the same family, or recipe) */
 static int new_patch(uint32_t l, int same)
 {
@@ -378,8 +390,11 @@ static int new_patch(uint32_t l, int same)
             ok = fx_draw(l, same ? (int32_t)fbuf[l][f_use[l]].recipe : -1, next_seed());
     } else
         ok = fx_draw(l - NGEN, same ? (int32_t)fbuf[l - NGEN][f_use[l - NGEN]].recipe : -1, next_seed());
-    if (ok)
+    if (ok) {
         ui.home_until = fm1_ms + 400u;
+        say_slot(l, l < NGEN ? MF_NAME[gbuf[l][g_pub[l]].gen.family % MF_N] : FR_NAME[fbuf[l - NGEN][f_pub[l - NGEN]].recipe % FR_N],
+                 1500);                          /* (build 37: what was drawn -- the family, the recipe) */
+    }
     return ok;
 }
 /* a slot muted or heard again (a long press on its button) */
@@ -387,7 +402,7 @@ static void slot_mute(uint32_t l)
 {
     volatile uint8_t *m = l < NGEN ? &gen_mute[l] : &fx_mute[l - NGEN];
     *m ^= 1u;
-    say_n("", (int32_t)l + 1, *m ? " MUTED" : " HEARD", 1200);
+    say_slot(l, *m ? "MUTED" : "HEARD", 1200);
 }
 
 /* every page down: back to playing */
@@ -619,13 +634,19 @@ static void ui_input(void)
     if (ui.was_on && !audio_worker_online)
         say("1 CORE", 4000);                     /* (CPU1 retired as it plays: said, once) */
     ui.was_on = (uint8_t)audio_worker_online;
+    if (ui.shed_seen != shed_held_n) {           /* (a held note let go: the FM-1 could not keep up -- said) */
+        ui.shed_seen = shed_held_n;
+        say("OVERLOAD", 1500);
+    }
     /* the slots' buttons: pressed, chosen; held, muted or heard again */
     for (l = 0; l < NSLOT; l++) {
         if (btn_bit(press, SLOT_BTN[l])) {
             uint32_t o;
             ui.sel = (uint8_t)l;
-            if (l < NGEN)
+            if (l < NGEN) {
                 ui.gen = (uint8_t)l;
+                say_slot(l, MF_NAME[gbuf[l][g_use[l]].gen.family % MF_N], 1200);   /* (build 37: its family) */
+            }
             ui.btn_down[l] = 1;
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_t0[l] = fm1_ms;
@@ -918,7 +939,11 @@ static void ui_input(void)
     } else {                                     /* KNOB 1: the morph time (SNAPSHOTS), else the DISINTEGRATOR of
                                                   * the generator the keys play; KNOB 3, KNOB 4: its sends */
         s = fm1_enc_take(PANEL_ENC[EN_K1]);
-        if (s && ui.snap_page) {                 /* (shown on its dial, over the page) */
+        if (s && shift_held() && !ui.snap_page && !ui.ses_page) {   /* SHIFT + KNOB 1: the master's drive (build 37) */
+            master_drive = (uint8_t)clampi((int32_t)master_drive + 2 * s, 0, 100);
+            ui.dial_kind = 3;
+            ui.dial_until = fm1_ms + 1500u;
+        } else if (s && ui.snap_page) {                 /* (shown on its dial, over the page) */
             ui.morph = (uint8_t)clampi((int32_t)ui.morph + s, 0, MORPH_STEPS_UI);
             ui.dial_kind = 0;
             ui.dial_until = fm1_ms + 1500u;
@@ -1018,7 +1043,7 @@ static void ui_input(void)
         ui.force = 1;
     } else if ((ch & keys) >> KEY_REWIRE & 1u) { /* the first black key: the chosen slot rewired */
         int ok = ui.sel < NGEN ? gen_rewire(ui.sel, next_seed()) : fx_rewire(ui.sel - NGEN, next_seed());
-        say_n(ok ? "REWIRED " : "BUSY ", (int32_t)ui.sel + 1, "", 1000);
+        say_slot(ui.sel, ok ? "REWIRED" : "BUSY", 1000);
     }
     if (!ui.ovd && (((ch & keys) >> KEY_ROUGH & 1u) || ((ch & keys) >> KEY_DARK & 1u))) {   /* the paths: on, off, or
                                                                                          * the other (playing) */
@@ -1587,7 +1612,7 @@ static void draw_fx_page(void)
 static int draw_dial(void)
 {
     uint32_t ln = ui.sel < NGEN ? ui.sel : ui.sel - NGEN;   /* (KNOB 2's lane) */
-    int32_t key = ui.dial_kind == 2u ? 3000 + (int32_t)ln * 200 + fx_wet[ln] : ui.dial_kind ? 1000 + (int32_t)ui.gen * 200 + gen_dis[ui.gen] : ui.morph;
+    int32_t key = ui.dial_kind == 3u ? 5000 + master_drive : ui.dial_kind == 2u ? 3000 + (int32_t)ln * 200 + fx_wet[ln] : ui.dial_kind ? 1000 + (int32_t)ui.gen * 200 + gen_dis[ui.gen] : ui.morph;
     char v[12];
     if ((int32_t)(ui.dial_until - fm1_ms) <= 0) {
         if (ui.dial_shown) {
@@ -1599,12 +1624,32 @@ static int draw_dial(void)
     }
     if (ui.dial_shown && ui.shown_dial == key)
         return 1;
+    if (ui.dial_kind == 3u) {                    /* DRIVE (SHIFT + KNOB 1): the master's, 0 .. 100, laid out as KNOB 1's */
+        int32_t a = master_drive;
+        if (a)
+            fmt_int(v, a);
+        else
+            str_cpy(v, "OFF", 4);
+        CV_AREA(0, 0, 240, 50, C_BLACK)
+            cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "DRIVE", C_FULL);
+        CV_AREA(0, 50, 240, 112, C_BLACK)
+            cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+        CV_AREA(0, 162, 240, 40, C_BLACK)
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, "MASTER", C_FULL);
+        CV_AREA(0, 202, 240, 38, C_BLACK) {
+            cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
+            cv_rect(12, 8, a * 216 / 100, 22, C_FULL);
+        }
+        ui.dial_shown = 1;
+        ui.shown_dial = key;
+        return 1;
+    }
     if (ui.dial_kind == 2u) {                    /* FX MIX (KNOB 2): a lane's, 0 .. 100, laid out as KNOB 1's -- the
                                                   * generator and its lane under it, in its colour */
         int32_t a = fx_wet[ln];
-        char gl[16] = "GEN 1 LANE 4";
+        char gl[16] = "GEN 1 LANE 1";
         gl[4] = (char)('1' + ln);
-        gl[11] = (char)('4' + ln);
+        gl[11] = (char)('1' + ln);
         fmt_int(v, a);
         CV_AREA(0, 0, 240, 50, C_BLACK)
             cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "FX MIX", C_FXMIX);
@@ -1951,12 +1996,17 @@ static void draw_mod_page(void)
     ui.mod_drawn_at = fm1_ms;
     if (ui.force) {
         char ti[12] = "1 LFO 1";
-        ti[0] = (char)('1' + sl);
+        uint32_t o = sl < NGEN ? 0u : 1u;        /* (a lane: L1 .. L3 -- build 37; 4 .. 6 before) */
+        if (o) {
+            ti[0] = 'L';
+            str_cpy(ti + 1, "1 LFO 1", sizeof ti - 1);
+        }
+        ti[o] = (char)('1' + (sl < NGEN ? sl : sl - NGEN));
         if (ix == 1u)
-            ti[6] = '2';
+            ti[6 + o] = '2';
         else if (ix >= 2u) {
-            str_cpy(ti + 2, "MOD A", sizeof ti - 2);
-            ti[6] = (char)('A' + ix - 2u);
+            str_cpy(ti + 2 + o, "MOD A", sizeof ti - 2 - o);
+            ti[6 + o] = (char)('A' + ix - 2u);
         }
         cv_begin(240, 52, C_BLACK);
         cv_text_fit(3, &FONT_L, ti, col);        /* (in the slot's colour: the chosen slot's modulation) */

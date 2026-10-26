@@ -18,7 +18,7 @@ at will: as fit for noise experiments as for slow, dark ambient.
 
 **Website, browser installer and session backup: <https://nzimas.github.io/norilsk/>**
 
-State: **build 36**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
+State: **build 37**. Each build is described in `CHANGELOG.md`. Norilsk was called Molecular until build 17.
 
 # Manual
 
@@ -33,7 +33,7 @@ Three **generators** make sound; three **effect slots** wreck it; a master **del
 chain. The white keys play the generator chosen last, in the scale chosen; four voices are shared between the three
 generators.
 
-- Each generator runs through its own **lane**: generator 1 through effect slot 4, 2 through 5, 3 through 6, with a
+- Each generator runs through its own **lane**: generator 1 through lane 1, 2 through lane 2, 3 through lane 3, with a
   small dry share of its own straight to the master. One generator may modulate another (ring, amplitude, filter) --
   only when you link them: SHIFT, hold one generator's button, then the other's.
 - Each effect slot is a chain of two or three effects, drawn from a recipe; an effect before the last may also go out
@@ -79,7 +79,7 @@ SHIFT is the rightmost black key.
 | Control | What it does |
 |---|---|
 | **FX SEL ENV** | generators 1 to 3: pressed, chosen (the keys play it); held 0.8 s, muted, or heard again |
-| **LFO EDIT GLO** | effect slots 4 to 6: pressed, chosen; held 0.8 s, muted, or heard again |
+| **LFO EDIT GLO** | lanes 1 to 3 (the effect slots): pressed, chosen; held 0.8 s, muted, or heard again |
 | **HOME** | a new patch for the slot chosen: a generator's sound and its cables into the effects; an effect slot's recipe, effects, values and cables across |
 | **SHIFT + HOME** | a new patch of the same family, or the same recipe |
 | **HOME** held 0.8 s | all six slots anew |
@@ -89,6 +89,7 @@ SHIFT is the rightmost black key.
 | **OCT− / OCT+** | the octave, −3 to +3 |
 | **ARP** | the SCALE page: SELECT the root, ALGORITHM the scale (23). **SHIFT + ARP**: a root and a scale drawn at random, shown a moment. At power-on and in a new session the root and scale are drawn too |
 | **KNOB 1** | playing: the DISINTEGRATOR of the generator the keys play, 0 to 100. On the SNAPSHOTS page: the morph time, 0 to 30 s |
+| **SHIFT + KNOB 1** | playing: the master's DRIVE, 0 (off) to 100 -- a valve-like overdrive, rough, over everything, its level held |
 | **KNOB 2** | playing: FX MIX of the chosen generator's lane (or of the lane chosen), 0 (dry) to 100 (wet); 50 at power-on |
 | **KNOB 3 / KNOB 4** | the delay send / reverb send of the generator the keys play |
 | **SEQ** | the DELAY page, again the REVERB page, again the MOD page, again back: KNOB 1 to 4 set the four rows |
@@ -131,7 +132,7 @@ slot is framed in white. No cables are drawn. KNOB 1 shows its value on a dial o
 
 ## The generators
 
-Each generator is a furnace: an instance of **FURNACE**, the engine, burning one sound drawn from twenty-eight
+Each generator is a furnace: an instance of **FURNACE**, the engine, burning one sound drawn from thirty-six
 families. The four voices are shared between the three generators, and each voice is a whole furnace of its own: the
 same sound on two keys burns twice, never quite alike. How the engine is built: [FURNACE: the engine](#furnace-the-engine)
 below.
@@ -242,6 +243,7 @@ of hundreds of sounds of each): a session from an older build sounds as it did. 
 | 3 | the hand, the grit, eight families |
 | 4 | the exciter and the body, five families |
 | 5 | the found sounds, three families |
+| 6 | timbres: eight families; one older sound in four given other waves (the harmonic sets, the bells, bent) |
 
 ### The families
 
@@ -275,6 +277,14 @@ of hundreds of sounds of each): a session from an older build sounds as it did. 
 | DEPTHS | 5 | ice breaking and grinding, a ship far above: slow, dark |
 | AURORA | 5 | hiss and radio from above the ice: airy, drifting |
 | PLANT | 5 | hum, ducts, a furnace, rain on tin, engines, wires |
+| ORGAN | 6 | an organ in a ruin: six carriers on drawbar ratios, held; now and then sounding in a pipe |
+| CHOIR | 6 | voices without words: formant-like waves bent by their envelopes, detuned wide, a soft cloud |
+| FOGHORN | 6 | saws and squares an octave down, fed back hard, in a closed tube |
+| SWARM | 6 | many high carriers a little apart, beating: a buzzing mass |
+| CORONA | 6 | bell waves high up, a cloud pitched an octave and a twelfth above |
+| SUBSTRATE | 6 | squares and saws an octave down, bent; a pipe's modes now and then |
+| GLASSHARP | 6 | noise drawn round a bell's modes an octave up, long |
+| OXIDE | 6 | corroded metal: bent waves, crushed bits, grains of the plant |
 
 ### The macros
 
@@ -321,7 +331,7 @@ SPUTTER, SMOG, STATIC. Every effect, given nothing, falls silent: none sounds on
 
 ## The lanes
 
-Generator 1 runs through effect slot 4 alone, generator 2 through slot 5, generator 3 through slot 6 -- cabled into its
+Generator 1 runs through lane 1 alone, generator 2 through lane 2, generator 3 through lane 3 -- cabled into its
 lane's head, with a small dry share; no cables between lanes; the lanes centre, left, right. HOME on a generator draws
 its lane's chain with it, so the chain is part of its patch (SHIFT + HOME: the same family and the same recipe); HOME on
 an effect slot draws that lane anew, its generator kept; REWIRE inside a lane redraws where its generator enters and

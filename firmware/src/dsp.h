@@ -41,9 +41,10 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
  * 34: an exciter and a body after the operators (noise or a bow into a waveguide, or the operators' sound into six
  * resonators), five families of it (WIRE STEAM CHIMNEY GIRDER HULL), one older sound in five given a body; 5 from
  * build 35: grains from found sounds (found_clips.h: ice and the sea, the aurora's radio, the plant), three families
- * of them (DEPTHS AURORA PLANT), one older sound with a cloud in three given one */
-#define GEN_NOW 5u
-#define GEN_N 6u
+ * of them (DEPTHS AURORA PLANT), one older sound with a cloud in three given one; 6 from build 37: timbres -- eight
+ * families (ORGAN CHOIR FOGHORN SWARM CORONA SUBSTRATE GLASSHARP OXIDE), one older sound in four given other waves */
+#define GEN_NOW 6u
+#define GEN_N 7u
 /* EDIT's four macros on a sound: -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
 #define NMAC 4u

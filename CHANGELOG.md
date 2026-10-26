@@ -2,6 +2,25 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 37 (2026-10-26): names on the screen; lanes 1 to 3; the master's DRIVE; engine generation 6
+
+- **What a generator is, on the screen**: choosing a generator says its family (GEN 1 WIRE); HOME says what it drew
+  (the family; a lane, its recipe). **OVERLOAD** when the FM-1 had to let a held note go to keep up (the load past a
+  block: gens.c shed) -- a sound that never plays may be that.
+- **The lanes are 1, 2, 3** on the screen (LANE 1 MUTED, LANE 2 REWIRED, the MOD page's L1 .. L3, KNOB 2's GEN 1
+  LANE 1); 4, 5, 6 before.
+- **SHIFT + KNOB 1: the master's DRIVE**, 0 (off) .. 100, over everything after the master delay and reverb. Tonitor's
+  distortion (two valve-like stages at twice the rate, the highs lifted before and lowered after, the level held to
+  the dry signal's), rougher: x 64 at the most, a hard clip blended in above 50, the tone closing only to 9 kHz.
+  Shown as KNOB 1's (DRIVE, MASTER); kept in snapshots, glided by a morph; off at power-on and in a new session.
+  At 0 the master is untouched, bit for bit (`host drive`).
+- **Engine generation 6: timbres**. Eight families -- ORGAN, CHOIR, FOGHORN, SWARM, CORONA, SUBSTRATE, GLASSHARP,
+  OXIDE -- and one older sound in four given other waves (its carriers on the harmonic sets or the bells, bent by
+  their envelopes now and then). Every sound of generations 0 .. 5 draws and sounds as before (`tests/golden`,
+  `gen6.txt` new). `host timbres DIR` renders the examples and the drive.
+- No family on its own is silent on any path at notes 36 .. 72 (10 080 renders), nor any generator through its lane
+  at the master (900 draws): a silence on the FM-1 is the machine's, hence OVERLOAD.
+
 ## Build 36 (2026-10-26): lanes only; FX MIX a lane's own; the scale drawn
 
 - **Lanes only**: MESH is gone, and with it the session page's MODE row. Each generator runs through its own lane, as

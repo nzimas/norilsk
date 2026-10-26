@@ -81,6 +81,100 @@ static FAST void mdl_block(const int32_t *in, int32_t *l, int32_t *r, int32_t *r
 }
 static __typeof__(&mdl_block) volatile mdl_block_fp = mdl_block;
 
+/* ------------------------------------------------------------ the master's drive --- */
+/* SHIFT + KNOB 1 (build 37): the whole master driven, 0 .. 100, 0 off -- after the lanes, the master delay and the
+ * reverb, before the MASTER knob. Tonitor's distortion (layers.c dist_block), made rougher for this firmware: two gain
+ * stages in series as a valve preamp's, the first symmetric (odd harmonics), the second clipping sooner on one side
+ * (even), at twice the sample rate (linear interpolation up, a [1/4 1/2 1/4] half-band down); the highs lifted 6 dB
+ * before and lowered after; a DC blocker; the level brought back to the dry signal's (the mean squares followed, the
+ * wet scaled by the root of their ratio: more grit, not more loudness). Norilsk's: the drive x 0.5 .. x 64 (+42 dB;
+ * Tonitor's x 32), above 50 a third stage, a hard clip, blended in, and the tone closing only to 9 kHz (6.5 before):
+ * it keeps its teeth. Each side its own */
+static volatile uint8_t master_drive;           /* 0 .. 100, 0 off */
+typedef struct {
+    int32_t amt, pre, post, dc, lp, env, ep, ymp, yp, dryp;
+    int64_t ein, eout;
+    int32_t g, gp;
+} drv_t;
+static drv_t drv[2];
+#define DV_EMPH 3110                             /* 1 - e^(-2 pi 700 / FS), Q15 */
+AINL int32_t dv_asym(int32_t u) { return u >= 0 ? tanh_q15(u) : (tanh_q15((u * 8) / 5) * 5) / 8; }
+AINL int32_t dv_stage(int32_t e, int32_t g1, int32_t b, int32_t fb, int32_t g2, int32_t hc, int32_t hk)
+{
+    int32_t u = tanh_q15((int32_t)(((int64_t)e * g1) >> 12)), y = dv_asym(mulq12(u, g2) + b) - fb;
+    if (hk) {                                    /* (the third stage: a hard clip at hc, blended in by hk) */
+        int32_t h = clampi(y * 2, -hc, hc);
+        y += mulq15(h - y, hk);
+    }
+    return y;
+}
+static int32_t dv_log2(int64_t v)
+{
+    int32_t e = 0;
+    while (v > 0x7FFFFFFFLL) {
+        v >>= 1;
+        e++;
+    }
+    return log2_q16((uint32_t)(v > 0 ? v : 1)) + (e << 16);
+}
+static void drv_block(drv_t *d, int32_t *x, int32_t want)
+{
+    int32_t a, g1, b, fb, g2, tone, w, beta, hc, hk, g0 = d->gp, gs, i;
+    int64_t sin = 0, sout = 0;
+    d->amt += ((want << 8) - d->amt) >> 2;
+    if (!want && d->amt < 64) {                  /* (off: from silence when it comes in again) */
+        memset(d, 0, sizeof *d);
+        d->g = d->gp = Q16;
+        return;
+    }
+    a = d->amt >> 8;
+    g1 = (int32_t)((2048u * (uint64_t)exp2_q16(d->amt * 7 / 100 * 256)) >> 16);   /* x 0.5 .. x 64, Q12 */
+    b = 3277 + d->amt * 6554 / 25600;            /* the bias, 0.1 .. 0.3 */
+    fb = dv_asym(b);
+    g2 = 4096 + d->amt * 8192 / 25600;           /* x 1 .. x 3, Q12 */
+    beta = 4915 + d->amt * 6554 / 25600;
+    tone = 29430 - d->amt * (29430 - 23500) / 25600;   /* 16 kHz .. 9 kHz */
+    hk = a > 50 ? (a - 50) * (Q15 / 50) : 0;     /* the hard clip, in above 50 */
+    hc = LV(0.45);
+    w = a >= 6 ? Q15 : d->amt * Q15 / (6 * 256);
+    gs = (d->g - g0) / (int32_t)CTL;
+    for (i = 0; i < (int32_t)CTL; i++) {
+        int32_t dry = x[i], e, ym, y, o;
+        d->pre += mulq15(dry - d->pre, DV_EMPH);
+        e = 2 * dry - d->pre;                    /* the highs +6 dB */
+        d->env = absi(e) > d->env ? absi(e) : d->env - (d->env >> 12);
+        e += mulq15(d->env, beta);               /* (lopsided however hard it is driven: even harmonics) */
+        ym = dv_stage((d->ep + e) >> 1, g1, b, fb, g2, hc, hk);
+        y = dv_stage(e, g1, b, fb, g2, hc, hk);
+        o = (d->ymp + 2 * d->yp + ym) >> 2;      /* (one sample late) */
+        d->ep = e;
+        d->ymp = ym;
+        d->yp = y;
+        d->post += mulq15(o - d->post, DV_EMPH);
+        o = (o + d->post) >> 1;                  /* the highs -6 dB again */
+        d->dc += (((o << 8) - d->dc) * 37) >> 15;   /* (~8 Hz) */
+        o -= d->dc >> 8;
+        d->lp += mulq15(o - d->lp, tone);
+        o = d->lp;
+        sin += (int64_t)d->dryp * d->dryp;
+        sout += (int64_t)o * o;
+        o = (int32_t)(((int64_t)o * (g0 + gs * (i + 1))) >> 16);
+        x[i] = d->dryp + mulq15(o - d->dryp, w);
+        d->dryp = dry;
+    }
+    d->gp = d->g;
+    d->ein += (sin - d->ein) >> 8;
+    d->eout += (sout - d->eout) >> 8;
+    if (d->ein > 32 * 1000 && d->eout > 32 * 100)   /* (sounding: else the level as it was) */
+        d->g = (int32_t)exp2_q16(clampi((dv_log2(d->ein) - dv_log2(d->eout)) / 2, -(5 << 16), 1 << 16));
+}
+static void drive_block(int32_t *l, int32_t *r)
+{
+    int32_t want = clampi(master_drive, 0, 100);
+    drv_block(&drv[0], l, want);
+    drv_block(&drv[1], r, want);
+}
+
 static void master_init(void)
 {
     memset(mdl_line, 0x80, sizeof mdl_line);         /* (mu-law's zero is 0x80) */
@@ -93,6 +187,9 @@ static void master_init(void)
     memset(mst_out_l, 0, sizeof mst_out_l);
     memset(mst_out_r, 0, sizeof mst_out_r);
     m_quiet = 0;
+    master_drive = 0;
+    memset(drv, 0, sizeof drv);
+    drv[0].g = drv[0].gp = drv[1].g = drv[1].gp = Q16;
 }
 
 /* a block, after the generators and the slots: the sends (dlin, rvin: the generators' and the slots', summed by
@@ -128,3 +225,4 @@ static void master_job(void)
         mst_out_l[i] = mst_out_r[i] = 0;
     master_block(mst_out_l, mst_out_r, mst_in_d, mst_in_r);
 }
+

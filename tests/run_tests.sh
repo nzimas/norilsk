@@ -37,6 +37,7 @@ build/host link
 build/host lanes
 build/host sespage
 build/host b36 | tail -1
+build/host drive | tail -2
 build/host dis
 build/host paths | tail -1
 build/host revalue
@@ -47,7 +48,7 @@ build/host patches build/sounds 12 > build/sounds/patches.txt
 rm -f build/screens/*.png
 build/host screens build/screens > build/screens/patches.txt
 $PY tools/ppm2png.py build/screens/*.ppm
-for g in 0 1 2 3 4 5; do
+for g in 0 1 2 3 4 5 6; do
     build/host golden $g > build/golden$g.txt
     if [ -f tests/golden/gen$g.txt ]; then
         diff -q build/golden$g.txt tests/golden/gen$g.txt >/dev/null || { echo "FAIL golden: generation $g no longer draws its sounds again (tests/golden/gen$g.txt)"; exit 1; }
@@ -56,7 +57,7 @@ for g in 0 1 2 3 4 5; do
         echo "golden: tests/golden/gen$g.txt written"
     fi
 done
-echo "golden: generations 0 .. 5 as they were"
+echo "golden: generations 0 .. 6 as they were"
 build/host bench
 build/host render build/sounds 3 0 > build/sounds/stats-open.txt
 build/host render build/sounds 2 1 > build/sounds/stats-ambient.txt

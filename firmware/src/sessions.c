@@ -93,7 +93,8 @@ typedef struct {
     st_fx_t x[NFX];
     int8_t rvp[4], dlp[4];
     mod_t mod[NSLOT];
-    uint8_t scale, root, fxmix, rsv;   /* fxmix: KNOB 2's effects' mix + 1 (build 33; 0 before: kept at 100, as it was) */
+    uint8_t scale, root, fxmix, drive;   /* fxmix: KNOB 2's effects' mix + 1 (build 33; 0 before: kept at 100, as it
+                                          * was); drive: the master's DRIVE (build 37; 0 before: off) */
     /* (build 19: the rest of the machine; a state of an older session has kept 0 and leaves it as it is) */
     st_play_t p[NGEN];
     int8_t oct, lx;              /* the octave; every loop's move along the scale */
@@ -161,6 +162,7 @@ static void st_capture(st_t *t)
     t->scale = ui.scale;
     t->root = ui.root;
     t->fxmix = (uint8_t)(fx_wet[0] + 1u);
+    t->drive = master_drive;
     for (l = 0; l < NGEN; l++) {
         st_play_t *q = &t->p[l];
         const looper_t *lp = &loop[l];
@@ -275,6 +277,7 @@ static int st_apply(const st_t *t)
     rack_root = SCALE_BASE + ui.root;
     for (l = 0; l < NFX; l++)
         fx_wet[l] = st_fxmix(t, l);
+    master_drive = (uint8_t)clampi(t->drive, 0, 100);
     lx_post();
     ui.force = 1;
     return ok ? SES_OK : SES_BUSY;
@@ -427,6 +430,7 @@ static void morph_poll(void)
     }
     for (l = 0; l < NFX; l++)                           /* (KNOB 2's mixes, glided) */
         fx_wet[l] = (uint8_t)mlerp(st_fxmix(&morph.a, l), st_fxmix(&morph.b, l), u);
+    master_drive = (uint8_t)mlerp(clampi(morph.a.drive, 0, 100), clampi(morph.b.drive, 0, 100), u);   /* (the drive) */
     /* the master: all but SIZE and TIME glided */
     for (k = 1; k < 4u; k++) {
         ui.rvp[k] = (int8_t)mlerp(morph.a.rvp[k], morph.b.rvp[k], u);
@@ -1248,6 +1252,7 @@ static void ses_fresh(uint32_t num)
     mdl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
     memset(slot_mod, 0, sizeof slot_mod);
     scale_random(next_seed());                           /* (build 36: a root and a scale drawn) */
+    master_drive = 0;
     for (l = 0; l < NFX; l++)
         fx_wet[l] = FX_WET_DEF;
     ui.lx = 0;

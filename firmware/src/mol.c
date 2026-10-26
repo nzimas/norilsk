@@ -54,14 +54,17 @@ enum { MF_METAL, MF_DRONE, MF_BRUIT, MF_IMPACT, MF_PULSE, MF_GLASS, MF_FORMANT, 
        MF_CLOUD = MF_BODY_N, MF_SHATTER, MF_PULSAR, MF_FREEZE,
        MF_G3, MF_FURNACE = MF_G3, MF_HUM, MF_STATIC, MF_HOWL, MF_SCRAPE, MF_DATA, MF_ASH, MF_TUNNEL,
        MF_G4, MF_WIRE = MF_G4, MF_STEAM, MF_CHIMNEY, MF_GIRDER, MF_HULL,
-       MF_G5, MF_DEPTHS = MF_G5, MF_AURORA, MF_PLANT, MF_N };
+       MF_G5, MF_DEPTHS = MF_G5, MF_AURORA, MF_PLANT,
+       MF_G6, MF_ORGAN = MF_G6, MF_CHOIR, MF_FOGHORN, MF_SWARM, MF_CORONA, MF_SUBSTRATE, MF_GLASSHARP, MF_OXIDE, MF_N };
 #define MF_N_OLD MF_G3           /* the families generations 0 .. 2 know */
 #define MF_N_G3 MF_G4            /* .. and generation 3 */
 #define MF_N_G4 MF_G5            /* .. and generation 4 */
+#define MF_N_G5 MF_G6            /* .. and generation 5 */
 static const char *const MF_NAME[MF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "PULSE", "GLASS", "FORMANT", "REED",
                                           "CLOUD", "SHATTER", "PULSAR", "FREEZE",
                                           "FURNACE", "HUM", "STATIC", "HOWL", "SCRAPE", "DATA", "ASH", "TUNNEL",
-                                          "WIRE", "STEAM", "CHIMNEY", "GIRDER", "HULL", "DEPTHS", "AURORA", "PLANT"};
+                                          "WIRE", "STEAM", "CHIMNEY", "GIRDER", "HULL", "DEPTHS", "AURORA", "PLANT",
+                                          "ORGAN", "CHOIR", "FOGHORN", "SWARM", "CORONA", "SUBSTRATE", "GLASSHARP", "OXIDE"};
 /* the families' weights on each path (generation 0) */
 static const uint8_t MF_W[PATH_N][MF_N] = {
     {2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3},
@@ -101,10 +104,16 @@ static const uint8_t MF_W5[PATH_N][MF_N] = {
     {2, 4, 1, 0, 0, 4, 2, 1, 4, 1, 2, 3, 2, 3, 1, 4, 1, 1, 5, 6, 3, 2, 5, 2, 6, 6, 6, 2},
     {2, 1, 4, 0, 0, 1, 2, 1, 2, 3, 3, 2, 5, 3, 6, 3, 5, 6, 2, 1, 5, 5, 2, 5, 1, 3, 2, 6},
 };
+/* generation 6: the timbres' families (ORGAN .. OXIDE), as likely together as the rest, leaning by path */
+static const uint8_t MF_W6[PATH_N][MF_N] = {
+    {2, 3, 2, 0, 0, 2, 1, 1, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4},
+    {2, 4, 1, 0, 0, 4, 2, 1, 4, 1, 2, 3, 2, 3, 1, 4, 1, 1, 5, 6, 3, 2, 5, 2, 6, 6, 6, 2, 5, 6, 5, 1, 6, 5, 6, 1},
+    {2, 1, 4, 0, 0, 1, 2, 1, 2, 3, 3, 2, 5, 3, 6, 3, 5, 6, 2, 1, 5, 5, 2, 5, 1, 3, 2, 6, 2, 1, 4, 6, 2, 4, 1, 6},
+};
 static const uint8_t *mo_fam_w(uint32_t path, uint32_t gen)
 {
     path = path >= PATH_N ? PATH_OPEN : path;
-    return gen >= 5u ? MF_W5[path] : gen >= 4u ? MF_W4[path] : gen >= 3u ? MF_W3[path] : gen >= 2u ? MF_W2[path] : MF_W[path];
+    return gen >= 6u ? MF_W6[path] : gen >= 5u ? MF_W5[path] : gen >= 4u ? MF_W4[path] : gen >= 3u ? MF_W3[path] : gen >= 2u ? MF_W2[path] : MF_W[path];
 }
 
 /* the grain recipe */
@@ -2245,6 +2254,230 @@ static void mo_fs_old(mo_design_t *d, uint32_t path, rnd_t *r)
     d->fs.share = (uint8_t)rnd_in(r, 30, 60);
     d->fs.track = (uint8_t)rnd_in(r, 0, 40);
 }
+/* generation 6's families: timbres -- a voice each, its operators set anew over a borrowed body (its envelopes and
+ * LFO kept; generation 2's swell and hold after) */
+static int mo_fam6_body(int32_t f, rnd_t *r)
+{
+    switch (f) {
+    case MF_ORGAN: case MF_SUBSTRATE: return MF_DRONE;
+    case MF_CHOIR: return MF_FORMANT;
+    case MF_FOGHORN: return MF_REED;
+    case MF_SWARM: return MF_DRONE;              /* (a body that holds: METAL's decayed, a swarm dying away) */
+    case MF_OXIDE: return MF_METAL;
+    default: return rnd_chance(r, 70) ? MF_GLASS : MF_DRONE;   /* CORONA, GLASSHARP */
+    }
+}
+/* an operator's wave: one of a bank (WV_*), morphed now and then towards the next */
+static void mo_wave6(fm6_wsel_t *w, uint32_t bank0, uint32_t n, rnd_t *r)
+{
+    w->wave = (uint8_t)(bank0 + 1u + (uint32_t)rnd_below(r, (int32_t)n));
+    w->morph = (uint8_t)(rnd_chance(r, 50) ? rnd_in(r, 0, 200) : 0);
+}
+static void mo_fam6(mo_design_t *d, int32_t f, rnd_t *r)
+{
+    static const uint16_t DRAW[8] = {50, 100, 150, 200, 300, 400, 600, 800};   /* an organ's footages, x 100 */
+    uint8_t *p = d->p;
+    mo_gr_t *g = &d->gr;
+    int n;
+    switch (f) {
+    case MF_ORGAN:                               /* an organ in a ruin: six carriers on drawbar ratios, held */
+        p[FP_ALG] = 31;
+        for (n = 1; n <= 6; n++) {
+            uint8_t *op = mo_op(p, n);
+            fm6_wsel_t *w = mo_wsel(d, n);
+            mo_ratio(op, DRAW[rnd_below(r, 8)]);
+            op[FP_OL] = (uint8_t)(n == 1 ? 99 : rnd_in(r, 55, 92));
+            op[FP_DET] = (uint8_t)rnd_in(r, 5, 9);
+            if (rnd_chance(r, 30))
+                mo_wave6(w, WV_HARM0, WV_HARM_N, r);
+        }
+        p[FP_FB] = (uint8_t)rnd_in(r, 0, 3);
+        if (rnd_chance(r, 40)) {                 /* (in a pipe now and then) */
+            d->bd.body = BD_TUBE;
+            d->bd.ex = EX_FM;
+            d->bd.closed = 1;
+            d->bd.ratio = 8;
+            d->bd.ring = (uint8_t)rnd_in(r, 6, 14);
+            d->bd.tone = (uint8_t)rnd_in(r, 30, 70);
+            d->bd.dry = (uint8_t)rnd_in(r, 50, 75);
+        }
+        break;
+    case MF_CHOIR:                               /* voices without words: formant-like waves bent by their envelopes, the
+                                                  * carriers detuned wide, a soft cloud over them */
+        p[FP_ALG] = mo_alg(r, 3, 3);
+        for (n = 1; n <= 6; n++) {
+            uint8_t *op = mo_op(p, n);
+            fm6_wsel_t *w = mo_wsel(d, n);
+            if (mo_is_carrier(p, n)) {
+                mo_ratio(op, rnd_chance(r, 70) ? 100 : 200);
+                op[FP_OL] = (uint8_t)rnd_in(r, 82, 99);
+                op[FP_DET] = (uint8_t)rnd_in(r, 0, 14);
+                mo_wave6(w, WV_HARM0, WV_HARM_N, r);
+                w->pd = (uint8_t)rnd_in(r, 80, 170);
+                w->flags = FW_PDENV;
+            } else {
+                mo_ratio(op, rnd_chance(r, 60) ? 100 : 200);
+                op[FP_OL] = (uint8_t)rnd_in(r, 35, 60);
+            }
+        }
+        mo_cloud(g, r);
+        g->size_ms = (uint16_t)rnd_in(r, 150, 300);
+        g->rate = (uint16_t)rnd_in(r, 10, 25);
+        g->cents = (uint8_t)rnd_in(r, 8, 20);
+        g->pch = 0;
+        g->mix = (uint8_t)rnd_in(r, 30, 60);
+        g->freeze_ms = 0;
+        break;
+    case MF_FOGHORN:                             /* a horn in fog: saws an octave down, fed back hard, in a closed tube */
+        p[FP_TRNSP] = 12;
+        p[FP_ALG] = mo_alg(r, 2, 2);
+        for (n = 1; n <= 6; n++) {
+            uint8_t *op = mo_op(p, n);
+            fm6_wsel_t *w = mo_wsel(d, n);
+            if (mo_is_carrier(p, n)) {
+                mo_ratio(op, rnd_chance(r, 50) ? 100 : 50);
+                op[FP_OL] = (uint8_t)rnd_in(r, 88, 99);
+                w->wave = (uint8_t)(WV_PRIM0 + 3u + (uint32_t)rnd_below(r, 2));   /* (a saw or a square) */
+                w->pd = (uint8_t)rnd_in(r, 100, 150);
+                w->flags = FW_PDENV;
+            } else {
+                mo_ratio(op, 100);
+                op[FP_OL] = (uint8_t)rnd_in(r, 40, 70);
+            }
+        }
+        p[FP_FB] = (uint8_t)rnd_in(r, 5, 7);
+        d->bd.body = BD_TUBE;
+        d->bd.ex = EX_FM;
+        d->bd.closed = 1;
+        d->bd.ratio = 8;
+        d->bd.ring = (uint8_t)rnd_in(r, 8, 18);
+        d->bd.tone = (uint8_t)rnd_in(r, 15, 45);
+        d->bd.dry = (uint8_t)rnd_in(r, 30, 55);
+        break;
+    case MF_SWARM:                               /* a swarm: many high carriers a little apart, beating, a buzzing mass */
+        p[FP_ALG] = mo_alg(r, 3, 4);
+        for (n = 1; n <= 6; n++) {
+            static const uint16_t SW[6] = {300, 400, 500, 700, 900, 1100};
+            uint8_t *op = mo_op(p, n);
+            fm6_wsel_t *w = mo_wsel(d, n);
+            if (mo_is_carrier(p, n)) {
+                mo_ratio(op, SW[rnd_below(r, 6)]);
+                op[FP_OL] = (uint8_t)rnd_in(r, 78, 95);
+                op[FP_DET] = (uint8_t)(rnd_chance(r, 50) ? rnd_in(r, 0, 3) : rnd_in(r, 11, 14));
+                if (rnd_chance(r, 60))
+                    mo_wave6(w, WV_HARM0, WV_HARM_N, r);
+            } else {
+                mo_ratio(op, rnd_in(r, 100, 200));
+                op[FP_OL] = (uint8_t)rnd_in(r, 50, 70);
+            }
+        }
+        p[FP_FB] = (uint8_t)rnd_in(r, 2, 5);
+        if (rnd_chance(r, 40)) {
+            d->grit.logic = (uint8_t)rnd_in(r, 15, 40);
+            d->grit.lratio = (uint8_t)rnd_in(r, 12, 57);
+            d->grit.mix = (uint8_t)rnd_in(r, 30, 60);
+        }
+        break;
+    case MF_CORONA:                              /* a corona: bell waves high up, a cloud pitched an octave and a twelfth */
+        p[FP_ALG] = mo_alg(r, 3, 4);
+        for (n = 1; n <= 6; n++) {
+            static const uint16_t CO[4] = {200, 300, 400, 600};
+            uint8_t *op = mo_op(p, n);
+            if (mo_is_carrier(p, n)) {
+                mo_ratio(op, CO[rnd_below(r, 4)]);
+                op[FP_OL] = (uint8_t)rnd_in(r, 78, 95);
+                mo_bellwave(mo_wsel(d, n), r);
+            } else {
+                mo_ratio(op, rnd_in(r, 100, 300));
+                op[FP_OL] = (uint8_t)rnd_in(r, 25, 50);
+            }
+        }
+        mo_cloud(g, r);
+        g->iv[0] = 12;
+        g->iv[1] = 19;
+        g->iv[2] = 24;
+        g->iv[3] = 12;
+        g->pch = (uint8_t)rnd_in(r, 40, 80);
+        g->size_ms = (uint16_t)rnd_in(r, 200, 400);
+        g->rate = (uint16_t)rnd_in(r, 8, 20);
+        g->dark = 0;
+        g->mix = (uint8_t)rnd_in(r, 40, 70);
+        g->freeze_ms = 0;
+        break;
+    case MF_SUBSTRATE:                           /* the substrate: squares and saws an octave down, bent, a pipe's modes */
+        p[FP_TRNSP] = 12;
+        p[FP_ALG] = mo_alg(r, 2, 3);
+        for (n = 1; n <= 6; n++) {
+            uint8_t *op = mo_op(p, n);
+            fm6_wsel_t *w = mo_wsel(d, n);
+            if (mo_is_carrier(p, n)) {
+                mo_ratio(op, rnd_chance(r, 60) ? 50 : 100);
+                op[FP_OL] = (uint8_t)rnd_in(r, 85, 99);
+                w->wave = (uint8_t)(WV_PRIM0 + 3u + (uint32_t)rnd_below(r, 2));
+                w->pd = (uint8_t)rnd_in(r, 60, 200);
+            } else {
+                mo_ratio(op, rnd_chance(r, 50) ? 50 : 100);
+                op[FP_OL] = (uint8_t)rnd_in(r, 40, 65);
+            }
+        }
+        if (rnd_chance(r, 30)) {
+            d->bd.body = BD_MODAL;
+            d->bd.ex = EX_FM;
+            d->bd.set = BS_PIPE;
+            d->bd.ratio = 8;
+            d->bd.ring = (uint8_t)rnd_in(r, 10, 20);
+            d->bd.dry = (uint8_t)rnd_in(r, 50, 75);
+        }
+        break;
+    case MF_GLASSHARP:                           /* a glass harp: noise drawn round a bell's modes, an octave up, long */
+        d->bd.body = BD_MODAL;
+        d->bd.ex = EX_NOISE;
+        d->bd.set = BS_BELL;
+        d->bd.ratio = 16;
+        d->bd.ring = (uint8_t)rnd_in(r, 15, 25);
+        d->bd.spread = (uint8_t)rnd_in(r, 0, 25);
+        d->bd.color = (uint8_t)rnd_in(r, 40, 80);
+        d->bd.dry = 0;
+        break;
+    default:                                     /* OXIDE: corroded metal -- bent waves, crushed bits, the plant's grains */
+        for (n = 1; n <= 6; n++)
+            if (mo_is_carrier(p, n)) {
+                fm6_wsel_t *w = mo_wsel(d, n);
+                w->pd = (uint8_t)rnd_in(r, 60, 200);
+                w->flags = FW_PDENV;
+            }
+        d->grit.bits = (uint8_t)rnd_in(r, 6, 9);
+        d->grit.hold = (uint8_t)rnd_in(r, 0, 3);
+        d->grit.mix = (uint8_t)rnd_in(r, 40, 80);
+        mo_cloud(g, r);
+        g->freeze_ms = 0;
+        g->mix = (uint8_t)rnd_in(r, 30, 60);
+        d->fs.clip = (uint8_t)(rnd_chance(r, 50) ? 11 : rnd_chance(r, 50) ? 12 : 15);   /* (transformer, duct, engine) */
+        d->fs.share = (uint8_t)rnd_in(r, 40, 70);
+        d->fs.track = (uint8_t)rnd_in(r, 0, 30);
+        break;
+    }
+}
+/* generation 6: one older sound in four given other timbres -- its carriers' waves drawn from the harmonic sets and
+ * the bells, bent by their envelopes now and then */
+static void mo_timbre6(mo_design_t *d, rnd_t *r)
+{
+    int n;
+    if (!rnd_chance(r, 25))
+        return;
+    for (n = 1; n <= 6; n++)
+        if (mo_is_carrier(d->p, n)) {
+            fm6_wsel_t *w = mo_wsel(d, n);
+            if (rnd_chance(r, 70))
+                mo_wave6(w, WV_HARM0, WV_HARM_N, r);
+            else
+                mo_bellwave(w, r);
+            if (rnd_chance(r, 35)) {
+                w->pd = (uint8_t)rnd_in(r, 80, 176);
+                w->flags = FW_PDENV;
+            }
+        }
+}
 /* the hand drawn: most sounds of generation 3 have one; what it moves leans on the family (the glitchy ones' speed
  * on their glitches, the dark ones' age on the cloud's darkness); paced by the path (AMBIENT slower) */
 static void mo_hand_draw(mo_design_t *d, int32_t f, uint32_t path, rnd_t *r)
@@ -2310,7 +2543,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     d->gen = (uint8_t)gen;
     d->gain = 4096;
     mo_defaults(d);
-    if (f >= MF_G5)                                      /* (generation 5's families: a body borrowed) */
+    if (f >= MF_G6)                                      /* (generation 6's families: a body borrowed) */
+        body = mo_fam6_body(f, r);
+    else if (f >= MF_G5)                                 /* (generation 5's families: a body borrowed) */
         body = mo_fam5_body(f, r);
     else if (f >= MF_G4)                                 /* (generation 4's families: a body borrowed) */
         body = mo_fam4_body(f, r);
@@ -2336,7 +2571,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     case MF_PULSAR: mo_pulsar(&d->gr, r); break;
     case MF_FREEZE: mo_freeze(&d->gr, r); break;
     default:
-        if (f >= MF_G5)
+        if (f >= MF_G6)
+            mo_fam6(d, f, r);
+        else if (f >= MF_G5)
             mo_fam5(d, f, r);
         else if (f >= MF_G4)
             mo_fam4(d, f, r);
@@ -2372,6 +2609,8 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
         mo_body4_old(d, r);
     if (gen >= 5u && f < MF_G5)                          /* generation 5: an older cloud given a found sound now and then */
         mo_fs_old(d, path, r);
+    if (gen >= 6u && f < MF_G6)                          /* generation 6: an older sound given other timbres now and then */
+        mo_timbre6(d, r);
     mo_sanitize(d);
     if (gen >= 1u && d->gr.freeze_ms) {                  /* (generation 1: never frozen before the body has sounded) */
         int32_t a[4], fz;

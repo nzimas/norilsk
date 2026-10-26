@@ -416,7 +416,7 @@ static int cmd_found(int argc, char **argv)
     char name[512];
     int f, path, n;
     uint32_t seed;
-    for (f = MF_G5; f < MF_N; f++)
+    for (f = MF_G5; f < MF_G6; f++)
         for (path = 0; path < PATH_N; path++) {
             stat_t st;
             seed = 5100u + (uint32_t)f * 13u + (uint32_t)path * 3u;
@@ -610,7 +610,7 @@ static int cmd_golden(uint32_t gen)
     int f, s, path;
     int32_t blk[CTL];
     for (path = 0; path < PATH_N; path++)
-        for (f = 0; f < (gen < 3u ? MF_N_OLD : gen < 4u ? MF_N_G3 : gen < 5u ? MF_N_G4 : MF_N); f++)   /* (each its own) */
+        for (f = 0; f < (gen < 3u ? MF_N_OLD : gen < 4u ? MF_N_G3 : gen < 5u ? MF_N_G4 : gen < 6u ? MF_N_G5 : MF_N); f++)
             for (s = 0; s < 8; s++) {
                 uint32_t seed = 100u + (uint32_t)f * 31u + (uint32_t)s + (uint32_t)path * 503u, h, b;
                 mo_design(&design, f, seed, (uint32_t)path, gen);
@@ -4048,6 +4048,140 @@ static int cmd_b36(void)
     return fails ? 1 : 0;
 }
 
+/* build 37: the master's drive (SHIFT + KNOB 1) -- at 0 the master untouched, bit for bit; at 100 a sound well changed
+ * and no louder (its level brought back), past nothing; with nothing in, nothing out; the knob sets it; a snapshot keeps it */
+static double drive_run(int amt, int32_t *keep, double *rms)
+{
+    uint32_t b, i;
+    double d = 0, e = 0;
+    fm1_in.notes = fm1_in.buttons = 0;
+    ui_init();
+    ui.seed = 6060u;
+    gens_init(ui.seed);
+    scale_random(ui.seed);
+    master_q12 = 4096;
+    master_drive = (uint8_t)amt;
+    press(B_FX, 50);
+    key(4, 1);
+    for (b = 0; b < 1378u * 4u; b++) {
+        int32_t out[2 * CTL];
+        mix_block(out);
+        for (i = 0; i < 2u * CTL; i++) {
+            uint32_t at = (b % 1378u) * 2u * CTL + i;
+            if (b >= 1378u * 3u) {
+                if (keep && amt == 0)
+                    keep[at] = out[i];
+                else if (keep)
+                    d += ((double)out[i] - keep[at]) * ((double)out[i] - keep[at]);
+                e += (double)out[i] * out[i];
+            }
+        }
+    }
+    key(4, 0);
+    *rms = __builtin_sqrt(e / (1378.0 * 2 * CTL)) / 32768.0;
+    return d;
+}
+static int cmd_drive(void)
+{
+    static int32_t ref[1378u * 2u * CTL];
+    int fails = 0;
+    double r0, r100, r0b, d0, d100;
+    uint32_t b, i, pk = 0;
+    drive_run(0, ref, &r0);
+    d0 = drive_run(0, 0, &r0b);
+    d0 = 0;
+    {   /* (again at 0: the same, sample for sample) */
+        double rr;
+        static int32_t ref2[1378u * 2u * CTL];
+        drive_run(0, ref2, &rr);
+        for (i = 0; i < 1378u * 2u * CTL; i++)
+            d0 += ((double)ref2[i] - ref[i]) * ((double)ref2[i] - ref[i]);
+    }
+    d100 = drive_run(100, ref, &r100);
+    d100 = 10.0 * __builtin_log10(d100 / (1378.0 * 2 * CTL) / (r0 * r0 * 32768.0 * 32768.0) + 1e-12);
+    printf("drive: at 0 the same as without %s; at 100 the difference %.1f dB against the sound, level %.3f (off %.3f)\n",
+           d0 == 0 ? "(bit for bit)" : "(NOT)", d100, r100, r0);
+    if (d0 != 0)
+        printf("FAIL drive: at 0 the master touched\n"), fails++;
+    if (d100 < -10.0)
+        printf("FAIL drive: at 100 hardly heard\n"), fails++;
+    if (r100 > r0 * 2.0 || r100 < r0 * 0.4)
+        printf("FAIL drive: at 100 its level not brought back (%.3f against %.3f)\n", r100, r0), fails++;
+    master_drive = 100;                                  /* nothing in: nothing out */
+    for (b = 0; b < 1378u * 8u; b++) {
+        int32_t out[2 * CTL];
+        mix_block(out);
+        if (b > 1378u * 6u)
+            for (i = 0; i < 2u * CTL; i++)
+                pk = (uint32_t)maxi((int32_t)pk, absi(out[i]));
+    }
+    if (pk > 40u)
+        printf("FAIL drive: with nothing in, %u out\n", pk), fails++;
+    master_drive = 0;                                    /* SHIFT + KNOB 1 sets it; a snapshot keeps it */
+    key(KEY_SHIFT, 1);
+    fm1_in.enc[PANEL_ENC[EN_K1]] = 10;
+    ui_input();
+    key(KEY_SHIFT, 0);
+    if (master_drive != 20)
+        printf("FAIL drive: SHIFT + KNOB 1 set %u, not 20\n", master_drive), fails++;
+    snap_store(0);
+    master_drive = 0;
+    ui.morph = 0;
+    snap_recall(0);
+    fw_run(20);
+    if (master_drive != 20)
+        printf("FAIL drive: a snapshot did not keep it (%u)\n", master_drive), fails++;
+    master_drive = 0;
+    printf("drive: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* build 37's examples, to listen to: each of generation 6's families on each path (C3 held 8 s and let go), mono
+ * WAVs into DIR; and the master's drive on one patch -- 4 s at 0, at 50, at 100 -- stereo, drive.wav */
+static int cmd_timbres(int argc, char **argv)
+{
+    const char *dir = argc > 2 ? argv[2] : "build/timbres";
+    char name[512];
+    int f, path;
+    uint32_t b, i, n = 0;
+    for (f = MF_G6; f < MF_N; f++)
+        for (path = 0; path < PATH_N; path++) {
+            stat_t st;
+            uint32_t seed = 7300u + (uint32_t)f * 11u + (uint32_t)path * 5u;
+            mo_design(&design, f, seed, (uint32_t)path, 6);
+            mo_measure(&design);
+            st = play(&design, 48, 8.0, 3.5, 0, wav);
+            snprintf(name, sizeof name, "%s/%s-%s-%u.wav", dir, MF_NAME[f], PATH_NAME[path], seed);
+            wav_write(name, wav, st.len ? st.len : FS * 12);
+            printf("%-9s %-8s seed %u: peak %.2f rms %.3f -> %s\n", MF_NAME[f], PATH_NAME[path], seed, st.peak / 32768.0, st.rms,
+                   name);
+        }
+    fm1_in.notes = fm1_in.buttons = 0;                   /* the drive: one patch, 0, 50, 100 */
+    ui_init();
+    ui.seed = 4711u;
+    gens_init(ui.seed);
+    scale_random(ui.seed);
+    master_q12 = 4096;
+    press(B_FX, 50);
+    key(0, 1);
+    key(KEY_SHIFT, 1);
+    ui_input();
+    key(KEY_SHIFT, 0);
+    key(0, 0);
+    for (b = 0; b < 1378u * 12u; b++) {
+        int32_t out[2 * CTL];
+        master_drive = (uint8_t)(b < 1378u * 4u ? 0u : b < 1378u * 8u ? 50u : 100u);
+        mix_block(out);
+        for (i = 0; i < 2u * CTL && n < sizeof wav2 / sizeof wav2[0]; i++)
+            wav2[n++] = (int16_t)clampi(out[i], -32767, 32767);
+    }
+    master_drive = 0;
+    snprintf(name, sizeof name, "%s/drive.wav", dir);
+    wav_write2(name, wav2, n / 2u);
+    printf("drive: 0, 50, 100, 4 s each -> %s\n", name);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     memset(hflash, 0xFF, sizeof hflash);
@@ -4162,6 +4296,10 @@ int main(int argc, char **argv)
         return cmd_mtails();
     if (!strcmp(argv[1], "link"))
         return cmd_link();
+    if (!strcmp(argv[1], "timbres"))
+        return cmd_timbres(argc, argv);
+    if (!strcmp(argv[1], "drive"))
+        return cmd_drive();
     if (!strcmp(argv[1], "b36"))
         return cmd_b36();
     if (!strcmp(argv[1], "found"))
