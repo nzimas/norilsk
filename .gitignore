@@ -6,3 +6,7 @@ build/
 __pycache__/
 *.pyc
 CLAUDE.md
+
+# found sounds: the source recordings and renders (fetched / rendered again from found/CREDITS.md and tools/render_found.c)
+found/raw/*.wav
+found/synth/*.wav

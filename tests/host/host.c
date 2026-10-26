@@ -372,7 +372,7 @@ static int cmd_bodies(int argc, char **argv)
     char name[512];
     int f, path, n;
     uint32_t seed;
-    for (f = MF_G4; f < MF_N; f++)
+    for (f = MF_G4; f < MF_G5; f++)
         for (path = 0; path < PATH_N; path++) {
             stat_t st;
             seed = 4400u + (uint32_t)f * 17u + (uint32_t)path * 5u;
@@ -403,6 +403,48 @@ static int cmd_bodies(int argc, char **argv)
             printf("%-8s seed %u generation %d: %s%s%s -> %s\n", MF_NAME[f], seed, g, g == 4 ? BD[design.bd.body % 3] : "no body",
                    g == 4 && design.bd.body == BD_MODAL ? ", " : "",
                    g == 4 && design.bd.body == BD_MODAL ? SETN[design.bd.set % BS_N] : "", name);
+        }
+        n++;
+    }
+    return 0;
+}
+/* generation 5's found sounds, to listen to (build 35): each new family on each path, C3 held 8 s and let go; and
+ * older sounds with a cloud that take a clip on generation 5 against generation 4 (the clip the only difference) */
+static int cmd_found(int argc, char **argv)
+{
+    const char *dir = argc > 2 ? argv[2] : "build/foundsounds";
+    char name[512];
+    int f, path, n;
+    uint32_t seed;
+    for (f = MF_G5; f < MF_N; f++)
+        for (path = 0; path < PATH_N; path++) {
+            stat_t st;
+            seed = 5100u + (uint32_t)f * 13u + (uint32_t)path * 3u;
+            mo_design(&design, f, seed, (uint32_t)path, 5);
+            mo_measure(&design);
+            st = play(&design, 48, 8.0, 3.5, 0, wav);
+            snprintf(name, sizeof name, "%s/%s-%s-%u.wav", dir, MF_NAME[f], PATH_NAME[path], seed);
+            wav_write(name, wav, st.len ? st.len : FS * 12);
+            printf("%-7s %-8s seed %u: %s, %u%% of the grains, tracking %u%%, peak %.2f rms %.3f -> %s\n", MF_NAME[f],
+                   PATH_NAME[path], seed, design.fs.clip ? FC_NAME[design.fs.clip - 1] : "-", design.fs.share,
+                   design.fs.track, st.peak / 32768.0, st.rms, name);
+        }
+    for (n = 0, seed = 900u; n < 4 && seed < 3000u; seed++) {
+        static const int8_t OLD[4] = {MF_CLOUD, MF_TUNNEL, MF_SHATTER, MF_HOWL};
+        int g;
+        f = OLD[n];
+        mo_design(&design, f, seed, PATH_OPEN, 5);
+        if (!design.fs.clip)
+            continue;
+        for (g = 4; g <= 5; g++) {
+            stat_t st;
+            mo_design(&design, f, seed, PATH_OPEN, (uint32_t)g);
+            mo_measure(&design);
+            st = play(&design, 48, 8.0, 3.5, 0, wav);
+            snprintf(name, sizeof name, "%s/old-%s-%u-gen%d.wav", dir, MF_NAME[f], seed, g);
+            wav_write(name, wav, st.len ? st.len : FS * 12);
+            printf("%-7s seed %u generation %d: %s -> %s\n", MF_NAME[f], seed, g,
+                   g == 5 ? FC_NAME[design.fs.clip - 1] : "no found sound", name);
         }
         n++;
     }
@@ -568,14 +610,15 @@ static int cmd_golden(uint32_t gen)
     int f, s, path;
     int32_t blk[CTL];
     for (path = 0; path < PATH_N; path++)
-        for (f = 0; f < (gen < 3u ? MF_N_OLD : gen < 4u ? MF_N_G3 : MF_N); f++)   /* (each generation over its families) */
+        for (f = 0; f < (gen < 3u ? MF_N_OLD : gen < 4u ? MF_N_G3 : gen < 5u ? MF_N_G4 : MF_N); f++)   /* (each its own) */
             for (s = 0; s < 8; s++) {
                 uint32_t seed = 100u + (uint32_t)f * 31u + (uint32_t)s + (uint32_t)path * 503u, h, b;
                 mo_design(&design, f, seed, (uint32_t)path, gen);
                 mo_measure(&design);
                 /* (the design as generations 0 .. 2 laid it out: generation 3's fields after it, zero before it) */
                 h = fnv(2166136261u, &design, gen < 3u ? (uint32_t)__builtin_offsetof(mo_design_t, hand)
-                                              : gen < 4u ? (uint32_t)__builtin_offsetof(mo_design_t, bd) : (uint32_t)sizeof design);
+                                              : gen < 4u ? (uint32_t)__builtin_offsetof(mo_design_t, bd)
+                                              : gen < 5u ? (uint32_t)__builtin_offsetof(mo_design_t, fs) : (uint32_t)sizeof design);
                 memset(&voice, 0, sizeof voice - MO_GR_N);
                 mo_note_on(&voice, &design, 60, 1);
                 for (b = 0; b < 2756u; b++) {            /* 2 s */
@@ -4074,6 +4117,8 @@ int main(int argc, char **argv)
         return cmd_mtails();
     if (!strcmp(argv[1], "link"))
         return cmd_link();
+    if (!strcmp(argv[1], "found"))
+        return cmd_found(argc, argv);
     if (!strcmp(argv[1], "bodies"))
         return cmd_bodies(argc, argv);
     if (!strcmp(argv[1], "demo"))

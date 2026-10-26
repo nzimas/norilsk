@@ -48,17 +48,20 @@
  * cloud's share and rate -- and a cloud for the sounds that have none), MOTION. 0 everywhere: the sound as
  * drawn, bit for bit. */
 
+#include "found_clips.h"   /* (generation 5: the found sounds, in the flash) */
 enum { MF_METAL, MF_DRONE, MF_BRUIT, MF_IMPACT, MF_PULSE, MF_GLASS, MF_FORMANT, MF_REED,
        MF_BODY_N,
        MF_CLOUD = MF_BODY_N, MF_SHATTER, MF_PULSAR, MF_FREEZE,
        MF_G3, MF_FURNACE = MF_G3, MF_HUM, MF_STATIC, MF_HOWL, MF_SCRAPE, MF_DATA, MF_ASH, MF_TUNNEL,
-       MF_G4, MF_WIRE = MF_G4, MF_STEAM, MF_CHIMNEY, MF_GIRDER, MF_HULL, MF_N };
+       MF_G4, MF_WIRE = MF_G4, MF_STEAM, MF_CHIMNEY, MF_GIRDER, MF_HULL,
+       MF_G5, MF_DEPTHS = MF_G5, MF_AURORA, MF_PLANT, MF_N };
 #define MF_N_OLD MF_G3           /* the families generations 0 .. 2 know */
 #define MF_N_G3 MF_G4            /* .. and generation 3 */
+#define MF_N_G4 MF_G5            /* .. and generation 4 */
 static const char *const MF_NAME[MF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "PULSE", "GLASS", "FORMANT", "REED",
                                           "CLOUD", "SHATTER", "PULSAR", "FREEZE",
                                           "FURNACE", "HUM", "STATIC", "HOWL", "SCRAPE", "DATA", "ASH", "TUNNEL",
-                                          "WIRE", "STEAM", "CHIMNEY", "GIRDER", "HULL"};
+                                          "WIRE", "STEAM", "CHIMNEY", "GIRDER", "HULL", "DEPTHS", "AURORA", "PLANT"};
 /* the families' weights on each path (generation 0) */
 static const uint8_t MF_W[PATH_N][MF_N] = {
     {2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3},
@@ -92,10 +95,16 @@ static const uint8_t MF_W4[PATH_N][MF_N] = {
     {2, 4, 1, 0, 0, 4, 2, 1, 4, 1, 2, 3, 2, 3, 1, 4, 1, 1, 5, 6, 3, 2, 5, 2, 6},
     {2, 1, 4, 0, 0, 1, 2, 1, 2, 3, 3, 2, 5, 3, 6, 3, 5, 6, 2, 1, 5, 5, 2, 5, 1},
 };
+/* generation 5: the found sounds' families (DEPTHS AURORA PLANT) as likely as a body's, leaning by path */
+static const uint8_t MF_W5[PATH_N][MF_N] = {
+    {2, 3, 2, 0, 0, 2, 1, 1, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3, 3, 3, 4, 4, 4},
+    {2, 4, 1, 0, 0, 4, 2, 1, 4, 1, 2, 3, 2, 3, 1, 4, 1, 1, 5, 6, 3, 2, 5, 2, 6, 6, 6, 2},
+    {2, 1, 4, 0, 0, 1, 2, 1, 2, 3, 3, 2, 5, 3, 6, 3, 5, 6, 2, 1, 5, 5, 2, 5, 1, 3, 2, 6},
+};
 static const uint8_t *mo_fam_w(uint32_t path, uint32_t gen)
 {
     path = path >= PATH_N ? PATH_OPEN : path;
-    return gen >= 4u ? MF_W4[path] : gen >= 3u ? MF_W3[path] : gen >= 2u ? MF_W2[path] : MF_W[path];
+    return gen >= 5u ? MF_W5[path] : gen >= 4u ? MF_W4[path] : gen >= 3u ? MF_W3[path] : gen >= 2u ? MF_W2[path] : MF_W[path];
 }
 
 /* the grain recipe */
@@ -162,6 +171,13 @@ typedef struct {
         uint8_t press;           /* BOW: its pressure 0 .. 100 */
         uint8_t dry;             /* the exciter heard as it is beside the body, 0 .. 100 */
     } bd;
+    /* generation 5 (zero before it): the grains read from a found sound's clip too (found_clips.h) */
+    struct {
+        uint8_t clip;            /* 0 none; else the clip, 1 .. FC_N */
+        uint8_t share;           /* the grains taken from it, % (the rest from the operators' sound) */
+        uint8_t track;           /* how far its pitch follows the keys, % (0: the same at every key) */
+        uint8_t rsv;
+    } fs;
 } mo_design_t;
 enum { BD_NONE, BD_TUBE, BD_MODAL };
 enum { EX_FM, EX_NOISE, EX_BOW };
@@ -182,6 +198,7 @@ typedef struct {
     int32_t gain;                /* Q15 */
     uint8_t on, shape;
     uint16_t bmask;              /* (generation 3) an address bit bent as it reads: Russolo's BEND */
+    uint8_t clip;                /* (generation 5) 0: reads the voice's buffer; else that found sound's clip */
 } mo_grain_t;
 
 typedef struct {
@@ -241,6 +258,9 @@ typedef struct {
     int32_t ma1[6], ma2[6], mg[6], mgn[6], my1[6], my2[6];   /* MODAL: Q29 coefficients, Q30 inputs (the operators',
                                                               * the noise's), states Q23 */
     int16_t bline[MO_BD_N];
+    /* generation 5: the found sound the grains may read (this note's), the share, the rate (Q16, the keys' share) */
+    uint8_t fclip, fshare;
+    int32_t frate;
     uint8_t buf[MO_GR_N];
 } mo_voice_t;
 
@@ -281,6 +301,9 @@ static void mo_note_on(mo_voice_t *v, const mo_design_t *d, int32_t note, int fr
     v->live = 1;
     v->g3 = (uint8_t)(d->gen >= 3u);
     mo_body_start(v, d);                         /* (generation 4: the body, tuned to the note; off before) */
+    v->fclip = (uint8_t)(d->gen >= 5u && d->fs.clip <= FC_N ? d->fs.clip : 0u);   /* (generation 5: a found sound) */
+    v->fshare = d->fs.share;
+    v->frate = v->fclip ? (int32_t)exp2_q16((v->note - 60) * 65536 / 12 * clampi(d->fs.track, 0, 100) / 100) : Q16;
     if (d->gen >= 3u) {                          /* (generation 3: the hand put down, the grit from silence) */
         if (fresh && d->hand.on)
             mo_hand_start(v, d);
@@ -415,6 +438,20 @@ static FAST void mo_spawn(mo_voice_t *v, const mo_gr_t *gr, uint32_t len, int32_
     r_q16 = (int32_t)(((int64_t)r_q16 * rate16) >> 16);
     inc = r_q16 >> 1;                                      /* the buffer is at half the rate */
     rev = rnd_below(&v->r, 100) < gr->rev;
+    if (v->fclip && rnd_below(&v->r, 100) < v->fshare) {   /* (generation 5) a grain of the found sound: anywhere in
+                                                            * its clip (it loops), at the keys' share of its rate */
+        inc = (int32_t)(((int64_t)inc * v->frate) >> 16);
+        g->pos = (int32_t)((uint32_t)rnd_below(&v->r, (int32_t)FC_LEN) << 16);
+        g->inc = rev ? -inc : inc;
+        g->wph = 0;
+        g->winc = 0xFFFFFFFFu / (len ? len : 1u);
+        g->shape = gr->shape;
+        g->bmask = 0;
+        g->clip = v->fclip;
+        g->gain = gr->mode == GM_CLOUD && gr->jit ? mulq15(norm, Q15 - mulq15(rnd_q15(&v->r), gr->jit * (Q15 / 200))) : norm;
+        g->on = 1;
+        return;
+    }
     /* where it starts: far enough back that the read head never meets the write head, and not so far back that
      * the write head comes round to it (or past what the note has written) */
     bk = (uint32_t)(((uint64_t)len * (uint32_t)inc) >> 16);   /* buffer samples the grain reads */
@@ -440,6 +477,7 @@ static FAST void mo_spawn(mo_voice_t *v, const mo_gr_t *gr, uint32_t len, int32_
         start -= MO_GR_N;
     g->pos = (int32_t)(start << 16);
     g->inc = rev ? -inc : inc;
+    g->clip = 0;
     g->wph = 0;
     g->winc = 0xFFFFFFFFu / (len ? len : 1u);
     g->shape = gr->shape;
@@ -566,6 +604,18 @@ static FAST void mo_grains(mo_voice_t *v, const mo_gr_t *gr, const int32_t *y, i
                 continue;
             p = g->pos;
             i0 = (uint32_t)p >> 16;
+            if (g->clip) {                                 /* (generation 5) the found sound's clip, looping */
+                const uint8_t *cd = FC_DATA[g->clip - 1u];
+                i1 = i0 + 1u >= FC_LEN ? 0u : i0 + 1u;
+                f = (p & 0xFFFF) >> 1;
+                s0 = gr_dec(cd[i0]);
+                s1 = gr_dec(cd[i1]);
+                p += g->inc;
+                if (p < 0)
+                    p += (int32_t)(FC_LEN << 16);
+                else if (p >= (int32_t)(FC_LEN << 16))
+                    p -= (int32_t)(FC_LEN << 16);
+            } else {
             if (g->bmask) {                                /* (bent: the address with a bit flipped) */
                 i0 ^= g->bmask;
                 if (i0 >= MO_GR_N)
@@ -575,6 +625,12 @@ static FAST void mo_grains(mo_voice_t *v, const mo_gr_t *gr, const int32_t *y, i
             f = (p & 0xFFFF) >> 1;
             s0 = gr_dec(v->buf[i0]);
             s1 = gr_dec(v->buf[i1]);
+            p += g->inc;
+            if (p < 0)
+                p += (int32_t)(MO_GR_N << 16);
+            else if (p >= (int32_t)(MO_GR_N << 16))
+                p -= (int32_t)(MO_GR_N << 16);
+            }
             t = (int32_t)(g->wph >> 17);                   /* 0 .. Q15 through the grain */
             if (g->shape == 1)                             /* percussive: a quick rise, a fall */
                 w = t < 2048 ? t * 16 : mulq15(Q15 - t, Q15 - t);
@@ -586,11 +642,6 @@ static FAST void mo_grains(mo_voice_t *v, const mo_gr_t *gr, const int32_t *y, i
                 w = HANN[hi] + (((HANN[hi + 1u] - HANN[hi]) * hf) >> 15);
             }
             sum += mulq15(mulq15(s0 + (((s1 - s0) * f) >> 15), w), g->gain);
-            p += g->inc;
-            if (p < 0)
-                p += (int32_t)(MO_GR_N << 16);
-            else if (p >= (int32_t)(MO_GR_N << 16))
-                p -= (int32_t)(MO_GR_N << 16);
             g->pos = p;
             was = g->wph;
             g->wph += g->winc;
@@ -2135,6 +2186,65 @@ static void mo_body4_old(mo_design_t *d, rnd_t *r)
     d->bd.ring = (uint8_t)rnd_in(r, 6, 18);
     d->bd.dry = (uint8_t)rnd_in(r, 40, 75);
 }
+/* generation 5's families: a cloud over a found sound (found_clips.h: 0 .. 4 ice and the sea, 5 .. 9 the aurora's
+ * radio, 10 .. 15 the plant), the operators' sound under it; a body borrowed as generation 3's are */
+static int mo_fam5_body(int32_t f, rnd_t *r)
+{
+    switch (f) {
+    case MF_DEPTHS: return rnd_chance(r, 70) ? MF_DRONE : MF_BRUIT;
+    case MF_AURORA: return rnd_chance(r, 60) ? MF_GLASS : MF_DRONE;
+    default: return rnd_chance(r, 50) ? MF_BRUIT : MF_METAL;   /* PLANT */
+    }
+}
+static void mo_fam5(mo_design_t *d, int32_t f, rnd_t *r)
+{
+    mo_gr_t *g = &d->gr;
+    mo_cloud(g, r);
+    g->freeze_ms = 0;
+    switch (f) {
+    case MF_DEPTHS:                              /* the depths: ice breaking and grinding, a ship far above -- slow, dark */
+        d->p[FP_TRNSP] = (uint8_t)(rnd_chance(r, 40) ? 12 : 24);
+        d->fs.clip = (uint8_t)(1 + rnd_below(r, 5));
+        g->size_ms = (uint16_t)rnd_in(r, 150, 400);
+        g->rate = (uint16_t)rnd_in(r, 5, 18);
+        g->dark = (uint8_t)rnd_in(r, 30, 70);
+        g->mix = (uint8_t)rnd_in(r, 70, 95);
+        d->fs.track = (uint8_t)rnd_in(r, 0, 25);
+        break;
+    case MF_AURORA:                              /* the aurora: hiss and radio from above the ice -- airy, drifting */
+        d->fs.clip = (uint8_t)(6 + rnd_below(r, 5));
+        g->size_ms = (uint16_t)rnd_in(r, 100, 300);
+        g->rate = (uint16_t)rnd_in(r, 10, 40);
+        g->dark = (uint8_t)rnd_in(r, 0, 30);
+        g->mix = (uint8_t)rnd_in(r, 60, 90);
+        d->fs.track = (uint8_t)rnd_in(r, 0, 30);
+        break;
+    default:                                     /* the plant: hum, ducts, a furnace, rain on tin, engines, wires */
+        d->fs.clip = (uint8_t)(11 + rnd_below(r, 6));
+        g->size_ms = (uint16_t)rnd_in(r, 60, 250);
+        g->rate = (uint16_t)rnd_in(r, 15, 60);
+        g->dark = (uint8_t)rnd_in(r, 0, 40);
+        g->mix = (uint8_t)rnd_in(r, 60, 90);
+        d->fs.track = (uint8_t)rnd_in(r, 0, 50);
+        if (rnd_chance(r, 40)) {
+            d->grit.bits = (uint8_t)rnd_in(r, 7, 10);
+            d->grit.mix = (uint8_t)rnd_in(r, 30, 60);
+        }
+        break;
+    }
+    d->fs.share = (uint8_t)rnd_in(r, 70, 100);
+}
+/* generation 5: a sound of an older family with a cloud given a found sound for some of its grains, one time in three
+ * -- of the kind its path leans to (AMBIENT: the depths and the aurora; EXPERIMENTAL: the plant) */
+static void mo_fs_old(mo_design_t *d, uint32_t path, rnd_t *r)
+{
+    if (d->gr.mode == GM_OFF || !rnd_chance(r, 33))
+        return;
+    d->fs.clip = (uint8_t)(path == PATH_AMBIENT ? 1 + rnd_below(r, 10) : path == PATH_EXP ? 11 + rnd_below(r, 6)
+                                                                                         : 1 + rnd_below(r, (int32_t)FC_N));
+    d->fs.share = (uint8_t)rnd_in(r, 30, 60);
+    d->fs.track = (uint8_t)rnd_in(r, 0, 40);
+}
 /* the hand drawn: most sounds of generation 3 have one; what it moves leans on the family (the glitchy ones' speed
  * on their glitches, the dark ones' age on the cloud's darkness); paced by the path (AMBIENT slower) */
 static void mo_hand_draw(mo_design_t *d, int32_t f, uint32_t path, rnd_t *r)
@@ -2200,7 +2310,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     d->gen = (uint8_t)gen;
     d->gain = 4096;
     mo_defaults(d);
-    if (f >= MF_G4)                                      /* (generation 4's families: a body borrowed) */
+    if (f >= MF_G5)                                      /* (generation 5's families: a body borrowed) */
+        body = mo_fam5_body(f, r);
+    else if (f >= MF_G4)                                 /* (generation 4's families: a body borrowed) */
         body = mo_fam4_body(f, r);
     else if (f >= MF_G3)                                 /* (generation 3's families: a body borrowed) */
         body = mo_fam3_body(f, r);
@@ -2224,7 +2336,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     case MF_PULSAR: mo_pulsar(&d->gr, r); break;
     case MF_FREEZE: mo_freeze(&d->gr, r); break;
     default:
-        if (f >= MF_G4)
+        if (f >= MF_G5)
+            mo_fam5(d, f, r);
+        else if (f >= MF_G4)
             mo_fam4(d, f, r);
         else if (f >= MF_G3)
             mo_fam3(d, f, r);
@@ -2256,6 +2370,8 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     }
     if (gen >= 4u && f < MF_G4)                          /* generation 4: an older family given a body now and then */
         mo_body4_old(d, r);
+    if (gen >= 5u && f < MF_G5)                          /* generation 5: an older cloud given a found sound now and then */
+        mo_fs_old(d, path, r);
     mo_sanitize(d);
     if (gen >= 1u && d->gr.freeze_ms) {                  /* (generation 1: never frozen before the body has sounded) */
         int32_t a[4], fz;

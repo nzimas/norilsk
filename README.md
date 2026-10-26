@@ -139,10 +139,17 @@ stiffness in it, open or closed at one end) or MODAL (six resonators on the rati
 a hull). The bow is Smith's bowed string: friction gripping and slipping. A body rings out within the voices' three
 seconds; nothing in it moves the pitch. Five families are made of it, and one older sound in five is given one.
 
-Twenty-five **families**: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE,
+From build 35 (generation 5) the grains may also read **found sound**: sixteen short clips in the flash — ice and the
+sea from NOAA's hydrophones (an iceberg calving, its tremor, an icequake, a grounding, a ship above the Challenger
+Deep), the aurora's radio from NASA's Polar spacecraft (auroral hiss, kilometric radiation, chorus, "saucers"), and a
+plant rendered here (a transformer, an air duct, a furnace, rain on tin, an engine room, wind in wires). Sources and
+credits: `found/CREDITS.md`.
+
+Twenty-eight **families**: METAL, DRONE, BRUIT, IMPACT, PULSE, GLASS, FORMANT, REED, CLOUD, SHATTER, PULSAR, FREEZE,
 FURNACE, HUM, STATIC, HOWL, SCRAPE, DATA, ASH, TUNNEL, and generation 4's WIRE (a bowed stiff wire), STEAM (noise in a
 pipe closed at one end), CHIMNEY (wind in a long open tube, an octave down), GIRDER (noise in a bar's or a plate's
-modes), HULL (the operators droning in a bell's or a hull's modes). Four **scenes** choose among them: FIELD (ambient), MATERIAL (open),
+modes), HULL (the operators droning in a bell's or a hull's modes); and generation 5's DEPTHS, AURORA and PLANT, clouds of
+found sound. Four **scenes** choose among them: FIELD (ambient), MATERIAL (open),
 FEEDBACK and EROSION (experimental), each with its own families.
 Four macros — BRIGHTNESS, DETUNE (INHARMONIC on the metallic and noisy bodies), GRAIN, MOTION — moved by the invisible
 hand, by the LFOs, and by you. Every sound is measured as it is made and brought to one level. `docs/ENGINE.md` has the

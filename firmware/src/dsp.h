@@ -39,9 +39,11 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
  * and PULSE are not drawn; 3 from build 10: Anima's invisible hand on each voice, Russolo's grit (the small DAC, XOR
  * logic, stutters, bent grains), eight new families (FURNACE HUM STATIC HOWL SCRAPE DATA ASH TUNNEL); 4 from build
  * 34: an exciter and a body after the operators (noise or a bow into a waveguide, or the operators' sound into six
- * resonators), five families of it (WIRE STEAM CHIMNEY GIRDER HULL), one older sound in five given a body */
-#define GEN_NOW 4u
-#define GEN_N 5u
+ * resonators), five families of it (WIRE STEAM CHIMNEY GIRDER HULL), one older sound in five given a body; 5 from
+ * build 35: grains from found sounds (found_clips.h: ice and the sea, the aurora's radio, the plant), three families
+ * of them (DEPTHS AURORA PLANT), one older sound with a cloud in three given one */
+#define GEN_NOW 5u
+#define GEN_N 6u
 /* EDIT's four macros on a sound: -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
 #define NMAC 4u

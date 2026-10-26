@@ -2,6 +2,26 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 35 (2026-10-26): engine generation 5 -- found sounds in the grains
+
+- **Grains of found sound**: sixteen clips of 0.6 s in the flash (211 KB, `firmware/src/found_clips.h`), each the
+  steadiest stretch of its source, looping without a seam, coded 8-bit as the grain buffers. A grain may read a clip
+  instead of the operators' sound -- anywhere in it, pitched by the cloud's intervals, following the keys only as far
+  as the sound's tracking (0 .. 50 %): no glide.
+  - Ice and the sea (NOAA PMEL hydrophones): an iceberg calving, an iceberg's harmonic tremor, an icequake (the
+    "Bloop"), an iceberg grounding, a ship heard from the Challenger Deep.
+  - The aurora's radio (NASA, the Polar spacecraft's plasma wave instrument): auroral hiss (two), auroral kilometric
+    radiation, chorus, "saucer" emissions.
+  - The plant, rendered offline here (`tools/render_found.c`): a transformer, an air duct, a furnace, rain on a tin
+    roof, an engine room, wind in wires.
+  Sources and credits: `found/CREDITS.md`; the clips cut by `tools/make_found.c`.
+- **Three families of them**: DEPTHS (ice and the sea, slow and dark, an octave or two down), AURORA (the radio,
+  airy), PLANT (the plant, now and then crushed). One older sound with a cloud in three takes a clip for a third to
+  two thirds of its grains (AMBIENT: the depths and the aurora; EXPERIMENTAL: the plant).
+- Every sound of generations 0 .. 4 draws and sounds bit for bit as before (`tests/golden`, `gen5.txt` new). The cost
+  is a cloud's (the clips are read from the flash, never during a flash write: those are the main loop's, interrupts
+  off). `host found DIR` renders the examples.
+
 ## Build 34 (2026-10-26): engine generation 4 -- an exciter and a body
 
 - **An exciter and a body after the operators** (new sounds are drawn on generation 4; every sound of generations 0 .. 3
