@@ -22,6 +22,113 @@ State: **build 37**. Each build is described in `CHANGELOG.md`. Norilsk was call
 
 # Manual
 
+## Cheat sheet
+
+SHIFT is the rightmost black key. Black keys are contextual: a key with no job in the current view does nothing and
+stays dark. "Hold" means 0.8 s unless stated otherwise.
+
+### Slots
+
+| To | Do this |
+|---|---|
+| Choose generator 1, 2 or 3 (keys play it) | Press **FX**, **SEL** or **ENV** |
+| Choose effect slot (lane) 1, 2 or 3 | Press **LFO**, **EDIT** or **GLO** |
+| Mute or unmute a slot | Hold its button |
+| Level / pan of chosen generator | Turn **SELECT** / **ALGORITHM** |
+| Link two generators (first modulates second) | Hold **SHIFT**, hold first generator's button, then hold second's. Repeat to unlink |
+
+### Playing
+
+| To | Do this |
+|---|---|
+| Play | White keys: chosen generator, in current scale. Same with USB MIDI notes |
+| Change octave (−3 to +3) | **OCT−** / **OCT+** |
+| Latch a note | Hold white key, press **SHIFT** (key stays lit) |
+| Release a latched note | Hold **SHIFT**, press lit key |
+| Set root and scale | **ARP** opens SCALE page: **SELECT** root, **ALGORITHM** scale (23). **ARP** again to leave |
+| Random root and scale | **SHIFT + ARP** |
+| DISINTEGRATOR of generator being played (0 to 100) | **KNOB 1** |
+| Master DRIVE (0 off to 100) | **SHIFT + KNOB 1** |
+| FX MIX of chosen lane, dry to wet | **KNOB 2** |
+| Delay send / reverb send of generator being played | **KNOB 3** / **KNOB 4** |
+| Output level | **MASTER** |
+
+### Drawing new material
+
+| To | Do this |
+|---|---|
+| New sound for chosen generator (with its lane's effects) | **HOME** |
+| New effect chain for chosen lane | Choose the effect slot, press **HOME** |
+| New, but same family (or same recipe) | **SHIFT + HOME** |
+| Everything new, all six slots | Hold **HOME** |
+| New cables only | 1st black key (REWIRE) |
+| New values only (effects), or new sound of same family (generator) | **SHIFT** + 1st black key (RAND PARAMS) |
+| Bias draws towards harsh, torn material | 2nd black key: ABRASIVE path on/off |
+| Bias draws towards dark ambient and drones | 3rd black key: DARK path on/off |
+
+### Pages
+
+| To | Do this |
+|---|---|
+| Delay settings (TIME, FEEDBACK, DAMP, MIX) | **SEQ**, then **KNOB 1** to **4** |
+| Reverb settings (SIZE, DECAY, DAMP, MIX) | **SEQ** twice, then **KNOB 1** to **4** |
+| Modulation of chosen slot | **SEQ** three times. **PRESETS** picks LFO 1, LFO 2 or route A to H; **KNOB 1** to **4** set its values |
+| Back to playing | **SEQ** a fourth time |
+| Random modulation for chosen slot | **SHIFT + SEQ** |
+
+### Looper (generator being played)
+
+| To | Do this |
+|---|---|
+| Record a loop | **REC** to arm (first note starts it), **REC** again to end (plays at once) |
+| Overdub | **REC** while loops play |
+| Clear loops | Hold **REC** 1 s |
+| VARY on/off | **SHIFT + REC** |
+| Stop or restart loops | **PLAY** |
+| Stop or start all generators' loops | **SHIFT + PLAY** |
+| Take loops out or bring them back | Hold **PLAY**, press white keys |
+| REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED | Hold **PLAY**, press 4th to 8th black key (again: off) |
+| Move loops one scale step down / up | **SHIFT + OCT−** / **OCT+** (hold a generator's button too for its loops only) |
+
+### Snapshots
+
+| To | Do this |
+|---|---|
+| Open SNAPSHOTS page | **SAVE** (again, or a slot button, to leave) |
+| Recall snapshot | Press and release its white key |
+| Store current state | Hold its white key 0.8 s, or move frame with **PRESETS** and hold **SAVE** |
+| Empty snapshot | Hold **SHIFT**, hold its white key |
+| Morph time (0 to 30 s) | **KNOB 1** on SNAPSHOTS page |
+
+### Sessions
+
+| To | Do this |
+|---|---|
+| Save while playing | Hold **SAVE** (saves into loaded session; with none loaded, offers first empty slot) |
+| Open SESSIONS list | **SHIFT + SAVE** |
+| Pick a session | **PRESETS** |
+| Open its page (BACK, LOAD or NEW, SAVE, COPY, DELETE) | **SAVE** |
+| Pick and run a row | **PRESETS**, then **SAVE** |
+| Go back a level | **SHIFT + SAVE** |
+
+### Start-up
+
+| To | Do this |
+|---|---|
+| Rescue mode (install again) | Hold **OCT−** while powering on |
+| Chip's own updater | Hold **OCT−** and **OCT+** 5 s |
+
+## First steps
+
+1. Power on. Generator 1 is chosen; each generator already has a sound and a lane of effects.
+2. Play white keys. Press **FX**, **SEL** or **ENV** to hear the other generators.
+3. Press **HOME** until a generator sounds right to you. **SHIFT + HOME** keeps its family and tries again.
+4. Hold a key and press **SHIFT** to latch it. Latch notes on two or three generators to build a texture.
+5. Turn **KNOB 2** for more or less effect, **KNOB 1** to disintegrate, **KNOB 3** and **KNOB 4** for delay and reverb.
+6. Press **SAVE**, hold a white key 0.8 s: the whole machine is stored in that snapshot. Make a few, set a morph time
+   with **KNOB 1** and move between them.
+7. Hold **SAVE** (outside the SNAPSHOTS page) to keep everything in the FM-1's flash as a session.
+
 ## How it is put together
 
 Norilsk has three generators, three effect slots, a master delay and a plate reverb. I think of the generators as
@@ -68,50 +175,6 @@ Randomness works at every scale:
    VARY changes every note it plays; RANDOM jumps between loops.
 9. **What isn't random.** A snapshot stores the whole machine and recalls it exactly, or morphs into it. Sessions keep
    everything in flash.
-
-## Panel
-
-SHIFT is the rightmost black key.
-
-| Control | What it does |
-|---|---|
-| **FX SEL ENV** | Generators 1 to 3. Press to choose (keys play it). Hold 0.8 s to mute or unmute |
-| **LFO EDIT GLO** | Lanes 1 to 3 (effect slots). Press to choose. Hold 0.8 s to mute or unmute |
-| **HOME** | New patch for the chosen slot. Generator: sound and cables into effects. Effect slot: recipe, effects, values and cables |
-| **SHIFT + HOME** | New patch of the same family, or with the same recipe |
-| **HOME** held 0.8 s | All six slots drawn again |
-| White keys | Play the chosen generator in the current scale. With an effect slot chosen they do nothing and show nothing |
-| Hold white key, press **SHIFT** | Latch note (key stays lit). To release: hold **SHIFT**, press lit key |
-| **SELECT / ALGORITHM** | Level / pan of chosen generator (or last chosen). Power-on: 1 centre, 2 left, 3 right |
-| **OCT− / OCT+** | Octave, −3 to +3 |
-| **ARP** | SCALE page: SELECT sets root, ALGORITHM scale (23 scales). **SHIFT + ARP** draws random root and scale and shows them briefly. Root and scale are also drawn at power-on and in a new session |
-| **KNOB 1** | Playing: DISINTEGRATOR of the generator the keys play, 0 to 100. SNAPSHOTS page: morph time, 0 to 30 s |
-| **SHIFT + KNOB 1** | Playing: master DRIVE, 0 (off) to 100. Rough, valve-like overdrive over everything, level compensated |
-| **KNOB 2** | Playing: FX MIX of chosen generator's lane (or chosen lane), 0 (dry) to 100 (wet). 50 at power-on |
-| **KNOB 3 / KNOB 4** | Delay send / reverb send of the generator the keys play |
-| **SEQ** | Steps through DELAY, REVERB and MOD pages and back. KNOB 1 to 4 set each page's four rows |
-| **SHIFT + SEQ** | New random modulation for chosen slot |
-| **SHIFT**, hold one generator's button, then another's | LINK: first generator modulates the second (RING, AM or FILTER, drawn at random). Shown on screen in two lines; second generator's block gets a band at its foot in the first one's colour. Repeat to unlink (OFF) |
-| 1st black key | REWIRE chosen slot: new cables for a generator, new outs and cables for an effect slot. Sound and values stay |
-| **SHIFT** + 1st black key | RAND PARAMS: all values of an effect slot drawn again, without a break (effects and cables stay); on a generator, new sound of the same family (cables stay) |
-| 2nd black key | ABRASIVE path on/off (lit while on) |
-| 3rd black key | DARK path on/off (lit while on). One path at a time; with neither, anything goes |
-| **SAVE** | SNAPSHOTS page (press again to leave) |
-| **SAVE** held (playing) | Save into loaded or chosen session |
-| **SHIFT + SAVE** | SESSIONS list. SAVE opens a session's page: BACK, LOAD, SAVE, COPY, DELETE |
-| **REC** | Looper of the generator the keys play. Press to arm a loop (first note starts it), again to end it (plays at once), again to overdub. Up to 10 loops |
-| **REC** held 1 s | Clear that generator's loops |
-| **SHIFT + REC** | VARY: each note the loops play is changed a little (level, length, sometimes swapped or joined) |
-| **PLAY** | Loops only. Stops chosen generator's loops, or restarts them from the beginning. Dim when it has loops, lit while they play, dark with none. Dark and inactive with an effect slot chosen |
-| **PLAY** held | Its loops on the white keys: press one to take it out or bring it back |
-| **PLAY** held + 4th to 8th black keys | Loop modes: REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED (press again for normal). Keys glow dimly while PLAY is held, lit while on |
-| **SHIFT + PLAY** | Stop all generators' loops, or start them all together |
-| **SHIFT + OCT− / OCT+** | All loops one scale step down / up (hold a generator's button too for its loops only) |
-| **MASTER** | Output level |
-| USB MIDI notes | Same as keys, on the generator chosen last |
-| **OCT−** held at power-on | Rescue mode (install again). **OCT− and OCT+** held 5 s: chip's own updater |
-
-Black keys are contextual. A key with no job in the current view does nothing and stays dark.
 
 ## Screen
 
@@ -295,7 +358,8 @@ New sounds are always drawn on the newest generation.
 
 ### Macros
 
-Four macros on the EDIT page, each -64 to 64. At 0 the sound is exactly as drawn. Response follows the square root of
+Four macros, each -64 to 64. At 0 the sound is exactly as drawn. There is no page to set them by hand: the hand
+moves them, and so do modulation routes (MOD page) aimed at them. Response follows the square root of
 the knob's travel, so the first part of the turn does the most.
 
 - **BRIGHTNESS**: modulator index about 27 dB either way, higher carriers tilted up, feedback with it.
@@ -305,7 +369,7 @@ the knob's travel, so the first part of the turn does the most.
   it.
 - **MOTION**: LFO depths, a tremolo (1.5 to 6 Hz), grain drift.
 
-Hand, LFOs (SEQ) and you can all move the macros at once.
+Hand and modulation routes can move the macros at the same time.
 
 ## Effect slots
 
