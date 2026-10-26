@@ -2,6 +2,24 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 40 (2026-10-26): the work shared better between the cores; the LOAD page
+
+- **The work dealt in units**: each voice, each lane, and the master (delay, reverb, drive) is a unit of its own,
+  dealt to either core by what it took its last block, the dearest first. Before, the three lanes and the master
+  were one unit, always on CPU1 -- about as heavy as all four voices together, it could not be split. The lanes have
+  had no cables between them since build 36, so each runs apart; their outputs are summed after the join. One core
+  and two give the same sound (`host cores`).
+- **The master's DRIVE off CPU0's way**: it ran on CPU0 alone after everything else, in series with the whole block
+  (on the host, at 60, as dear as all the rest of CPU0's own part). It now runs in the master's unit on the mix of
+  the block before: everything is heard one block (0.73 ms) later; nothing else changes. At 0 still untouched
+  (`host drive`).
+- **The LOAD page** (the 10th black key, beside SHIFT; provisional): CPU 0, CPU 1, VOICES, LANES, MASTER, MIX -- each
+  its peak over the last second in % of a block's time, names amber, values white, red from 90 %. To find what is
+  dear on the FM-1 itself (the host's figures are relative only: it has no flash cache, and its 64-bit products cost
+  less).
+- Tests: `host load` (lanes dealt to both cores; the page on, off, closed by another page; its figures); the page in
+  `host paint`, `host fit`, `host screens`.
+
 ## Build 39 (2026-10-26): mute fades; names and values in two colours
 
 - **A generator's page**: SHIFT + its button, let go. KNOB 1 its **MUTE FADE IN**, KNOB 2 its **MUTE FADE OUT**, OFF

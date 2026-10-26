@@ -41,6 +41,7 @@ build/host b36 | tail -1
 build/host drive | tail -2
 build/host lanepan | tail -1
 build/host mutefade | tail -1
+build/host load
 build/host dis
 build/host paths | tail -1
 build/host revalue

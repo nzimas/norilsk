@@ -1176,6 +1176,7 @@ static int32_t fx_l[CTL], fx_r[CTL];
 /* (build 32: the master delay and reverb run in the rack's job too, on what was sent to them the block before --
  * mix_block keeps the sends in mst_in_*, adds the returns from mst_out_*: off CPU0's way, 0.7 ms later) */
 static int32_t mst_in_d[CTL], mst_in_r[CTL], mst_out_l[CTL], mst_out_r[CTL];
+static int32_t drv_l[CTL], drv_r[CTL];         /* (build 40) the mix of the block before, the drive's (master.c) */
 static void master_job(void);
 static int32_t fx_mdl[CTL], fx_mrv[CTL];   /* the slots' sends to the master delay and reverb (master.c), this block */
 static volatile int32_t fx_rsend[NFX], fx_dsend[NFX];   /* each slot's sends, Q15: the mean of its generators' (gens.c) */
@@ -1189,7 +1190,11 @@ static uint8_t fx_mod_on[NFX];
 static volatile int16_t fx_lvl_q8[NFX];           /* a snapshot's morph: each slot's level between its steps (Q8, 0 silent) */
 static volatile uint8_t fx_fine;                  /* .. a bit a slot when in force (the mute folded in) */
 static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was sent into) */
-static uint32_t rack_ticks;                    /* what the last block of the rack took */
+/* (build 40) the rack a lane at a time, each lane a job of its own dealt to either core by its cost (gens.c
+ * blk_render), the master delay, reverb and drive another: each lane's output and sends apart, summed on CPU0 after
+ * the join (rack_sum) -- the same sound whichever core ran which */
+static int32_t lane_l[NFX][CTL], lane_r[NFX][CTL], lane_dl[NFX][CTL], lane_rv[NFX][CTL];
+static uint32_t lane_ticks[NFX], mst_ticks;     /* what each took its last block */
 /* KNOB 2 (build 33): the effects' mix, 0 (each effect passes its input) .. 100 (its own output alone, as before):
  * every effect of every slot at once, each its own input and output crossed by it; 50 at power-on. Glided over a
  * block when it moves */
@@ -1315,17 +1320,18 @@ static void fx_take(void)
     }
 }
 
-/* the rack's job: ebus_run holds what reached each instance from the generators; the slots in turn, each effect in
- * its chain, run if something reaches it or its tail still sounds; out down its slot's chain, across its cables, and
- * to the master as wired (fx_l, fx_r) */
-static void rack_job(void)
+/* a lane's job (either core; build 40, the whole rack one job before): ebus_run holds what reached each of its
+ * instances from its generator; each effect in its chain runs if something reaches it or its tail still sounds; out
+ * down the chain and to the master as wired (lane_l, lane_r; its sends lane_dl, lane_rv). No cable runs across lanes
+ * (build 36): a lane touches only its own */
+static void lane_job(uint32_t s)
 {
-    uint32_t s, k, i, j, has = ebus_fed_run;
+    uint32_t k, i, has = ebus_fed_run;
     uint32_t t0 = fm1_ticks();
-    fx_take();
+    int32_t *o_l = lane_l[s], *o_r = lane_r[s], *o_dl = lane_dl[s], *o_rv = lane_rv[s];
     for (i = 0; i < CTL; i++)
-        fx_l[i] = fx_r[i] = fx_mdl[i] = fx_mrv[i] = 0;
-    for (s = 0; s < NFX; s++) {
+        o_l[i] = o_r[i] = o_dl[i] = o_rv[i] = 0;
+    do {
         const fx_patch_t *f = &fbuf[s][f_use[s]];
         int32_t sl[CTL], g, gl, gr, dg, dgl, dgr, gw;   /* (mono: build 32 -- no plate in a slot) */
         int32_t wq1 = clampi(fx_wet[s], 0, 100) * Q15 / 100, wr[CTL], mixing = wq1 < Q15 || fx_wq[s] < Q15;
@@ -1340,7 +1346,7 @@ static void rack_job(void)
         fx_wq[s] = wq1;
         if (fx_phase[s] == FS_CLEAR || (fx_mute[s] && !((fx_fine >> s) & 1u))) {   /* (a morph: the mute is its level) */
             fx_g[s] = 0;
-            continue;
+            break;
         }
         for (i = 0; i < CTL; i++)
             sl[i] = 0;
@@ -1350,7 +1356,7 @@ static void rack_job(void)
         } else if (fx_idle[s] < 0xFFFFFFu)
             fx_idle[s]++;
         if (fx_idle[s] > GATE_WAIT && !fx_gate[s] && !fading)
-            continue;                                    /* closed: its effects left alone, nothing out (a fade to a new
+            break;                                       /* closed: its effects left alone, nothing out (a fade to a new
                                                           * patch still runs its course) */
         for (k = 0; k < f->n; k++) {
             uint32_t inst = s * FX_N + k, out = k + 1u == f->n || ((f->out >> k) & 1u);
@@ -1392,12 +1398,6 @@ static void rack_job(void)
                     ebus_run[inst + 1u][i] += x[i];
                 has |= 1u << (inst + 1u);
             }
-            for (j = (s + 1u) * FX_N; j < NINST; j++)   /* across, to a later slot */
-                if ((f->xto[k] >> j) & 1u) {
-                    for (i = 0; i < CTL; i++)
-                        ebus_run[j][i] += x[i];
-                    has |= 1u << j;
-                }
         }
         {   /* the DC blocker, then the gate */
             for (i = 0; i < CTL; i++) {
@@ -1445,19 +1445,40 @@ static void rack_job(void)
             fx_gl[s] += dgl;
             fx_gr[s] += dgr;
             a = (int32_t)(((int64_t)sl[i] * fx_g[s]) >> 14);
-            fx_l[i] += mulq15(a, fx_gl[s]);             /* (panned) */
-            fx_r[i] += mulq15(a, fx_gr[s]);
-            fx_mdl[i] += mulq15(a, fx_dsend[s]);        /* (on to the master delay and reverb) */
-            fx_mrv[i] += mulq15(a, fx_rsend[s]);
+            o_l[i] = mulq15(a, fx_gl[s]);               /* (panned) */
+            o_r[i] = mulq15(a, fx_gr[s]);
+            o_dl[i] = mulq15(a, fx_dsend[s]);           /* (on to the master delay and reverb) */
+            o_rv[i] = mulq15(a, fx_rsend[s]);
         }
         fx_g[s] = g;
         fx_gl[s] = gl;
         fx_gr[s] = gr;
-    }
-    master_job();                                    /* the master delay and reverb (master.c) */
-    rack_ticks = fm1_ticks() - t0;
+    } while (0);
+    lane_ticks[s] = fm1_ticks() - t0;
 }
-static __typeof__(&rack_job) volatile rack_job_fp = rack_job;
+/* the master's job (either core): the delay and reverb on the sends of the block before, the drive on the mix of the
+ * block before (build 40: on CPU0 after everything else before -- off its way now, 0.7 ms later) */
+static void master_job(void);
+static void drive_job(void);
+static void mst_unit(void)
+{
+    uint32_t t0 = fm1_ticks();
+    master_job();
+    drive_job();
+    mst_ticks = fm1_ticks() - t0;
+}
+/* the lanes' outputs and sends together (CPU0, after the join) */
+static void rack_sum(void)
+{
+    uint32_t i;
+    for (i = 0; i < CTL; i++) {
+        fx_l[i] = lane_l[0][i] + lane_l[1][i] + lane_l[2][i];
+        fx_r[i] = lane_r[0][i] + lane_r[1][i] + lane_r[2][i];
+        fx_mdl[i] = lane_dl[0][i] + lane_dl[1][i] + lane_dl[2][i];
+        fx_mrv[i] = lane_rv[0][i] + lane_rv[1][i] + lane_rv[2][i];
+    }
+}
+typedef char rack_sum_three[NFX == 3 ? 1 : -1];
 
 /* ------------------------------------------------------- the draw (main loop) --- */
 /* The draw's path (build 18; the 2nd and 3rd black keys, each a toggle, one at a time): what HOME draws leans its way.

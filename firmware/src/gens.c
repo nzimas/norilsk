@@ -21,9 +21,11 @@
  * the ISR is not using and publishes it; the ISR takes it at a block's start, its voices fading (they finish on the
  * old buffer) and starting again on the new.
  *
- * The two cores (Tonitor's, after BIGORNA build 32 and Melodee): each block CPU1 runs the effects (on what the
- * generators sent the block before: 0.73 ms later, so one core and two give the same sound) and the voices dealt to
- * it, the dearest first, each to the core with less so far; CPU0 the rest, then everything after. A CPU1 fault, stall
+ * The two cores (Tonitor's, after BIGORNA build 32 and Melodee): each block's work is dealt in units -- each voice,
+ * each lane (on what its generator sent the block before: 0.73 ms later), the master's delay, reverb and drive (on
+ * the block before's sends and mix) -- the dearest first, each to the core with less so far (build 40: the whole rack
+ * and the master one unit on CPU1 before, the drive on CPU0 after everything); units are apart, so one core and two
+ * give the same sound. CPU0 then mixes. A CPU1 fault, stall
  * or misread retires it until power-off; CPU0 renders alone from then on ("1 CORE" on the screen). */
 
 #define NGEN 3
@@ -92,7 +94,7 @@ typedef struct {
 static voice_t vox[NVOICE];
 static mo_voice_t vmem[NVOICE] POOL;
 static int32_t vr_buf[NVOICE][CTL] POOL __attribute__((aligned(32)));   /* each voice's sound, this block */
-static uint8_t vr_core[NVOICE], vr_alive[NVOICE], rack_core;
+static uint8_t vr_alive[NVOICE];
 static uint32_t vr_ticks[NVOICE];
 static uint32_t blk_clock, age_clock;
 static volatile int32_t master_q12 = 4096;
@@ -430,69 +432,110 @@ static void voice_post(uint32_t k)
         v->sounding = 0;
 }
 
+/* the units of a block's work (build 40): the four voices, the three lanes, the master (delay, reverb, drive) --
+ * apart from each other, each dealt to either core */
+enum { U_LANE = NVOICE, U_MST = NVOICE + NFX, NUNIT };
+static uint8_t u_core[NUNIT];                    /* 1: CPU1 runs it this block */
+static void unit_run(uint32_t u)
+{
+    if (u < U_LANE)
+        voice_render(u);
+    else if (u < U_MST)
+        lane_job(u - U_LANE);
+    else
+        mst_unit();
+}
+/* (build 40) what a block took, for the LOAD page (ui.c): each part's longest since the page last read it, ticks */
+static volatile struct { uint32_t all, c0, c1, vox, lanes, mst, ser; } ld_pk;
+static uint32_t ld_c[2];                         /* (this block's work on each core) */
 /* CPU1's share of a block */
 static void blk_job(void *ctx)
 {
-    uint32_t k;
+    uint32_t u;
     (void)ctx;
-    if (rack_core)
-        rack_job_fp();
-    for (k = 0; k < NVOICE; k++)
-        if (vr_core[k])
-            voice_render(k);
+    for (u = 0; u < NUNIT; u++)
+        if (u_core[u])
+            unit_run(u);
 }
-/* the work dealt: the effects to CPU1, the voices by their cost, the dearest first, each to the core with less so
- * far; rendered on both, CPU1's joined. One core: all here */
+/* the work dealt: every unit by its cost, the dearest first, each to the core with less so far (CPU1 on a tie);
+ * rendered on both, CPU1's joined. One core: all here (build 40: the whole rack and the master went to CPU1 as one
+ * before, the voices around it) */
 static void blk_render(void)
 {
-    uint32_t k, j, n = 0, s0 = 0, s1;
-    uint8_t ord[NVOICE];
-    int any1 = 0;
+    uint32_t u, j, n = 0, s0 = 0, s1 = 0, c[NUNIT], any1 = 0;
+    uint8_t ord[NUNIT];
     audio_worker_check();
-    for (k = 0; k < NVOICE; k++) {
-        vr_core[k] = 0;
-        if (!vox[k].sounding)
+    fx_take();                                   /* (the slots' new patches: before the lanes run, on either core) */
+    for (u = 0; u < NUNIT; u++) {
+        u_core[u] = 0;
+        if (u < U_LANE && !vox[u].sounding)
             continue;
-        for (j = n; j > 0u && vox[ord[j - 1u]].cost < vox[k].cost; j--)
+        c[u] = u < U_LANE ? vox[u].cost : u < U_MST ? lane_ticks[u - U_LANE] : mst_ticks;
+        for (j = n; j > 0u && c[ord[j - 1u]] < c[u]; j--)
             ord[j] = ord[j - 1u];
-        ord[j] = (uint8_t)k;
+        ord[j] = (uint8_t)u;
         n++;
     }
-    rack_core = 0;
     if (audio_worker_online) {
-        rack_core = 1;
-        s1 = rack_ticks;
         for (j = 0; j < n; j++) {
-            k = ord[j];
+            u = ord[j];
             if (s1 <= s0) {
-                vr_core[k] = 1;
-                s1 += vox[k].cost;
+                u_core[u] = 1;
+                s1 += c[u];
+                any1 = 1;
             } else
-                s0 += vox[k].cost;
+                s0 += c[u];
         }
-        any1 = audio_worker_submit(blk_job, 0);
+        if (any1)
+            any1 = (uint32_t)audio_worker_submit(blk_job, 0);
     }
-    if (!any1) {
-        memset(vr_core, 0, sizeof vr_core);
-        rack_core = 0;
-        rack_job_fp();
-    }
-    for (k = 0; k < NVOICE; k++)
-        if (vox[k].sounding && !vr_core[k])
-            voice_render(k);
+    if (!any1)
+        memset(u_core, 0, sizeof u_core);
+    for (j = 0; j < n; j++)
+        if (!u_core[ord[j]])
+            unit_run(ord[j]);
     if (any1 && !audio_worker_join()) {          /* (CPU1 lost: retired; its share silent this block) */
-        for (k = 0; k < NVOICE; k++)
-            if (vr_core[k]) {
-                memset(vr_buf[k], 0, sizeof vr_buf[k]);
-                vr_alive[k] = 1;
-                vr_ticks[k] = 0;
+        for (u = 0; u < NUNIT; u++) {
+            if (!u_core[u])
+                continue;
+            if (u < U_LANE) {
+                memset(vr_buf[u], 0, sizeof vr_buf[u]);
+                vr_alive[u] = 1;
+                vr_ticks[u] = 0;
+            } else if (u < U_MST) {
+                memset(lane_l[u - U_LANE], 0, sizeof lane_l[0]);
+                memset(lane_r[u - U_LANE], 0, sizeof lane_r[0]);
+                memset(lane_dl[u - U_LANE], 0, sizeof lane_dl[0]);
+                memset(lane_rv[u - U_LANE], 0, sizeof lane_rv[0]);
+            } else {
+                memset(mst_out_l, 0, sizeof mst_out_l);
+                memset(mst_out_r, 0, sizeof mst_out_r);
             }
-        if (rack_core) {
-            memset(fx_l, 0, sizeof fx_l);
-            memset(fx_r, 0, sizeof fx_r);
-            memset(mst_out_l, 0, sizeof mst_out_l);
-            memset(mst_out_r, 0, sizeof mst_out_r);
         }
+    }
+    rack_sum();
+    {   /* (the LOAD page's figures: each core's work, the voices', the lanes', the master's) */
+        uint32_t v = 0, ln = lane_ticks[0] + lane_ticks[1] + lane_ticks[2];
+        ld_c[0] = ld_c[1] = 0;
+        for (u = 0; u < NUNIT; u++) {
+            uint32_t t;
+            if (u < U_LANE && !vox[u].sounding && !vr_ticks[u])
+                continue;
+            t = u < U_LANE ? vr_ticks[u] : u < U_MST ? lane_ticks[u - U_LANE] : mst_ticks;
+            ld_c[u_core[u]] += t;
+            if (u < U_LANE)
+                v += t;
+        }
+        if (v > ld_pk.vox)
+            ld_pk.vox = v;
+        if (ln > ld_pk.lanes)
+            ld_pk.lanes = ln;
+        if (mst_ticks > ld_pk.mst)
+            ld_pk.mst = mst_ticks;
+        if (ld_c[0] > ld_pk.c0)
+            ld_pk.c0 = ld_c[0];
+        if (ld_c[1] > ld_pk.c1)
+            ld_pk.c1 = ld_c[1];
     }
 }
 
@@ -690,7 +733,7 @@ static int32_t usb_blk[2 * CTL];                 /* (the block for USB audio: th
 static void mix_block(int32_t *out)
 {
     int32_t l_[CTL], r_[CTL], pk[NGEN], dlin[CTL], rvin[CTL], g_rs[NGEN], g_ds[NGEN];
-    uint32_t i, l, k;
+    uint32_t i, l, k, t0 = fm1_ticks(), tr;
     events_take();
     loops_run();                                        /* (the loops' notes for this block) */
     gens_take();
@@ -756,7 +799,9 @@ static void mix_block(int32_t *out)
         fx_rsend[k] = n ? rs / n : 0;
         fx_dsend[k] = n ? ds / n : 0;
     }
+    tr = fm1_ticks();
     blk_render();                                       /* the effects and the voices, on the two cores */
+    tr = fm1_ticks() - tr;
     memset(ebus_next, 0, EBUS_SIZE);
     ebus_fed = 0;
     for (i = 0; i < CTL; i++) {
@@ -838,16 +883,25 @@ static void mix_block(int32_t *out)
         mst_in_d[i] = dlin[i];
         mst_in_r[i] = rvin[i];
     }
-    drive_block(l_, r_);                                /* the master's drive (SHIFT + KNOB 1), last */
-    for (i = 0; i < CTL; i++) {
+    for (i = 0; i < CTL; i++) {                         /* out: the block before, driven in the master's job (SHIFT +
+                                                         * KNOB 1; build 40: here, last, before); this one left for it */
 #if defined(FELUCCA_UAC) && FELUCCA_UAC
-        usb_blk[2u * i] = ceiling(l_[i]);
-        usb_blk[2u * i + 1u] = ceiling(r_[i]);
+        usb_blk[2u * i] = ceiling(drv_l[i]);
+        usb_blk[2u * i + 1u] = ceiling(drv_r[i]);
 #endif
-        out[2u * i] = ceiling(mulq12(l_[i], master_q12));
-        out[2u * i + 1u] = ceiling(mulq12(r_[i], master_q12));
+        out[2u * i] = ceiling(mulq12(drv_l[i], master_q12));
+        out[2u * i + 1u] = ceiling(mulq12(drv_r[i], master_q12));
+        drv_l[i] = l_[i];
+        drv_r[i] = r_[i];
     }
     blk_clock++;
+    {   /* (the LOAD page: the whole block, and CPU0's own part of it -- all but the two cores' render) */
+        uint32_t all = fm1_ticks() - t0;
+        if (all > ld_pk.all)
+            ld_pk.all = all;
+        if (all - tr > ld_pk.ser)
+            ld_pk.ser = all - tr;
+    }
 }
 
 static int gens_sounding(void)
@@ -1195,10 +1249,14 @@ static void gens_init(uint32_t seed)
     }
     memset((void *)gen_meter, 0, sizeof gen_meter);
     memset(vr_buf, 0, sizeof vr_buf);
-    memset(vr_core, 0, sizeof vr_core);
     blk_clock = age_clock = 0;
     ebus_fed = ebus_fed_run = 0;
-    rack_ticks = 0;
+    memset(lane_ticks, 0, sizeof lane_ticks);
+    mst_ticks = 0;
+    memset(lane_l, 0, sizeof lane_l);
+    memset(lane_r, 0, sizeof lane_r);
+    memset(lane_dl, 0, sizeof lane_dl);
+    memset(lane_rv, 0, sizeof lane_rv);
     wt_init();
     rack_init(seed);
     loops_init();

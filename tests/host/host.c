@@ -26,6 +26,7 @@
 static volatile uint32_t fm1_ms;
 static uint32_t host_ticks;
 static uint32_t fm1_ticks(void) { return host_ticks += 24000u; }
+#define FM1_TICKS_PER_US 24u
 static void fm1_wdt_feed(void) { fm1_ms++; }   /* (the host: time passes while the main loop waits) */
 static unsigned str_len(const char *s) { return (unsigned)strlen(s); }
 static void str_cpy(char *d, const char *s, unsigned max)
@@ -1801,6 +1802,9 @@ static int cmd_paint(void)
     pages_off();
     ui.gs_page = 2;
     fails += paint_one("generator");
+    pages_off();
+    ui.ld_page = 1;
+    fails += paint_one("load");
     pages_off();
     ui.morph = 9;
     ui.dial_until = fm1_ms + 1500u;
@@ -3964,6 +3968,19 @@ static int cmd_screens(int argc, char **argv)
     ui_input();
     SHOT("generator");
     gen_fin[0] = gen_fout[0] = 0;
+    pages_off();
+    ui.ld_page = 1;                                      /* (build 40) the LOAD page, a second's figures */
+    ld_pk.all = LD_BLK * 72u / 100u;
+    ld_pk.c1 = LD_BLK * 64u / 100u;
+    ld_pk.vox = LD_BLK * 81u / 100u;
+    ld_pk.lanes = LD_BLK * 38u / 100u;
+    ld_pk.mst = LD_BLK * 95u / 100u;
+    ld_pk.ser = LD_BLK * 12u / 100u;
+    ui.ld_at = fm1_ms - 1000u;
+    ui.force = 1;
+    ui_draw();
+    SHOT("load");
+    ui.ld_page = 0;
     press(B_FX, 50);
     key(KEY_SHIFT, 1);
     press(B_SAVE, 50);                                   /* SHIFT + SAVE: the SESSIONS page */
@@ -4373,6 +4390,60 @@ static int cmd_mutefade(void)
     return fails ? 1 : 0;
 }
 
+/* build 40: the work dealt by units -- voices, lanes, the master -- to both cores (one core and two the same sound:
+ * host cores); the LOAD page (the 10th black key) on and off, its figures taken once a second */
+static int cmd_load(void)
+{
+    int fails = 0;
+    uint32_t b, u, lane0 = 0, lane1 = 0, mst0 = 0, mst1 = 0;
+    fm1_in.notes = fm1_in.buttons = 0;
+    fw_init();
+    audio_worker_online = 1;
+    press(B_FX, 50);
+    key(0, 1);
+    key(4, 1);
+    press(B_SEL, 50);
+    key(7, 1);
+    for (b = 0; b < 1378u; b++) {
+        int32_t out[2 * CTL];
+        mix_block(out);
+        for (u = U_LANE; u < U_MST; u++) {
+            lane0 += !u_core[u];
+            lane1 += u_core[u];
+        }
+        mst0 += !u_core[U_MST];
+        mst1 += u_core[U_MST];
+    }
+    audio_worker_online = 0;
+    printf("load: lanes on CPU0 %u, on CPU1 %u; the master on CPU0 %u, on CPU1 %u (blocks x units)\n", lane0, lane1, mst0, mst1);
+    if (!lane0 || !lane1)
+        printf("FAIL load: the lanes not dealt to both cores\n"), fails++;
+    key(KEY_LOAD, 1);                                    /* the LOAD page */
+    key(KEY_LOAD, 0);
+    if (!ui.ld_page)
+        printf("FAIL load: the 10th black key brought no page\n"), fails++;
+    ld_pk.all = LD_BLK / 2u;                             /* (the figures: as the ISR leaves them) */
+    ld_pk.c1 = LD_BLK * 95u / 100u;
+    ui.ld_at = fm1_ms - 1000u;
+    ui.force = 1;
+    ui_draw();
+    if (ui.ld_v[0] != 50u || ui.ld_v[1] != 95u || ui.ld_v[2])
+        printf("FAIL load: the figures %u %u %u\n", ui.ld_v[0], ui.ld_v[1], ui.ld_v[2]), fails++;
+    key(KEY_LOAD, 1);
+    key(KEY_LOAD, 0);
+    if (ui.ld_page)
+        printf("FAIL load: the page stays up\n"), fails++;
+    key(KEY_LOAD, 1);
+    key(KEY_LOAD, 0);
+    press(B_SEQ, 50);                                    /* another page: this one down */
+    if (ui.ld_page || ui.fx_page != 1u)
+        printf("FAIL load: SEQ left it up\n"), fails++;
+    fm1_in.notes = 0;
+    ui_input();
+    printf("load: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 /* build 38: every word on the screen fits it -- each message the firmware says (tools/list_says.py: as written, with
  * its widest numbers), each slot's name with every family, recipe and word; every page, dial and question with its
  * widest names and numbers. The host's cv_text counts ink drawn past the canvas (off its sides, below or above its
@@ -4506,6 +4577,13 @@ static int cmd_fit(void)
     }
     ui.snap_page = 1;                                      /* the SNAPSHOTS page */
     fit("the SNAPSHOTS page");
+    pages_off();
+    ui.ld_page = 1;                                        /* the LOAD page (build 40): its widest figures */
+    for (k = 0; k < 6u; k++)
+        ui.ld_v[k] = 999;
+    ui.ld_at = fm1_ms;
+    fit("the LOAD page");
+    n++;
     pages_off();
     for (l = 0; l < NGEN; l++)                             /* a generator's page (build 39): OFF, 4.5 S, 60 S, turned */
         for (k = 0; k < 3u; k++, n++) {
@@ -4673,6 +4751,8 @@ int main(int argc, char **argv)
         return cmd_lanepan();
     if (!strcmp(argv[1], "mutefade"))
         return cmd_mutefade();
+    if (!strcmp(argv[1], "load"))
+        return cmd_load();
     if (!strcmp(argv[1], "timbres"))
         return cmd_timbres(argc, argv);
     if (!strcmp(argv[1], "drive"))

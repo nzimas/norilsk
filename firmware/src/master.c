@@ -174,6 +174,10 @@ static void drive_block(int32_t *l, int32_t *r)
     drv_block(&drv[0], l, want);
     drv_block(&drv[1], r, want);
 }
+/* (build 40) the mix of the block before, driven in place in the master's job (either core): mix_block sends it out
+ * after the join and leaves this block's mix in its place -- everything heard a block (0.7 ms) later, the drive off
+ * CPU0's way */
+static void drive_job(void) { drive_block(drv_l, drv_r); }
 
 static void master_init(void)
 {
@@ -189,6 +193,8 @@ static void master_init(void)
     m_quiet = 0;
     master_drive = 0;
     memset(drv, 0, sizeof drv);
+    memset(drv_l, 0, sizeof drv_l);
+    memset(drv_r, 0, sizeof drv_r);
     drv[0].g = drv[0].gp = drv[1].g = drv[1].gp = Q16;
 }
 

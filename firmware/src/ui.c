@@ -78,6 +78,10 @@
  *   SEQ (third press)         the MOD page of the slot chosen (Tonitor's): PRESETS through LFO 1, LFO 2, MOD A .. H
  *                             (eight from build 18),
  *                             KNOB 1 .. 4 their values. SHIFT + SEQ: the slot's modulation thrown anew
+ *   the 10th black key        (beside SHIFT; build 40, provisional) the LOAD page on or off, lit while on: each part of a
+ *                             block's work, its longest in the last second, in % of the block's time -- CPU 0 (the
+ *                             whole block), CPU 1 (its share), VOICES, LANES, MASTER (delay, reverb, drive), MIX (CPU0's
+ *                             own part: before and after the two cores' render)
  *   USB MIDI notes            as the keys, on the generator chosen last
  *   MASTER (knob)             the level
  *
@@ -108,6 +112,7 @@ static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO
 #define KEY_RAND 13u             /* the 6th: RANDOM, forwards from a note drawn at random each time the next is due */
 #define KEY_HALF 15u             /* the 7th: half speed (again: normal) */
 #define KEY_DOUBLE 17u           /* the 8th: double speed */
+#define KEY_LOAD 22u             /* (build 40) the 10th black key, beside SHIFT: the LOAD page on or off (provisional) */
 
 /* the scales: the white keys play their degrees, from the root, up (Tonitor's) */
 #define NSCALE 23
@@ -185,6 +190,9 @@ static struct {
     uint8_t btn_sh[NSLOT];       /* (build 39) a generator's button pressed with SHIFT: 1 its page on letting go, 2 its page
                                   * was up (closed by the press), 0 neither or something else done with it */
     uint8_t gs_page;             /* (build 39) a generator's page up: the generator + 1 (0: none) */
+    uint8_t ld_page;             /* (build 40) the LOAD page up */
+    uint32_t ld_at;              /* when its figures were last taken */
+    uint16_t ld_v[6], shown_ld[6];   /* its figures, % of a block; as drawn (0xFFFF: not yet) */
     int8_t gs_touched;           /* the row just turned (-1 none), until gs_touch_until */
     uint32_t gs_touch_until;
     int16_t shown_gs[2];
@@ -474,7 +482,7 @@ static void fade_text(char *v, uint32_t hs)    /* OFF, 4.5 S, 60 S */
 /* every page down: back to playing */
 static void pages_off(void)
 {
-    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = 0;
+    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = ui.ld_page = 0;
     ui.force = 1;
 }
 /* a session's or a snapshot's outcome, on the whole screen, saying which (build 27): SESSION or SNAPSHOT, in its
@@ -720,7 +728,7 @@ static void ui_input(void)
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_sh[l] = (uint8_t)(l < NGEN && shift_held() ? (ui.gs_page == l + 1u ? 2u : 1u) : 0u);
             ui.btn_t0[l] = fm1_ms;
-            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page)
+            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page || ui.ld_page)
                 pages_off();
             for (o = 0; l < NGEN && shift_held() && o < NGEN; o++)   /* SHIFT, generator o held, then generator l: o
                                                                     * modulates l, or no more (gens.c gen_link) */
@@ -1139,6 +1147,13 @@ static void ui_input(void)
         draw_path = draw_path == want ? DP_ANY : want;
         say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : "ANY PATH", 1200);
     }
+    if (!ui.ovd && ((ch & keys) >> KEY_LOAD & 1u)) {   /* the 10th black key: the LOAD page on or off (build 40) */
+        uint8_t was = ui.ld_page;
+        pages_off();
+        ui.ld_page = (uint8_t)!was;
+        ui.ld_at = fm1_ms - 1000u;
+        memset((void *)&ld_pk, 0, sizeof ld_pk);
+    }
     if (((ch & keys) >> KEY_SHIFT & 1u) && ui.sel < NGEN)   /* SHIFT pressed: the keys held latched */
         for (k = 0; k < NKEY; k++)
             if (((keys >> k) & 1u) && k != KEY_SHIFT && ui.key_note[k] != KEY_NONE) {
@@ -1242,7 +1257,8 @@ static void ui_leds(void)
         } else if (w >= 0)                       /* (an effect slot chosen: no notes, nothing lit) */
             fm1_led_key(14u + k, ui.sel < NGEN && (((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u)));
         else                                     /* playing: the path chosen lit; the other black keys dark */
-            fm1_led_key(14u + k, (k == KEY_ROUGH && draw_path == DP_ROUGH) || (k == KEY_DARK && draw_path == DP_DARK));
+            fm1_led_key(14u + k, (k == KEY_ROUGH && draw_path == DP_ROUGH) || (k == KEY_DARK && draw_path == DP_DARK) ||
+                                 (k == KEY_LOAD && ui.ld_page));
     }
     fm1_led_key(14u + KEY_SHIFT, shift_held());
 }
@@ -1742,6 +1758,48 @@ static void draw_gs_page(void)
             (((int32_t)j == t) != ((int32_t)j == ui.shown_gs_touch)))
             draw_gs_row(j, (int32_t)j == t);
     ui.shown_gs_touch = (int8_t)t;
+}
+
+/* (build 40) the LOAD page: LOAD; six rows, a part of the block's work each -- its name amber, its longest in the
+ * last second white (red from 90 %), in % of the block's time (CTL samples: 725.6 us) */
+#define LD_BLK (FM1_TICKS_PER_US * 7256u / 10u)
+static const char *const LD_NAME[6] = {"CPU 0", "CPU 1", "VOICES", "LANES", "MASTER", "MIX"};
+static void ld_take(void)                        /* (once a second: the longest of each, then from nothing again) */
+{
+    uint32_t t[6], k;
+    t[0] = ld_pk.all;
+    t[1] = ld_pk.c1;
+    t[2] = ld_pk.vox;
+    t[3] = ld_pk.lanes;
+    t[4] = ld_pk.mst;
+    t[5] = ld_pk.ser;
+    memset((void *)&ld_pk, 0, sizeof ld_pk);
+    for (k = 0; k < 6u; k++)
+        ui.ld_v[k] = (uint16_t)(t[k] / (LD_BLK / 100u) < 999u ? t[k] / (LD_BLK / 100u) : 999u);
+    ui.ld_at = fm1_ms;
+}
+static void draw_ld_page(void)
+{
+    uint32_t j;
+    if ((uint32_t)(fm1_ms - ui.ld_at) >= 1000u)
+        ld_take();
+    if (ui.force) {
+        cv_begin(240, 48, C_BLACK);
+        cv_text_c((48 - FONT_M.h) / 2, &FONT_M, "LOAD", C_WHITE);
+        cv_blit(0, 0);
+    }
+    for (j = 0; j < 6u; j++) {
+        char v[8];
+        if (!ui.force && ui.shown_ld[j] == ui.ld_v[j])
+            continue;
+        fmt_int(v, ui.ld_v[j]);
+        str_cpy(v + str_len(v), " %", 3);
+        cv_begin(240, 32, C_BLACK);
+        cv_text(6, (32 - FONT_S.h) / 2, &FONT_S, LD_NAME[j], C_LABEL);
+        cv_text(234 - text_w(&FONT_S, v), (32 - FONT_S.h) / 2, &FONT_S, v, ui.ld_v[j] >= 90u ? C_FULL : C_WHITE);
+        cv_blit(0, 48 + 32 * j);
+        ui.shown_ld[j] = ui.ld_v[j];
+    }
 }
 
 /* a dial's value, very large: FONT_XL, or FONT_L if it does not fit (4.5 fits, 30.0 does not) */
@@ -2253,6 +2311,14 @@ static void ui_draw(void)
         }
         ui.shown_page = 2;
         draw_ovd_page();
+        ui.force = 0;
+        return;
+    }
+    if (ui.ld_page) {                            /* the LOAD page (build 40) */
+        if (ui.shown_page != 13u)
+            ui.force = 1;
+        ui.shown_page = 13;
+        draw_ld_page();
         ui.force = 0;
         return;
     }

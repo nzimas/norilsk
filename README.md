@@ -87,6 +87,7 @@ stays dark. "Hold" means 0.8 s unless stated otherwise.
 | Modulation of chosen slot | **SEQ** three times. **PRESETS** picks LFO 1, LFO 2 or route A to H; **KNOB 1** to **4** set its values |
 | Back to playing | **SEQ** a fourth time |
 | A generator's page (MUTE FADE IN, MUTE FADE OUT) | **SHIFT** + its button, then **KNOB 1** / **KNOB 2**. Its button to leave |
+| LOAD page: how busy the FM-1 is | 10th black key (beside SHIFT), lit while on. Again to leave |
 | Random modulation for chosen slot | **SHIFT + SEQ** |
 
 ### Looper (generator being played)
@@ -197,6 +198,10 @@ full-screen dial.
 
 On the settings pages (DELAY, REVERB, MOD, a generator's page) each setting's name is amber and its value white. The
 setting just turned is black on white, its name dark amber.
+
+The LOAD page shows each part of the work, its peak over the last second, in % of the time a block has (0.73 ms):
+CPU 0 (the whole block), CPU 1 (its share), VOICES, LANES, MASTER (delay, reverb, drive), MIX (what CPU 0 does
+alone). A value at 90 % or more turns red. Near 100 % on CPU 0, the FM-1 lets a held note go and says OVERLOAD.
 
 Messages (LANE 2 REWIRED, GEN 1 WIRE, OVERLOAD) cover the top of the screen for a moment. One too wide for a line
 takes two; a line still too wide drops one size. No word runs off the screen.
