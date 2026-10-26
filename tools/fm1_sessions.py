@@ -82,6 +82,17 @@ def restore(link, data, num=None):
         num = data[4] | data[5] << 8
     if not 1 <= num <= 64:
         sys.exit(f"no session slot {num} (1 .. 64)")
+    if num != (data[4] | data[5] << 8):                 # another number: the head renumbered, its CRC made again (the
+        data = bytearray(data)                          # FM-1 takes a record only under the number its head says)
+        data[4], data[5] = num & 0xFF, num >> 8
+        crc = 0
+        for byte in data[:24]:                          # (sessions.c ses_crc: CRC16, poly 0x1021, from 0)
+            crc ^= byte << 8
+            for _ in range(8):
+                crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else crc << 1
+                crc &= 0xFFFF
+        data[24], data[25] = crc & 0xFF, crc >> 8
+        data = bytes(data)
     for cmd, body in [(0x52, bytes([num & 0xFF, num >> 8]) + len(data).to_bytes(4, "little"))] + \
             [(0x53, off.to_bytes(4, "little") + data[off:off + PIECE]) for off in range(0, len(data), PIECE)] + [(0x54, b"")]:
         b = ask(link, cmd, body)
