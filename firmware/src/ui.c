@@ -159,6 +159,7 @@ static const char *const RM_TILE[NKIND] = {"FLT", "FLD", "MU", "SHF", "MDL", "ST
 #define PIPE_Y1 41
 #define FURN_Y 186u              /* the furnaces */
 #define FURN_H 54
+#define MSG2_H (TOP_H + LANE_H)  /* a two-line message's band: the smog's and lane 1's (build 38) */
 #define GEN_P 80                 /* a furnace's width */
 
 static struct {
@@ -167,7 +168,8 @@ static struct {
     int8_t oct;
     uint8_t key_note[NKEY], key_slot[NKEY];   /* what a key down holds (KEY_NONE: nothing) */
     uint32_t keys;               /* the keys down last time */
-    char msg[16];
+    char msg[24];
+    uint8_t msg2, msg_split;     /* (build 38) a message too wide for one line: two, at msg_split, over the smog and lane 1 */
     uint32_t msg_until;
     uint32_t home_until;         /* HOME's light after a new patch */
     uint32_t seed;
@@ -265,14 +267,43 @@ static void scale_random(uint32_t seed)
     ui.scale = (uint8_t)rnd_below(&r, NSCALE);
     rack_root = SCALE_BASE + ui.root;
 }
+/* (build 38: every word fits the screen) s fits w pixels in font f, squeezed as cv_text_fit squeezes but no more
+ * than 3 pixels a gap (the letters never touch) */
+static int text_fits(const font_t *f, const char *s, int32_t w)
+{
+    int32_t n = (int32_t)str_len(s);
+    return text_w(f, s) - 3 * (n > 1 ? n - 1 : 0) <= w;
+}
+/* the largest of two fonts s fits in */
+static const font_t *fit_font(const font_t *a, const font_t *b, const char *s, int32_t w)
+{
+    return text_fits(a, s, w) ? a : b;
+}
 static void say(const char *s, uint32_t ms)
 {
+    uint32_t i, best = 0, bw = 0x7FFFFFFFu;
     str_cpy(ui.msg, s, sizeof ui.msg);
     ui.msg_until = fm1_ms + ms;
+    ui.msg2 = (uint8_t)!text_fits(&FONT_M, ui.msg, 236);
+    for (i = 1; ui.msg2 && ui.msg[i]; i++)       /* (too wide: two lines, split at the space that evens them most) */
+        if (ui.msg[i] == ' ') {
+            char a[24];
+            uint32_t wa, wb;
+            str_cpy(a, ui.msg, i + 1u);
+            wa = (uint32_t)text_w(&FONT_M, a);
+            wb = (uint32_t)text_w(&FONT_M, ui.msg + i + 1);
+            if ((wa > wb ? wa : wb) < bw) {
+                bw = wa > wb ? wa : wb;
+                best = i;
+            }
+        }
+    ui.msg_split = (uint8_t)best;
+    if (ui.msg2 && !best)                        /* (one long word: a line, a size smaller -- draw_top) */
+        ui.msg2 = 0;
 }
 static void say_n(const char *s, int32_t n, const char *t, uint32_t ms)   /* "s" n "t" */
 {
-    char b[16], d[8];
+    char b[24], d[8];
     uint32_t k = 0, j;
     for (j = 0; s[j] && k < 10u; j++)
         b[k++] = s[j];
@@ -594,9 +625,12 @@ static void mod_knob(uint32_t sl, uint32_t ix, uint32_t j, int32_t s)
         mslot_t *q = &m->s[ix - 2u];
         if (j == 0u)
             q->src = (uint8_t)clampi(q->src + s, 0, MSRC_N - 1);
-        else if (j == 1u)
-            q->dst = (uint8_t)clampi(q->dst + s, 0, (int32_t)mod_ndst(sl) - 1);
-        else if (j == 2u)
+        else if (j == 1u) {
+            int32_t d = clampi(q->dst + s, 0, (int32_t)mod_ndst(sl) - 1);
+            if (sl >= NGEN && d == FMD_PAN)      /* (a lane's PAN stepped over: its generator's pan rules it, build 38) */
+                d = clampi(d + (s > 0 ? 1 : -1), 0, (int32_t)mod_ndst(sl) - 1);
+            q->dst = (uint8_t)d;
+        } else if (j == 2u)
             q->amt = (int8_t)clampi(q->amt + 2 * s, -100, 100);
         else
             return;
@@ -1276,9 +1310,24 @@ static void draw_top(void)
     key = msg ? -1 - (int32_t)(ui.msg_until & 0xFFFFFu) : (ui.load_shown * 10 + batt_key() + 1) | drift << 12;
     if (!ui.force && key == ui.shown_top)
         return;
+    if (msg && ui.msg2) {                        /* (two lines, large, over the smog and lane 1: build 38) */
+        char a[24];
+        const char *bl = ui.msg + ui.msg_split + 1;
+        const font_t *fa, *fb;
+        str_cpy(a, ui.msg, ui.msg_split + 1u);
+        fa = fit_font(&FONT_M, &FONT_S, a, 236);
+        fb = fit_font(&FONT_M, &FONT_S, bl, 236);
+        CV_AREA(0, 0, 240, MSG2_H, C_WHITE) {
+            cv_text_fit((MSG2_H / 2 - fa->h) / 2 + 2, fa, a, C_BLACK);
+            cv_text_fit(MSG2_H / 2 + (MSG2_H / 2 - fb->h) / 2 - 2, fb, bl, C_BLACK);
+        }
+        ui.shown_top = key;
+        return;
+    }
     if (msg) {
+        const font_t *f = fit_font(&FONT_M, text_fits(&FONT_S, ui.msg, 236) ? &FONT_S : &FONT_XS, ui.msg, 236);
         cv_begin(240, TOP_H, C_WHITE);
-        cv_text_fit(6, &FONT_M, ui.msg, C_BLACK);
+        cv_text_fit((TOP_H - f->h) / 2, f, ui.msg, C_BLACK);
     } else {
         char b[8];
         uint32_t n, x, y;
@@ -1607,6 +1656,29 @@ static void draw_fx_page(void)
     ui.shown_fx_touch = (int8_t)t;
 }
 
+/* a dial's value, very large: FONT_XL, or FONT_L if it does not fit (4.5 fits, 30.0 does not) */
+static void dial_value(const char *v)
+{
+    const char *dot = v;
+    while (*dot && *dot != '.')
+        dot++;
+    if (*dot && !text_fits(&FONT_XL, v, 236)) {  /* (10.5: the whole part in FONT_XL, the rest beside it in FONT_L,
+                                                  * at the foot of the digits -- the half second kept, the size too) */
+        char a[8];
+        int32_t wa, wb, x;
+        str_cpy(a, v, (uint32_t)(dot - v) + 1u);
+        wa = text_w(&FONT_XL, a);
+        wb = text_w(&FONT_L, dot);
+        x = (240 - wa - wb) / 2;
+        x = cv_text(x, (112 - FONT_XL.h) / 2, &FONT_XL, a, C_WHITE);
+        cv_text(x, (112 - FONT_XL.h) / 2 + FONT_XL.h - FONT_L.h - 8, &FONT_L, dot, C_WHITE);
+        return;
+    }
+    {
+        const font_t *f = fit_font(&FONT_XL, &FONT_L, v, 236);
+        cv_text_fit((112 - f->h) / 2, f, v, C_WHITE);
+    }
+}
 /* KNOB 1's dial, over the screen while it turns and 1.5 s after: what it sets (MORPH TIME), its value very large (4.5 S,
  * or OFF), a bar of its reach (0 .. 30 s). Then the page that was up comes back */
 static int draw_dial(void)
@@ -1633,7 +1705,7 @@ static int draw_dial(void)
         CV_AREA(0, 0, 240, 50, C_BLACK)
             cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "DRIVE", C_FULL);
         CV_AREA(0, 50, 240, 112, C_BLACK)
-            cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+            dial_value(v);
         CV_AREA(0, 162, 240, 40, C_BLACK)
             cv_text_c((40 - FONT_S.h) / 2, &FONT_S, "MASTER", C_FULL);
         CV_AREA(0, 202, 240, 38, C_BLACK) {
@@ -1654,7 +1726,7 @@ static int draw_dial(void)
         CV_AREA(0, 0, 240, 50, C_BLACK)
             cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "FX MIX", C_FXMIX);
         CV_AREA(0, 50, 240, 112, C_BLACK)
-            cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+            dial_value(v);
         CV_AREA(0, 162, 240, 40, C_BLACK)
             cv_text_c((40 - FONT_S.h) / 2, &FONT_S, gl, GEN_COL[ln]);
         CV_AREA(0, 202, 240, 38, C_BLACK) {
@@ -1675,7 +1747,7 @@ static int draw_dial(void)
         CV_AREA(0, 0, 240, 50, C_BLACK)           /* (one line, his rule: a font of its own, as large as fits whole) */
             cv_text_c((50 - FONT_T.h) / 2, &FONT_T, "DISINTEGRATOR", col);
         CV_AREA(0, 50, 240, 112, C_BLACK)
-            cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+            dial_value(v);
         CV_AREA(0, 162, 240, 40, C_BLACK) {
             char g[8] = "GEN 1";
             g[4] = (char)('1' + ui.gen);
@@ -1696,7 +1768,7 @@ static int draw_dial(void)
     CV_AREA(0, 0, 240, 50, C_BLACK)
         cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "MORPH", C_SNAP);
     CV_AREA(0, 50, 240, 112, C_BLACK)
-        cv_text_fit((112 - FONT_XL.h) / 2, &FONT_XL, v, C_WHITE);
+        dial_value(v);
     CV_AREA(0, 162, 240, 40, C_BLACK)
         if (ui.morph)
             cv_text_c((40 - FONT_S.h) / 2, &FONT_S, "SECONDS", C_GREY);
@@ -1955,6 +2027,11 @@ static void mod_dst_name(uint32_t sl, uint32_t d, char *b, uint32_t n)
             str_cpy(b, RM_NAME[f->e[k].kind % NKIND], n);
             str_cpy(b + str_len(b), " ", n - str_len(b));
             str_cpy(b + str_len(b), RM_PNAME[f->e[k].kind % NKIND][j], n - str_len(b));
+            if (!text_fits(&FONT_S, b, 228)) {   /* (too long for its row: the effect's short name, RVS FEEDBACK) */
+                str_cpy(b, RM_TILE[f->e[k].kind % NKIND], n);
+                str_cpy(b + str_len(b), " ", n - str_len(b));
+                str_cpy(b + str_len(b), RM_PNAME[f->e[k].kind % NKIND][j], n - str_len(b));
+            }
         } else {
             str_cpy(b, "PLACE 3: NONE", n);
             b[6] = (char)('1' + k);
@@ -2009,7 +2086,10 @@ static void draw_mod_page(void)
             ti[6 + o] = (char)('A' + ix - 2u);
         }
         cv_begin(240, 52, C_BLACK);
-        cv_text_fit(3, &FONT_L, ti, col);        /* (in the slot's colour: the chosen slot's modulation) */
+        {
+            const font_t *f = fit_font(&FONT_L, &FONT_M, ti, 236);
+            cv_text_fit((52 - f->h) / 2, f, ti, col);   /* (in the slot's colour: the chosen slot's modulation) */
+        }
         cv_blit(0, 0);
     }
     if (ix < 2u) {
@@ -2121,6 +2201,11 @@ static void ui_draw(void)
     for (l = 0; l < NFX; l++) {
         int32_t k = row_key(l), tk[FX_N];
         uint32_t j;
+        if (!l && ui.msg2 && (int32_t)(ui.msg_until - fm1_ms) > 0) {   /* (lane 1 under a two-line message: drawn
+                                                                        * whole again once it is gone) */
+            ui.shown_row[0] = -0x7FFFFFFF;
+            continue;
+        }
         for (j = 0; j < FX_N; j++)
             tk[j] = tile_key(l * FX_N + j, mods);
         if (ui.force || k != ui.shown_row[l]) {   /* (a lane changed: all of it at once) */

@@ -758,6 +758,8 @@ static void mix_block(int32_t *out)
     for (l = 0; l < NGEN; l++) {                        /* each: dry to the master, its sends to the effects */
         const gen_patch_t *p = &gbuf[l][g_use[l]];
         int32_t g, pl, pr, dg, dpl, dpr;
+        lane_pan_q[l] = clampi(gen_pan[l] + gen_mod_pan[l], -PAN_MAX, PAN_MAX) * (Q15 / PAN_MAX);   /* (its lane's pan:
+                                                         * the generator's, build 38 -- the DISINTEGRATOR's throws its own) */
         if (!pk[l] && !gl_gg[l])
             continue;
         if ((gen_fine >> l) & 1u) {                      /* (a morph: the level between its steps, the mute in it) */

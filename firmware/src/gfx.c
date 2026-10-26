@@ -21,6 +21,17 @@ static uint16_t cv_px[CV_MAX] POOL __attribute__((aligned(8)));   /* (also mol.c
 static uint32_t cv_w, cv_h;
 static int32_t cv_oy;            /* the band's top within the area being drawn (CV_AREA): drawing is placed by the area */
 static uint16_t cv_bg;
+#ifdef HOST
+/* (the host's tests: text drawn past the canvas -- off its sides, or below the area it is in -- counted and named) */
+static uint32_t cv_ov_n;
+static char cv_ov_last[64];
+static int cv_in_area;
+static void cv_overflow(const char *s)
+{
+    cv_ov_n++;
+    snprintf(cv_ov_last, sizeof cv_ov_last, "%s", s);
+}
+#endif
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
 
@@ -58,8 +69,14 @@ static int cv_area_left(void)
     uint32_t rows = CV_MAX / cva.w;
     if ((uint32_t)cv_oy >= cva.h) {
         cv_oy = 0;
+#ifdef HOST
+        cv_in_area = 0;
+#endif
         return 0;
     }
+#ifdef HOST
+    cv_in_area = 1;
+#endif
     cv_begin(cva.w, cva.h - (uint32_t)cv_oy < rows ? cva.h - (uint32_t)cv_oy : rows, cva.bg);
     return 1;
 }
@@ -124,6 +141,10 @@ static int32_t text_w(const font_t *f, const char *s)
 /* text at (x, y) (top left), colour c over the canvas background; returns the end x */
 static int32_t cv_text(int32_t x, int32_t y, const font_t *f, const char *s, uint16_t c)
 {
+#ifdef HOST
+    const char *s0 = s;
+    int ov = 0;
+#endif
     uint16_t ramp[16];
     int32_t r = c >> 11, g = (c >> 5) & 63, b = c & 31, a;
     int32_t br = cv_bg >> 11, bgc = (cv_bg >> 5) & 63, bb = cv_bg & 31;
@@ -151,13 +172,26 @@ static int32_t cv_text(int32_t x, int32_t y, const font_t *f, const char *s, uin
                     for (i = 0; i < n; i++, px++)
                         if ((uint32_t)px < cv_w)
                             cv_px[(uint32_t)py * cv_w + (uint32_t)px] = ramp[v];
+#ifdef HOST
+                        else
+                            ov = 1;
+#endif
                 }
+#ifdef HOST
+                if (v > 3 && ((cv_in_area && (y + gy < 0 || (uint32_t)(y + gy) >= cva.h)) ||
+                              (!cv_in_area && (py < 0 || (uint32_t)py >= cv_h))))
+                    ov = 1;                      /* (an ink pixel off its area, above or below) */
+#endif
                 gx += n;
                 run -= n;
             }
         }
         x += f->adv[gi];
     }
+#ifdef HOST
+    if (ov)
+        cv_overflow(s0);
+#endif
     return x;
 }
 /* centred, and squeezed to the canvas's width (a few pixels less between the letters) if it is wider */
@@ -169,10 +203,20 @@ static void cv_text_fit(int32_t y, const font_t *f, const char *s, uint16_t c)
     if (squeeze > 6)
         squeeze = 6;
     x = ((int32_t)cv_w - (w - squeeze * (n - 1))) / 2;
+#ifdef HOST
+    {
+        uint32_t ov0 = cv_ov_n;
+        const char *s0 = s;
+#endif
     for (; *s; s++) {
         char one[2] = {*s, 0};
         x = cv_text(x, y, f, one, c) - squeeze;
     }
+#ifdef HOST
+        if (cv_ov_n != ov0)
+            snprintf(cv_ov_last, sizeof cv_ov_last, "%s", s0);   /* (the whole string named, not its last letter) */
+    }
+#endif
 }
 /* centred in the canvas's width */
 static void cv_text_c(int32_t y, const font_t *f, const char *s, uint16_t c)

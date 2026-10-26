@@ -140,8 +140,8 @@ fumes end up in. In practice:
 - Each lane is a chain of two or three effects, drawn from a recipe. An effect before the last can also send to the
   master on its own.
 - White keys play the generator chosen last, in the current scale. Four voices are shared by the three generators.
-- Each generator has level, pan, mute, delay and reverb sends, a looper and a DISINTEGRATOR. Each effect slot has
-  level, pan and mute.
+- Each generator has level, pan, mute, delay and reverb sends, a looper and a DISINTEGRATOR. Each lane has level
+  and mute. A generator's pan also pans its lane and every effect in it: panning is set on the generator only.
 - One generator can modulate another (ring, amplitude or filter), but only if you link them by hand: hold SHIFT, hold
   one generator's button, then the other's.
 
@@ -444,7 +444,7 @@ Every slot, generator or effect slot, has two LFOs and eight routes, A to H.
   ONCE, and has a fade-in.
 - A route goes from a source (LFO 1, LFO 2, VELOCITY, KEY, RANDOM) to a destination, by an amount.
 - Generator destinations: four macros, level, pan, sends, LFO rates.
-- Effect slot destinations: effect values by place, level, pan, LFO rates. Routes point at a place, not at an effect,
+- Effect slot destinations: effect values by place, level, LFO rates (a lane's pan is its generator's). Routes point at a place, not at an effect,
   so after HOME draws new effects the LFO moves the new effect's value at that place.
 
 SEQ's third page sets them; SHIFT + SEQ draws them at random.

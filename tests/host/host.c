@@ -1734,7 +1734,9 @@ static int cmd_mod(void)
             press(B_HOME, 50);
             fw_run(400);
             mod_dst_name(NGEN + s0, FMD_P0 + 5, nm, sizeof nm);
-            if (strncmp(nm, RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind], str_len(RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind])))
+            if (strncmp(nm, RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind], str_len(RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind])) &&
+                strncmp(nm, RM_TILE[fbuf[s0][f_pub[s0]].e[1].kind], str_len(RM_TILE[fbuf[s0][f_pub[s0]].e[1].kind])))
+                                                         /* (or its short name, when the long one does not fit: build 38) */
                 printf("FAIL mod: the page names %s, the effect there is %s\n", nm, RM_NAME[fbuf[s0][f_pub[s0]].e[1].kind]), fails++;
             moved |= fx_mod_p[s0][5] != 0;
         }
@@ -3887,6 +3889,42 @@ static int cmd_screens(int argc, char **argv)
     SHOT("loops");
     fm1_in.buttons &= ~(1u << PANEL_BTN[B_PLAY]);
     ui_input();
+    {   /* (build 38) messages that take two lines, and one that fits one; a lane's MOD page; the dials at their widest */
+#define MSGSHOT(nm) do { ui.load_at = fm1_ms - 1000u; ui.force = 1; ui_draw(); \
+    snprintf(name, sizeof name, "%s/screen-%s.ppm", dir, nm); screen_save(name); ui.msg_until = fm1_ms; ui.force = 1; ui_draw(); } while (0)
+        say_slot(NGEN + 1u, "REWIRED", 1000);
+        MSGSHOT("msg-lane-rewired");
+        say_slot(0, MF_NAME[MF_GLASSHARP], 1000);
+        MSGSHOT("msg-family");
+        say("DOUBLE SPEED", 1000);
+        MSGSHOT("msg-double-speed");
+        say("OVERLOAD", 1000);
+        MSGSHOT("msg-overload");
+        ui.sel = NGEN + 2u;
+        ui.fx_page = 3;
+        ui.mod_ix = 8;
+        slot_mod[NGEN + 2u].s[6].src = MSRC_L1;
+        slot_mod[NGEN + 2u].s[6].dst = 0;
+        slot_mod[NGEN + 2u].s[6].amt = -60;
+        SHOT("mod-lane");
+        pages_off();
+        memset(&slot_mod[NGEN + 2u], 0, sizeof slot_mod[0]);
+        ui.sel = 0;
+        ui.morph = MORPH_STEPS_UI;
+        ui.dial_kind = 0;
+        ui.dial_until = fm1_ms + 1500u;
+        ui.dial_shown = 0;
+        MSGSHOT("dial-morph-30");
+        master_drive = 76;
+        ui.dial_kind = 3;
+        ui.dial_until = fm1_ms + 1500u;
+        ui.dial_shown = 0;
+        MSGSHOT("dial-drive");
+        master_drive = 0;
+        ui.morph = 0;
+        ui.dial_until = fm1_ms;
+        ui_draw();
+    }
     press(B_SEQ, 50);                                    /* the DELAY page, a knob just turned */
     fm1_in.enc[PANEL_ENC[EN_K2]] = 5;
     ui_input();
@@ -3933,8 +3971,8 @@ static int cmd_screens(int argc, char **argv)
     ui.ses_tgt = 7;
     SHOT("session-copy");
     ui.ses_page = SP_PAGE;
-    key(KEY_SHIFT, 1);                                   /* SHIFT + SAVE: left as it was; again: the list; again: out */
-    press(B_SAVE, 50);
+    key(KEY_SHIFT, 1);                                   /* SHIFT + SAVE: the list; again: out (build 36: no MODE being
+                                                          * set to leave first) */
     press(B_SAVE, 50);
     press(B_SAVE, 50);
     key(KEY_SHIFT, 0);
@@ -3970,6 +4008,7 @@ static int cmd_screens(int argc, char **argv)
     ui_input();
     ui.load_at = fm1_ms - 1000u;
     ui.msg_until = 0;
+    ui.fl_until = fm1_ms;                                /* (no message over it) */
     ui_draw();
     snprintf(name, sizeof name, "%s/screen-morph-dial.ppm", dir);
     screen_save(name);
@@ -4182,6 +4221,215 @@ static int cmd_timbres(int argc, char **argv)
     return 0;
 }
 
+/* build 38: a lane is panned with its generator -- generator 2 (lane 2) hard right: its lane's own sound, the effects
+ * alone (the generator dry share none), comes out on the right */
+static int cmd_lanepan(void)
+{
+    int fails = 0;
+    uint32_t b, i, side;
+    for (side = 0; side < 2u; side++) {
+        double el = 0, er = 0;
+        fm1_in.notes = fm1_in.buttons = 0;
+        ui_init();
+        ui.seed = 8080u;
+        gens_init(ui.seed);
+        scale_random(ui.seed);
+        master_q12 = 4096;
+        gen_mute[0] = gen_mute[2] = 1;
+        gen_pan[1] = (int8_t)(side ? 20 : -20);
+        gbuf[1][g_use[1]].dry = 0;                       /* (its lane alone heard) */
+        ui.rsend[1] = ui.dsend[1] = 0;
+        sends_apply(1);
+        press(B_SEL, 50);
+        key(4, 1);
+        for (b = 0; b < 1378u * 4u; b++) {
+            int32_t out[2 * CTL];
+            mix_block(out);
+            if (b > 1378u * 2u)
+                for (i = 0; i < CTL; i++) {
+                    el += (double)out[2u * i] * out[2u * i];
+                    er += (double)out[2u * i + 1u] * out[2u * i + 1u];
+                }
+        }
+        key(4, 0);
+        printf("lanepan: generator 2 %s -- its lane left %.0f, right %.0f\n", side ? "right" : "left", __builtin_sqrt(el),
+               __builtin_sqrt(er));
+        if (side ? er < 4.0 * el : el < 4.0 * er)
+            printf("FAIL lanepan: the lane not panned with its generator\n"), fails++;
+    }
+    printf("lanepan: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
+/* build 38: every word on the screen fits it -- each message the firmware says (tools/list_says.py: as written, with
+ * its widest numbers), each slot's name with every family, recipe and word; every page, dial and question with its
+ * widest names and numbers. The host's cv_text counts ink drawn past the canvas (off its sides, below or above its
+ * area): none may be */
+#include "norilsk_says.h"
+static int fit_fails;
+static void fit(const char *what)
+{
+    uint32_t before = cv_ov_n;
+    ui.force = 1;
+    ui.load_at = fm1_ms - 1000u;
+    ui_draw();
+    if (cv_ov_n != before) {
+        printf("FAIL fit: %s -- \"%s\" past the screen\n", what, cv_ov_last);
+        fit_fails++;
+    }
+}
+static void fit_say(const char *s, const char *what)
+{
+    say(s, 1000);
+    fit(what);
+    ui.msg_until = fm1_ms;
+}
+static int cmd_fit(void)
+{
+    uint32_t i, l, k, j, n = 0;
+    char b[64];
+    fm1_in.notes = fm1_in.buttons = 0;
+    memset(hflash, 0xFF, sizeof hflash);
+    fw_init();
+    cv_ov_n = 0;
+    fit("the main view");
+    for (i = 0; i < sizeof SAYS / sizeof SAYS[0]; i++, n++)   /* the messages */
+        fit_say(SAYS[i], "a message");
+    for (l = 0; l < NSLOT; l++) {                          /* a slot's name with what it says */
+        static const char *const W[4] = {"MUTED", "HEARD", "REWIRED", "BUSY"};
+        for (k = 0; k < 4u; k++, n++) {
+            say_slot(l, W[k], 1000);
+            fit("a slot's message");
+            ui.msg_until = fm1_ms;
+        }
+        for (k = 0; k < (l < NGEN ? (uint32_t)MF_N : (uint32_t)FR_N); k++, n++) {
+            say_slot(l, l < NGEN ? MF_NAME[k] : FR_NAME[k], 1000);
+            fit(l < NGEN ? "a generator's family" : "a lane's recipe");
+            ui.msg_until = fm1_ms;
+        }
+    }
+    for (k = 0; k < NKIND; k++, n++) {                     /* every effect on a lane's plates, three to a lane */
+        for (l = 0; l < NFX; l++) {
+            fx_patch_t *f = &fbuf[l][f_use[l]];
+            f->n = 3;
+            for (j = 0; j < 3u; j++)
+                f->e[j].kind = (uint8_t)k;
+        }
+        fit("an effect's plate");
+    }
+    fw_init();
+    ui.sc_page = 1;                                        /* the SCALE page: every scale, the widest root */
+    for (k = 0; k < NSCALE; k++, n++) {
+        ui.scale = (uint8_t)k;
+        ui.root = 1;                                       /* (C#) */
+        fit("the SCALE page");
+    }
+    pages_off();
+    for (k = 1; k <= 2u; k++, n++) {                       /* DELAY, REVERB: their widest values */
+        ui.fx_page = (uint8_t)k;
+        for (j = 0; j < 4u; j++)
+            ui.dlp[j] = ui.rvp[j] = 100;
+        ui.fx_touched = 0;
+        ui.fx_touch_until = fm1_ms + 1000u;
+        fit(k == 1 ? "the DELAY page" : "the REVERB page");
+    }
+    pages_off();
+    ui.fx_page = 3;                                        /* the MOD page: every slot, entry, source, destination */
+    for (l = 0; l < NSLOT; l++) {
+        ui.sel = (uint8_t)l;
+        for (k = 0; k < 2u; k++)
+            for (j = 0; j < MS_N; j++, n++) {
+                slot_mod[l].lfo[k].shape = (uint8_t)j;
+                slot_mod[l].lfo[k].mode = (uint8_t)(j % MM_N);
+                slot_mod[l].lfo[k].rate = 100;
+                slot_mod[l].lfo[k].fade = 100;
+                ui.mod_ix = (uint8_t)k;
+                fit("the MOD page's LFO");
+            }
+        for (k = 0; k < NMSLOT; k++)
+            for (i = 0; i < MSRC_N; i++)
+                for (j = 0; j < mod_ndst(l); j++, n++) {
+                    slot_mod[l].s[k].src = (uint8_t)i;
+                    slot_mod[l].s[k].dst = (uint8_t)j;
+                    slot_mod[l].s[k].amt = -100;
+                    ui.mod_ix = (uint8_t)(2u + k);
+                    fit("the MOD page's route");
+                }
+    }
+    pages_off();
+    memset(slot_mod, 0, sizeof slot_mod);
+    ui.ses_page = SP_LIST;                                 /* the sessions: the last page of the list, a session's page,
+                                                            * the questions, COPY */
+    for (k = 61; k <= SES_SLOTS; k++, n++) {
+        ui.ses_ix = (uint8_t)k;
+        fit("the SESSIONS list");
+    }
+    ui.ses_ix = 64;
+    ui.ses_page = SP_PAGE;
+    for (k = 0; k < SR_N; k++, n++) {
+        ui.ses_row = (uint8_t)k;
+        fit("a session's page");
+    }
+    ui.ses_page = SP_ASK;
+    for (k = 0; k < 4u; k++, n++) {
+        ui.ses_ask = (uint8_t)k;
+        ui.ses_new = 64;
+        fit("a session's question");
+    }
+    ui.ses_page = SP_COPY;
+    ui.ses_tgt = 63;
+    fit("COPY");
+    pages_off();
+    {   /* a session's or snapshot's outcome, each kind, the widest number */
+        static const char *const WHAT[] = {"NEW", "RESTORED", "EMPTIED", "STORED", "COPIED", "DELETED", "LOADED", "SAVED",
+                                           "RECALLED"};
+        static const int RC[] = {SES_OK, SES_FULL, SES_BUSY, SES_FAIL, SES_NOFLASH};
+        for (k = 0; k < sizeof WHAT / sizeof WHAT[0]; k++)
+            for (i = 0; i < sizeof RC / sizeof RC[0]; i++)
+                for (j = 0; j < 2u; j++, n++) {
+                    ses_done(RC[i], (int)j, WHAT[k], j ? 16u : 64u);
+                    fit("an outcome");
+                    ui.fl_until = fm1_ms;
+                }
+    }
+    ui.snap_page = 1;                                      /* the SNAPSHOTS page */
+    fit("the SNAPSHOTS page");
+    pages_off();
+    ui.ovd = 1;                                            /* the loops (PLAY held), each generator */
+    for (l = 0; l < NGEN; l++, n++) {
+        ui.gen = (uint8_t)l;
+        fit("the LOOPS page");
+    }
+    ui.ovd = 0;
+    for (k = 0; k <= XM_N; k++)                            /* a link, each kind and undone, each pair */
+        for (l = 0; l < NGEN; l++, n++) {
+            ui.lk_from = (uint8_t)l;
+            ui.lk_to = (uint8_t)((l + 1u) % NGEN);
+            ui.lk_kind = (uint8_t)k;
+            ui.lk_until = fm1_ms + 1500u;
+            ui.lk_shown = 0;
+            fit("a link");
+            ui.lk_until = fm1_ms;
+        }
+    for (k = 0; k < 4u; k++)                               /* the dials at their widest */
+        for (l = 0; l < NGEN; l++, n++) {
+            ui.dial_kind = (uint8_t)k;
+            ui.gen = ui.sel = (uint8_t)l;
+            ui.morph = MORPH_STEPS_UI;
+            gen_dis[l] = 100;
+            fx_wet[l] = 100;
+            master_drive = (uint8_t)(l ? 100 : 0);
+            ui.dial_until = fm1_ms + 1500u;
+            ui.dial_shown = 0;
+            fit(k == 0 ? "MORPH" : k == 1 ? "DISINTEGRATOR" : k == 2 ? "FX MIX" : "DRIVE");
+            ui.dial_until = fm1_ms;
+        }
+    master_drive = 0;
+    snprintf(b, sizeof b, "%u screens and messages", n);
+    printf("fit: %s, %d past the screen\n", b, fit_fails);
+    return fit_fails ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
     memset(hflash, 0xFF, sizeof hflash);
@@ -4296,6 +4544,10 @@ int main(int argc, char **argv)
         return cmd_mtails();
     if (!strcmp(argv[1], "link"))
         return cmd_link();
+    if (!strcmp(argv[1], "fit"))
+        return cmd_fit();
+    if (!strcmp(argv[1], "lanepan"))
+        return cmd_lanepan();
     if (!strcmp(argv[1], "timbres"))
         return cmd_timbres(argc, argv);
     if (!strcmp(argv[1], "drive"))

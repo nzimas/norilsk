@@ -263,7 +263,8 @@ static void mod_init(void)
 static void mod_random(uint32_t sl, uint32_t seed)
 {
     static const uint8_t GW[GMD_N] = {10, 8, 6, 10, 4, 8, 7, 6, 3, 3};
-    static const uint8_t FW[FMD_N] = {6, 6, 6, 6, 5, 5, 5, 5, 4, 4, 4, 4, 4, 6, 2, 2};
+    static const uint8_t FW[FMD_N] = {6, 6, 6, 6, 5, 5, 5, 5, 4, 4, 4, 4, 4, 0, 2, 2};   /* (a lane's PAN never drawn:
+                                                  * build 38, a lane is panned with its generator) */
     static const uint8_t SW[MSRC_N] = {0, 40, 35, 5, 5, 15};
     rnd_t r;
     mod_t m;

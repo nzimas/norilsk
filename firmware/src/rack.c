@@ -1182,6 +1182,9 @@ static volatile int32_t fx_rsend[NFX], fx_dsend[NFX];   /* each slot's sends, Q1
 /* the modulation's offsets (mod.c, worked out before the work is dealt): each slot's effects' values by place (4 k + j),
  * its level (steps) and pan */
 static int16_t fx_mod_p[NFX][12], fx_mod_lvl[NFX], fx_mod_pan[NFX];
+static volatile int32_t lane_pan_q[NFX];         /* (build 38) each lane's pan, its generator's (and its generator's
+                                                  * modulation), -Q15 .. Q15: set by mix_block each block (gens.c) --
+                                                  * a lane and every effect in it are panned with their generator */
 static uint8_t fx_mod_on[NFX];
 static volatile int16_t fx_lvl_q8[NFX];           /* a snapshot's morph: each slot's level between its steps (Q8, 0 silent) */
 static volatile uint8_t fx_fine;                  /* .. a bit a slot when in force (the mute folded in) */
@@ -1429,7 +1432,7 @@ static void rack_job(void)
             gw = gw * (int32_t)(fx_count[s] - 1u) / (int32_t)FX_FADE;
             fx_count[s]--;
         }
-        ph = (uint32_t)(clampi(fx_pan[s] + fx_mod_pan[s], -20, 20) * (Q15 / 20) + Q15) * 16384u;
+        ph = (uint32_t)(clampi(lane_pan_q[s], -Q15, Q15) + Q15) * 16384u;   /* (its generator's pan, build 38) */
         g = gw;
         gl = sin_ph(ph + 0x40000000u);
         gr = sin_ph(ph);

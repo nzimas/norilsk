@@ -10,6 +10,7 @@ mkdir -p build/gen build/sounds
 $PY tools/gen_tables.py build/gen/norilsk_tables.h >/dev/null
 tests/check_target_ir.sh
 $PY tools/gen_font.py build/gen/norilsk_font.h >/dev/null
+$PY tools/list_says.py build/gen/norilsk_says.h >/dev/null
 mkdir -p build/screens
 clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-unused-function -Werror \
     -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
@@ -38,10 +39,12 @@ build/host lanes
 build/host sespage
 build/host b36 | tail -1
 build/host drive | tail -2
+build/host lanepan | tail -1
 build/host dis
 build/host paths | tail -1
 build/host revalue
 build/host paint | tail -1
+build/host fit | tail -1
 build/host cores
 build/host modules build/sounds > build/sounds/modules.txt
 build/host patches build/sounds 12 > build/sounds/patches.txt

@@ -2,6 +2,23 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 38 (2026-10-26): every word fits the screen; a generator's pan pans its lane
+
+- **Nothing runs past the screen.** Every message the firmware can say (each `say` and `say_n` with its widest numbers,
+  4274 screens and messages in all, listed by `tools/list_says.py`) is drawn on the host and checked against the
+  screen's edges and its own area (`host fit`, in the tests; 577 overflows found, none left).
+- A message too wide for one line takes two (LANE 2 / REWIRED, GEN 1 / GLASSHARP), split at the space that evens
+  them, over the top bar and the first lane's row. A line still too wide drops one size (GLASSHARP, BROADCAST,
+  TELEPHONE).
+- KNOB 1's MORPH value at 30.0 s: the whole part in the largest type, the tenths one size down. OFF on the dials one
+  size down. The MOD page's title and its destinations take a smaller size or the short name when the long one does
+  not fit.
+- **A generator's pan pans its lane** and every effect in it; the lane has no pan of its own. The MOD page offers no
+  pan destination on a lane, and the random routes no longer draw one. Old sessions load as before; a lane's saved
+  pan is ignored (`host lanepan`).
+- The screens test leaves the session pages as build 36's page now does (its SAVE, SNAPSHOTS and MORPH pictures were
+  wrong from build 36).
+
 ## Build 37 (2026-10-26): names on the screen; lanes 1 to 3; the master's DRIVE; engine generation 6
 
 - **What a generator is, on the screen**: choosing a generator says its family (GEN 1 WIRE); HOME says what it drew
