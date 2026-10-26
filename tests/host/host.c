@@ -1799,6 +1799,9 @@ static int cmd_paint(void)
     ui.snap_page = 1;
     fails += paint_one("snapshots");
     pages_off();
+    ui.gs_page = 2;
+    fails += paint_one("generator");
+    pages_off();
     ui.morph = 9;
     ui.dial_until = fm1_ms + 1500u;
     ui.dial_shown = 0;
@@ -3952,6 +3955,15 @@ static int cmd_screens(int argc, char **argv)
     fm1_in.enc[PANEL_ENC[EN_PRESET]] = 2;
     ui_input();
     SHOT("mod-fx");
+    key(KEY_SHIFT, 1);                                   /* (build 39) SHIFT + generator 1's button: its page, MUTE FADE
+                                                          * OUT just turned */
+    press(B_FX, 50);
+    key(KEY_SHIFT, 0);
+    gen_fin[0] = 9;
+    fm1_in.enc[PANEL_ENC[EN_K2]] = 30;
+    ui_input();
+    SHOT("generator");
+    gen_fin[0] = gen_fout[0] = 0;
     press(B_FX, 50);
     key(KEY_SHIFT, 1);
     press(B_SAVE, 50);                                   /* SHIFT + SAVE: the SESSIONS page */
@@ -4262,6 +4274,105 @@ static int cmd_lanepan(void)
     return fails ? 1 : 0;
 }
 
+/* build 39: a mute's fade (SHIFT + a generator's button: its page; KNOB 1 MUTE FADE IN, KNOB 2 MUTE FADE OUT). OFF:
+ * silent at once, as before; 2 s out: falling through it, silent after; 1 s in: back over it. Kept in a snapshot; a
+ * state given back takes its mutes at once */
+static double mf_win(uint32_t blocks)                    /* the output's RMS over the blocks to come */
+{
+    fw_rms = 0;
+    fw_run(blocks);
+    return __builtin_sqrt(fw_rms / (blocks * 2.0 * CTL));
+}
+static int cmd_mutefade(void)
+{
+    int fails = 0;
+    double r0, a, b, z;
+    st_t st;
+    fm1_in.notes = fm1_in.buttons = 0;
+    fw_init();
+    gen_mute[0] = gen_mute[2] = 1;                       /* (generator 2 alone, dry: no cables, no sends) */
+    gbuf[1][g_use[1]].nent = 0;
+    gbuf[1][g_use[1]].dry = Q15;
+    ui.rsend[1] = ui.dsend[1] = 0;
+    sends_apply(1);
+    press(B_SEL, 50);
+    key(4, 1);
+    fw_run(1378u * 3u);
+    r0 = mf_win(276);
+    slot_mute(1);                                        /* OFF: at once */
+    fw_run(2);
+    z = mf_win(276);
+    printf("mutefade: OFF -- %.1f, muted %.4f\n", r0, z);
+    if (r0 < 50.0 || z > 0.0)
+        printf("FAIL mutefade: OFF not silent at once\n"), fails++;
+    slot_mute(1);
+    fw_run(1378u);
+    /* the page: SHIFT + the button, let go; KNOB 2 to 2 s, KNOB 1 to 1 s */
+    key(KEY_SHIFT, 1);
+    press(B_SEL, 50);
+    key(KEY_SHIFT, 0);
+    if (ui.gs_page != 2u)
+        printf("FAIL mutefade: SHIFT + generator 2's button did not bring its page (%u)\n", ui.gs_page), fails++;
+    fm1_in.enc[PANEL_ENC[EN_K2]] = 4;
+    ui_input();
+    fm1_in.enc[PANEL_ENC[EN_K1]] = 2;
+    ui_input();
+    if (gen_fout[1] != 4u || gen_fin[1] != 2u || gen_dis[1] || fx_wet[1] != 50u)
+        printf("FAIL mutefade: the knobs set out %u in %u (dis %d, mix %u)\n", gen_fout[1], gen_fin[1], gen_dis[1], fx_wet[1]),
+            fails++;
+    fm1_in.enc[PANEL_ENC[EN_K2]] = 200;                  /* (to its end: 60 s) */
+    ui_input();
+    if (gen_fout[1] != FADE_MAX)
+        printf("FAIL mutefade: MUTE FADE OUT stops at %u half seconds\n", gen_fout[1]), fails++;
+    fm1_in.enc[PANEL_ENC[EN_K2]] = -66;                  /* (60 s down 66: 40 + 20 .. back to 2 s) */
+    ui_input();
+    if (gen_fout[1] != 4u)
+        printf("FAIL mutefade: MUTE FADE OUT back down at %u half seconds\n", gen_fout[1]), fails++;
+    press(B_SEL, 50);                                    /* its button: back */
+    if (ui.gs_page)
+        printf("FAIL mutefade: the page stays up\n"), fails++;
+    r0 = mf_win(276);
+    press(B_SEL, 900);                                   /* held: muted, fading out over 2 s */
+    if (!gen_mute[1])
+        printf("FAIL mutefade: not muted\n"), fails++;
+    fw_run(552);                                         /* (the host's buttons are read as they are let go: the
+                                                          * mute from here) */
+    a = mf_win(276);                                     /* (0.4 .. 0.6 s in) */
+    fw_run(552);
+    b = mf_win(276);                                     /* (1.0 .. 1.2 s) */
+    fw_run(1103);
+    z = mf_win(276);                                     /* (2.0 .. 2.2 s) */
+    printf("mutefade: 2 s out -- %.1f, %.1f, %.1f, %.4f\n", r0, a, b, z);
+    if (!(a < 0.7 * r0 && a > 0.2 * r0 && b < 0.25 * r0 && b > 0.01 * r0 && z == 0.0))
+        printf("FAIL mutefade: not faded out over 2 s\n"), fails++;
+    press(B_SEL, 900);                                   /* heard again, over 1 s */
+    a = mf_win(138);                                     /* (0.12 .. 0.22 s) */
+    fw_run(1378u);
+    b = mf_win(276);
+    printf("mutefade: 1 s in -- %.1f, %.1f\n", a, b);
+    if (!(a < 0.2 * r0 && b > 0.5 * r0))
+        printf("FAIL mutefade: not faded in over 1 s\n"), fails++;
+    /* SHIFT + a button held, then another: a link, no page */
+    link_gesture(0, 1);
+    if (ui.gs_page)
+        printf("FAIL mutefade: a link brought a page\n"), fails++;
+    link_gesture(0, 1);
+    /* a snapshot keeps the fades; given back, its mutes at once */
+    st_capture(&st);
+    if (st.g[1].fout != 4u || st.g[1].fin != 2u)
+        printf("FAIL mutefade: the state has out %u in %u\n", st.g[1].fout, st.g[1].fin), fails++;
+    st.g[1].mute = 1;
+    gen_fout[1] = gen_fin[1] = 0;
+    st_apply(&st);
+    fw_run(2);
+    z = mf_win(276);
+    if (gen_fout[1] != 4u || gen_fin[1] != 2u || z > 0.0)
+        printf("FAIL mutefade: given back out %u in %u, %.4f heard\n", gen_fout[1], gen_fin[1], z), fails++;
+    key(4, 0);
+    printf("mutefade: %d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 /* build 38: every word on the screen fits it -- each message the firmware says (tools/list_says.py: as written, with
  * its widest numbers), each slot's name with every family, recipe and word; every page, dial and question with its
  * widest names and numbers. The host's cv_text counts ink drawn past the canvas (off its sides, below or above its
@@ -4395,6 +4506,17 @@ static int cmd_fit(void)
     }
     ui.snap_page = 1;                                      /* the SNAPSHOTS page */
     fit("the SNAPSHOTS page");
+    pages_off();
+    for (l = 0; l < NGEN; l++)                             /* a generator's page (build 39): OFF, 4.5 S, 60 S, turned */
+        for (k = 0; k < 3u; k++, n++) {
+            static const uint8_t HS[3] = {0, 9, FADE_MAX};
+            ui.gs_page = (uint8_t)(l + 1u);
+            gen_fin[l] = HS[k];
+            gen_fout[l] = HS[2u - k];
+            ui.gs_touched = (int8_t)(k & 1u);
+            ui.gs_touch_until = fm1_ms + 1000u;
+            fit("a generator's page");
+        }
     pages_off();
     ui.ovd = 1;                                            /* the loops (PLAY held), each generator */
     for (l = 0; l < NGEN; l++, n++) {
@@ -4549,6 +4671,8 @@ int main(int argc, char **argv)
         return cmd_fit();
     if (!strcmp(argv[1], "lanepan"))
         return cmd_lanepan();
+    if (!strcmp(argv[1], "mutefade"))
+        return cmd_mutefade();
     if (!strcmp(argv[1], "timbres"))
         return cmd_timbres(argc, argv);
     if (!strcmp(argv[1], "drive"))

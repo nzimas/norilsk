@@ -2,6 +2,23 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 39 (2026-10-26): mute fades; names and values in two colours
+
+- **A generator's page**: SHIFT + its button, let go. KNOB 1 its **MUTE FADE IN**, KNOB 2 its **MUTE FADE OUT**, OFF
+  .. 60 s (half seconds to 10 s, whole seconds above): how long its mute (its button held) takes to fade it out, and
+  to bring it back. OFF at power-on and in a new session; OFF is the mute as before, at once. The fade is cubed (an
+  even fall in loudness, near enough); its sends to the lane and to the master fade with it; muted or unmuted again
+  on the way, it turns back from where it stands. Its button, or SHIFT + it again, leaves the page. SHIFT + a
+  generator's button held, then another's, links them as before, with no page.
+- Kept in snapshots and sessions (two spare bytes of a generator's state: sessions keep their format; older ones
+  load OFF). A snapshot recalled at once, or a session loaded, sets the mutes at once; a morph starts each generator
+  from where its fade stands.
+- **Names and values in two colours** on the DELAY, REVERB and MOD pages (LFOs and routes) and the new page: the
+  name amber, the value white; on the row just turned, black on white with the name dark amber. (The DELAY and REVERB
+  names were white, the MOD page's grey.)
+- Tests: `host mutefade` (OFF silent at once; 2 s out falling and silent after; 1 s in; the knobs' steps and ends;
+  no page after a link; kept in a state, given back at once); the page in `host paint`, `host fit` and `host screens`.
+
 ## Build 38 (2026-10-26): every word fits the screen; a generator's pan pans its lane
 
 - **Nothing runs past the screen.** Every message the firmware can say (each `say` and `say_n` with its widest numbers,

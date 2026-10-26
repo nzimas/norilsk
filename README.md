@@ -45,6 +45,7 @@ stays dark. "Hold" means 0.8 s unless stated otherwise.
 | Choose generator 1, 2 or 3 (keys play it) | Press **FX**, **SEL** or **ENV** |
 | Choose effect slot (lane) 1, 2 or 3 | Press **LFO**, **EDIT** or **GLO** |
 | Mute or unmute a slot | Hold its button |
+| Mute fade in / fade out of a generator (OFF to 60 s) | **SHIFT** + its button, let go: its page. **KNOB 1** MUTE FADE IN, **KNOB 2** MUTE FADE OUT. Its button to leave |
 | Level / pan of chosen generator (pan moves its lane too) | Turn **SELECT** / **ALGORITHM** |
 | Link two generators (first modulates second) | Hold **SHIFT**, hold first generator's button, then hold second's. Repeat to unlink |
 
@@ -85,6 +86,7 @@ stays dark. "Hold" means 0.8 s unless stated otherwise.
 | Reverb settings (SIZE, DECAY, DAMP, MIX) | **SEQ** twice, then **KNOB 1** to **4** |
 | Modulation of chosen slot | **SEQ** three times. **PRESETS** picks LFO 1, LFO 2 or route A to H; **KNOB 1** to **4** set its values |
 | Back to playing | **SEQ** a fourth time |
+| A generator's page (MUTE FADE IN, MUTE FADE OUT) | **SHIFT** + its button, then **KNOB 1** / **KNOB 2**. Its button to leave |
 | Random modulation for chosen slot | **SHIFT + SEQ** |
 
 ### Looper (generator being played)
@@ -193,6 +195,9 @@ At the bottom, the generators are brick furnaces, fire in their mouths in their 
 while they sound, dark when muted. Chosen slot has a white frame. Cables are not drawn. KNOB 1 shows its value on a
 full-screen dial.
 
+On the settings pages (DELAY, REVERB, MOD, a generator's page) each setting's name is amber and its value white. The
+setting just turned is black on white, its name dark amber.
+
 Messages (LANE 2 REWIRED, GEN 1 WIRE, OVERLOAD) cover the top of the screen for a moment. One too wide for a line
 takes two; a line still too wide drops one size. No word runs off the screen.
 
@@ -201,6 +206,21 @@ takes two; a line still too wide drops one size. No word runs off the screen.
 Each generator runs an instance of **FURNACE**, the engine, playing one sound drawn from thirty-six families. Four
 voices are shared by the three generators, and each voice is a complete instance of the engine. Because of this, one
 sound on two keys never sounds quite the same. Details: [FURNACE engine](#furnace-engine) below.
+
+### Mute fades
+
+SHIFT + a generator's button, let go, opens its page: GEN 1, GEN 2 or GEN 3 at the top, two settings below.
+
+- **MUTE FADE IN** (KNOB 1): how long the generator takes to come back when its button is held to unmute it.
+- **MUTE FADE OUT** (KNOB 2): how long it takes to fade away when its button is held to mute it.
+
+Each OFF (at once, as before) to 60 s: half-second steps to 10 s, whole seconds above. Both OFF at power-on and in a
+new session. The fade falls evenly in loudness; the generator's sends to its lane and to the master delay and reverb
+fade with it. Muted or unmuted again halfway, it turns back from where it is. Kept in snapshots and sessions. A
+snapshot recalled at once, or a session loaded, sets the mutes at once; a morph glides them over its own time.
+
+The generator's button, or SHIFT + it again, leaves the page. Holding SHIFT with one generator's button and then
+pressing another still links them (no page).
 
 ### DISINTEGRATOR
 
@@ -455,7 +475,7 @@ SEQ's third page sets them; SHIFT + SEQ draws them at random.
 
 ## Snapshots and sessions
 
-**A snapshot is the whole machine.** Every slot's sound, effects, values and cables; levels, pans, mutes and sends;
+**A snapshot is the whole machine.** Every slot's sound, effects, values and cables; levels, pans, mutes, mute fades and sends;
 DISINTEGRATORs; FX MIX; master delay and reverb; modulation; scale and root; octave; path. It also stores how the
 machine is being played: latched notes, whether each generator's loops are playing, which loops are taken out, their
 direction and speed, VARY, and moves along the scale. Loop recordings themselves belong to the session. Sixteen

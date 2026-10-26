@@ -3,9 +3,9 @@
  * as snapshots (projects.c).
  *
  * A SESSION is the whole machine at a moment: every generator (its sound, its cables, its modulation by another,
- * level, pan, mute, sends), every effect slot (its effects and their values, its cables, level, pan, mute), the master
- * delay and reverb, the six slots' LFOs, the scale and root, the octave, the slot chosen, the loops' move along the
- * scale; every looper's loops; the latched notes; and its 16 SNAPSHOTS. 64 slots (Tonitor's).
+ * level, pan, mute and its fades, sends), every effect slot (its effects and their values, its cables, level, pan,
+ * mute), the master delay and reverb, the six slots' LFOs, the scale and root, the octave, the slot chosen, the
+ * loops' move along the scale; every looper's loops; the latched notes; and its 16 SNAPSHOTS. 64 slots (Tonitor's).
  * A SNAPSHOT is the machine's state inside a session: all of the above but the loops, the latched notes, the octave
  * and the slot chosen (they go on as they are). Stored and recalled in RAM (SHIFT + SAVE: the SNAPSHOTS page); kept in
  * the flash with the session when it is saved.
@@ -70,7 +70,8 @@ static struct {
 typedef struct {
     gen_keep_t g;
     int8_t lvl, pan;
-    uint8_t mute, rsend, dsend, dis, rsv[2];   /* dis: KNOB 1's DISINTEGRATOR, 0 .. 100 (build 18; 0 before) */
+    uint8_t mute, rsend, dsend, dis;   /* dis: KNOB 1's DISINTEGRATOR, 0 .. 100 (build 18; 0 before) */
+    uint8_t fin, fout;           /* MUTE FADE IN, MUTE FADE OUT: half seconds, 0 OFF (build 39; 0 before) */
 } st_gen_t;
 typedef struct {
     fx_patch_t f;
@@ -148,6 +149,8 @@ static void st_capture(st_t *t)
         t->g[l].rsend = (uint8_t)ui.rsend[l];
         t->g[l].dsend = (uint8_t)ui.dsend[l];
         t->g[l].dis = (uint8_t)gen_dis[l];
+        t->g[l].fin = gen_fin[l];
+        t->g[l].fout = gen_fout[l];
     }
     for (l = 0; l < NFX; l++) {
         t->x[l].f = fbuf[l][f_pub[l]];
@@ -254,7 +257,11 @@ static int st_apply(const st_t *t)
         ui.dsend[l] = (int8_t)clampi(t->g[l].dsend, 0, 100);
         sends_apply(l);
         gen_dis[l] = (int8_t)clampi(t->g[l].dis, 0, 100);
+        gen_fin[l] = (uint8_t)(t->g[l].fin <= FADE_MAX ? t->g[l].fin : FADE_MAX);
+        gen_fout[l] = (uint8_t)(t->g[l].fout <= FADE_MAX ? t->g[l].fout : FADE_MAX);
     }
+    RING_PUBLISH();
+    gen_fsnap = (uint8_t)((1u << NGEN) - 1u);    /* (a state given back: its mutes at once, no fade) */
     for (l = 0; l < NFX; l++) {
         ok &= fx_set(l, &t->x[l].f);
         fx_lvl[l] = (int8_t)clampi(t->x[l].lvl, 0, 23);
@@ -305,6 +312,7 @@ static struct {
     uint8_t on, mid, nw, to;
     uint32_t t0, dur;            /* ms (at most 30 s: el << 15 fits 32 bits) */
     st_t a, b;                   /* from, to */
+    int16_t ga[NGEN];            /* each generator's fine level at the start (its mute's fade in it) */
     morph_w_t w[NGEN + NFX];
 } morph;
 /* a slot whose values may glide: the same effects in the same places -- but not a CLOUD whose values change: glided, it
@@ -353,8 +361,11 @@ static void morph_start(const st_t *to, uint32_t snap_i, uint32_t ms)
         morph.w[l].at = l * slice;
         morph.w[l].len = slice ? slice : 1u;
     }
-    for (l = 0; l < NGEN; l++)                   /* (the fine levels from where they are) */
-        gen_lvl_q8[l] = (int16_t)(morph.a.g[l].mute ? 0 : morph.a.g[l].lvl * 256);
+    for (l = 0; l < NGEN; l++) {                 /* (the fine levels from where they are: a mute's fade where it
+                                                  * stands, build 39) */
+        morph.ga[l] = (int16_t)(gen_fq[l] >= Q15 ? morph.a.g[l].lvl * 256 : mulq15(morph.a.g[l].lvl * 256, gen_fq[l]));
+        gen_lvl_q8[l] = morph.ga[l];
+    }
     for (l = 0; l < NFX; l++)
         fx_lvl_q8[l] = (int16_t)(morph.a.x[l].mute ? 0 : morph.a.x[l].lvl * 256);
     RING_PUBLISH();
@@ -399,7 +410,7 @@ static void morph_poll(void)
     }
     /* the levels, pans, sends: glided (an effect slot's level dipped through its swap) */
     for (l = 0; l < NGEN; l++) {
-        int32_t qa = morph.a.g[l].mute ? 0 : morph.a.g[l].lvl * 256, qb = morph.b.g[l].mute ? 0 : morph.b.g[l].lvl * 256;
+        int32_t qa = morph.ga[l], qb = morph.b.g[l].mute ? 0 : morph.b.g[l].lvl * 256;
         gen_lvl_q8[l] = (int16_t)mlerp(qa, qb, u);
         gen_pan[l] = (int8_t)mlerp(morph.a.g[l].pan, morph.b.g[l].pan, u);
         ui.rsend[l] = (int8_t)mlerp(morph.a.g[l].rsend, morph.b.g[l].rsend, u);
@@ -1238,7 +1249,10 @@ static void ses_fresh(uint32_t num)
         ui.dsend[l] = 0;
         sends_apply(l);
         gen_dis[l] = 0;
+        gen_fin[l] = gen_fout[l] = 0;
     }
+    RING_PUBLISH();
+    gen_fsnap = (uint8_t)((1u << NGEN) - 1u);
     for (l = 0; l < NFX; l++) {
         fx_lvl[l] = 20 - 2;
         fx_pan[l] = LANE_PAN[l];                         /* (a clean slate is LANES) */

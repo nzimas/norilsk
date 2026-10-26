@@ -14,7 +14,8 @@
  * play the generator chosen last; a key lifted ends its note on the slot it was played on. A key held and SHIFT
  * pressed: its note latched (it sounds on with the key let go); SHIFT held and the latched key pressed: let go. A
  * new patch on a generator moves the notes held and latched on it over to the new sound. A muted generator is not
- * heard and sends nothing; its notes go on, silent, and are heard again when it is unmuted.
+ * heard and sends nothing; its notes go on, silent, and are heard again when it is unmuted. A mute by hand fades over
+ * the generator's MUTE FADE OUT, and back over its MUTE FADE IN (build 39; SHIFT + its button: OFF, at once).
  *
  * The audio ISR sees each generator's patch through two buffers, as Tonitor's layers: the main loop writes the one
  * the ISR is not using and publishes it; the ISR takes it at a block's start, its voices fading (they finish on the
@@ -57,6 +58,16 @@ static volatile int32_t gen_meter[NGEN];      /* each generator's sound, its las
  * the mute folded in -- a bit a generator when in force */
 static volatile int16_t gen_lvl_q8[NGEN];
 static volatile uint8_t gen_fine;
+/* (build 39) a mute's fade: each generator's MUTE FADE IN and MUTE FADE OUT, half seconds (0: OFF, at once; at most
+ * FADE_MAX); where its fade stands (Q30, 0 muted .. FADE_ONE heard), cubed for the gain (FADE_Q15); a bit a generator
+ * whose fade goes at once to where its mute says (a state given back: sessions.c) */
+#define FADE_MAX 120u
+#define FADE_ONE (1u << 30)
+#define FADE_HB 689u             /* blocks a half second */
+static volatile uint8_t gen_fin[NGEN], gen_fout[NGEN];
+static uint32_t gen_fpos[NGEN];
+static volatile int32_t gen_fq[NGEN];        /* the fade's gain this block, Q15 (the screen's, a morph's start) */
+static volatile uint8_t gen_fsnap;
 /* the modulation (mod.c, after this file): each generator's macros, level (steps), pan, sends (0 .. 100) moved */
 static int8_t gen_mac[NGEN][4];
 static uint8_t gen_mac_on[NGEN];
@@ -701,6 +712,25 @@ static void mix_block(int32_t *out)
             any |= vox[k].sounding;
         rack_voices = (uint8_t)(any != 0);
     }
+    {   /* (build 39) each generator's mute faded: towards silence over its MUTE FADE OUT, back over its MUTE FADE IN */
+        uint32_t snap = gen_fsnap;
+        for (l = 0; l < NGEN; l++) {
+            uint32_t want = gen_mute[l] ? 0u : FADE_ONE, hs = gen_mute[l] ? gen_fout[l] : gen_fin[l], p = gen_fpos[l];
+            if (p != want) {
+                uint32_t step = hs && !((snap >> l) & 1u) ? FADE_ONE / ((hs < FADE_MAX ? hs : FADE_MAX) * FADE_HB) : FADE_ONE;
+                p = want ? (FADE_ONE - p > step ? p + step : FADE_ONE) : (p > step ? p - step : 0u);
+                gen_fpos[l] = p;
+            }
+            if (p >= FADE_ONE)
+                gen_fq[l] = Q15;
+            else {
+                int32_t u = (int32_t)(p >> 15);         /* (Q15; cubed: an even fall in loudness, near enough) */
+                gen_fq[l] = (int32_t)(((int64_t)u * u >> 15) * u >> 15);
+            }
+        }
+        if (snap)
+            gen_fsnap = (uint8_t)(gen_fsnap & ~snap);
+    }
     {   /* each generator's sends this block, its modulation added */
         for (l = 0; l < NGEN; l++) {
             g_rs[l] = clampi(gen_rsend[l] + gen_mod_rv[l] * (Q15 / 100), 0, Q15);
@@ -712,7 +742,7 @@ static void mix_block(int32_t *out)
         for (l = 0; l < NGEN; l++) {
             const gen_patch_t *p = &gbuf[l][g_use[l]];
             uint32_t e;
-            if (gen_mute[l])
+            if (!gen_fq[l])                             /* (silent: muted, its fade out done) */
                 continue;
             for (e = 0; e < p->nent; e++)
                 if (p->ent[e] / FX_N == k)
@@ -766,9 +796,12 @@ static void mix_block(int32_t *out)
             int32_t q = gen_lvl_q8[l] > 0 ? clampi(gen_lvl_q8[l] + gen_mod_lvl[l] * 256, 0, LEVEL_MAX * 256) : 0;
             g = q >= 256 ? (int32_t)(exp2_q16(((q - LEVEL_UNITY * 256) * 16328) >> 8) >> 2)
                          : (int32_t)((exp2_q16((1 - LEVEL_UNITY) * 16328) >> 2) * (uint32_t)q >> 8);   /* (to silence) */
-        } else
-        g = gen_lvl[l] && !gen_mute[l] ? (int32_t)(exp2_q16((clampi(gen_lvl[l] + gen_mod_lvl[l], 0, LEVEL_MAX) - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB a
-                                                         * step; muted: 0, gliding */
+        } else {
+            g = gen_lvl[l] && gen_fq[l] ? (int32_t)(exp2_q16((clampi(gen_lvl[l] + gen_mod_lvl[l], 0, LEVEL_MAX) - LEVEL_UNITY) * 16328) >> 2) : 0;   /* Q14, 1.5 dB
+                                                         * a step; muted: 0, gliding */
+            if (gen_fq[l] < Q15)                         /* (a mute fading, build 39) */
+                g = mulq15(g, gen_fq[l]);
+        }
         pan_gains(clampi(clampi(gen_pan[l] + gen_mod_pan[l], -PAN_MAX, PAN_MAX) * (Q15 / PAN_MAX) + dis[l].pan, -Q15, Q15),
                   &pl, &pr);                        /* (the DISINTEGRATOR's throw added) */
         dg = (g - gl_gg[l]) / (int32_t)CTL;
@@ -1174,6 +1207,9 @@ static void gens_init(uint32_t seed)
     for (l = 0; l < NGEN; l++) {
         g_pub[l] = g_use[l] = 0;
         gen_mute[l] = 0;
+        gen_fin[l] = gen_fout[l] = 0;
+        gen_fpos[l] = FADE_ONE;
+        gen_fq[l] = Q15;
         gen_drawn[l] = 0;
         gen_lvl[l] = LEVEL_UNITY - 2;
         gen_pan[l] = (int8_t)GEN_PAN0[l];

@@ -28,6 +28,9 @@
  *                             taken out. SHIFT + PLAY: every generator's loops stopped, or all started together. Its
  *                             light glows dimly when the generator has loops, lit while they play, dark when it has
  *                             none. An effect slot chosen: PLAY does nothing, dark (muting is the slot button held)
+ *   SHIFT + a generator's button  (let go, nothing else done with it) the generator's page (build 39): KNOB 1 its MUTE
+ *                             FADE IN, KNOB 2 its MUTE FADE OUT, OFF (at once) .. 60 s: how long its mute (its button
+ *                             held) takes to fade it out, and to bring it back. Its button, or SHIFT + it again: back
  *   SHIFT + a generator's button held, then another's  the first modulates the second (a kind drawn: RING, AM or
  *                             FILTER, at a depth drawn), shown 1.5 s over the screen -- the pair, an arrow, the kind;
  *                             on the main view a band at the foot of the second in the first's colour. The same again:
@@ -179,6 +182,13 @@ static struct {
     uint32_t sc_touch_until;
     uint32_t sc_close_at;        /* SHIFT + the scale button: the page shown a moment, then closed (0: not) */
     uint8_t btn_down[NSLOT], btn_done[NSLOT];   /* a slot's button down since btn_t0; held long enough: done */
+    uint8_t btn_sh[NSLOT];       /* (build 39) a generator's button pressed with SHIFT: 1 its page on letting go, 2 its page
+                                  * was up (closed by the press), 0 neither or something else done with it */
+    uint8_t gs_page;             /* (build 39) a generator's page up: the generator + 1 (0: none) */
+    int8_t gs_touched;           /* the row just turned (-1 none), until gs_touch_until */
+    uint32_t gs_touch_until;
+    int16_t shown_gs[2];
+    int8_t shown_gs_touch;
     uint32_t btn_t0[NSLOT];
     uint8_t home_down, home_done, home_shift;   /* HOME down since home_t0 (with SHIFT); held: done */
     uint32_t home_t0;
@@ -251,6 +261,9 @@ static const char *const DL_NAME[4] = {"TIME", "FEEDBACK", "DAMP", "MIX"};
 #define RSEND_DEF 40             /* (Tonitor's send) */
 #define C_SEND RGB(140, 190, 255)
 #define C_DELAY RGB(255, 170, 90)
+#define C_LABEL RGB(255, 214, 64)        /* (build 39) a setting's name on the pages, its value white; on the row just
+                                          * turned, black on white, the name dark amber */
+#define C_LABEL_T RGB(130, 84, 0)
 static void sends_apply(uint32_t g)
 {
     gen_rsend[g] = ui.rsend[g] * 32767 / 100;
@@ -436,10 +449,32 @@ static void slot_mute(uint32_t l)
     say_slot(l, *m ? "MUTED" : "HEARD", 1200);
 }
 
+/* (build 39) a mute's fade time, d steps on: half seconds to 10 s, whole seconds to 60 s (0 OFF) */
+static uint32_t fade_step(uint32_t hs, int32_t d)
+{
+    for (; d > 0; d--)
+        hs = hs + (hs < 20u ? 1u : 2u);
+    for (; d < 0 && hs; d++)
+        hs = hs - (hs <= 20u ? 1u : 2u);
+    return hs < FADE_MAX ? hs : FADE_MAX;
+}
+static void fade_text(char *v, uint32_t hs)    /* OFF, 4.5 S, 60 S */
+{
+    if (!hs) {
+        str_cpy(v, "OFF", 4);
+        return;
+    }
+    if (hs < 20u)
+        fmt_fix(v, (int32_t)hs * 5, 1);
+    else
+        fmt_int(v, (int32_t)hs / 2);
+    str_cpy(v + str_len(v), " S", 3);
+}
+
 /* every page down: back to playing */
 static void pages_off(void)
 {
-    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = 0;
+    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = 0;
     ui.force = 1;
 }
 /* a session's or a snapshot's outcome, on the whole screen, saying which (build 27): SESSION or SNAPSHOT, in its
@@ -683,14 +718,16 @@ static void ui_input(void)
             }
             ui.btn_down[l] = 1;
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
+            ui.btn_sh[l] = (uint8_t)(l < NGEN && shift_held() ? (ui.gs_page == l + 1u ? 2u : 1u) : 0u);
             ui.btn_t0[l] = fm1_ms;
-            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page)
+            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page)
                 pages_off();
             for (o = 0; l < NGEN && shift_held() && o < NGEN; o++)   /* SHIFT, generator o held, then generator l: o
                                                                     * modulates l, or no more (gens.c gen_link) */
                 if (o != l && ui.btn_down[o] && btn_bit(fm1_in.buttons, SLOT_BTN[o])) {
                     int r = gen_link(o, l, next_seed());
                     ui.btn_done[o] = ui.btn_done[l] = 1;
+                    ui.btn_sh[o] = ui.btn_sh[l] = 0;    /* (a link made: no page) */
                     if (r < 0)
                         say("BUSY", 800);
                     else {
@@ -704,8 +741,15 @@ static void ui_input(void)
                     break;
                 }
         }
-        if (ui.btn_down[l] && !btn_bit(fm1_in.buttons, SLOT_BTN[l]))
+        if (ui.btn_down[l] && !btn_bit(fm1_in.buttons, SLOT_BTN[l])) {
             ui.btn_down[l] = 0;
+            if (ui.btn_sh[l] == 1u) {            /* SHIFT + a generator's button, let go: its page (build 39) */
+                pages_off();
+                ui.gs_page = (uint8_t)(l + 1u);
+                ui.gs_touched = -1;
+            }
+            ui.btn_sh[l] = 0;
+        }
         if (ui.btn_down[l] && !ui.btn_done[l] && (uint32_t)(fm1_ms - ui.btn_t0[l]) >= HOLD_MS) {
             ui.btn_done[l] = 1;
             slot_mute(l);
@@ -818,7 +862,8 @@ static void ui_input(void)
             x = clampi(ui.lxt[t] + (btn_bit(press, B_OCTUP) ? 1 : -1), -lim, lim);
             latch_move((uint32_t)t, x - ui.lxt[t]);
             ui.lxt[t] = (int8_t)x;
-            ui.btn_done[t] = 1;                  /* (its button held for this: not muted) */
+            ui.btn_done[t] = 1;                  /* (its button held for this: not muted, no page) */
+            ui.btn_sh[t] = 0;
             {   /* GEN 2 +3 */
                 char g[16] = "GEN 1 ";
                 g[4] = (char)('1' + t);
@@ -950,7 +995,16 @@ static void ui_input(void)
                 say_n(p < 0 ? "PAN L" : "PAN R", p < 0 ? -p : p, "", 800);
         }
     }
-    if (ui.fx_page == 3u) {                      /* KNOB 1 .. 4: the MOD entry's */
+    if (ui.gs_page) {                            /* a generator's page: KNOB 1 its MUTE FADE IN, KNOB 2 its OUT */
+        static const uint8_t K[2] = {EN_K1, EN_K2};
+        for (k = 0; k < 2u; k++)
+            if ((s = fm1_enc_take(PANEL_ENC[K[k]])) != 0) {
+                volatile uint8_t *f = k ? &gen_fout[ui.gs_page - 1u] : &gen_fin[ui.gs_page - 1u];
+                *f = (uint8_t)fade_step(*f, s);
+                ui.gs_touched = (int8_t)k;
+                ui.gs_touch_until = fm1_ms + 1500u;
+            }
+    } else if (ui.fx_page == 3u) {               /* KNOB 1 .. 4: the MOD entry's */
         static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
         for (k = 0; k < 4u; k++)
             if ((s = fm1_enc_take(PANEL_ENC[K[k]])) != 0)
@@ -1631,7 +1685,7 @@ static void draw_fx_row(uint32_t j, int touched)
         f = &FONT_S;
         y = 1 + (FONT_M.h - FONT_S.h) / 2;
     }
-    cv_text(6, y, f, name, fg);
+    cv_text(6, y, f, name, touched ? C_LABEL_T : C_LABEL);   /* (build 39: the name in its own colour) */
     cv_text(234 - text_w(f, v), y, f, v, fg);
     cv_rect(6, 38, 228, 6, touched ? C_GREY : RGB(60, 60, 60));
     cv_rect(6, 38, pv[j] * 228 / 100, 6, touched ? C_BLACK : c);
@@ -1654,6 +1708,40 @@ static void draw_fx_page(void)
         if (ui.shown_fxp[j] != pv[j] || (((int32_t)j == t) != ((int32_t)j == ui.shown_fx_touch)))
             draw_fx_row(j, (int32_t)j == t);
     ui.shown_fx_touch = (int8_t)t;
+}
+
+/* (build 39) a generator's page (SHIFT + its button): GEN n in its colour; MUTE FADE IN and MUTE FADE OUT, each its
+ * name and, large, its value; the one just turned black on white */
+static void draw_gs_row(uint32_t j, int touched)
+{
+    static const char *const NAME[2] = {"MUTE FADE IN", "MUTE FADE OUT"};
+    uint32_t g = ui.gs_page - 1u, hs = j ? gen_fout[g] : gen_fin[g];
+    char v[12];
+    const font_t *f = fit_font(&FONT_M, &FONT_S, NAME[1], 228);   /* (the two names in one size) */
+    fade_text(v, hs);
+    CV_AREA(0, 52 + 94 * j, 240, 94, touched ? C_WHITE : C_BLACK) {   /* (taller than the canvas: two bands) */
+        cv_text_fit(4, f, NAME[j], touched ? C_LABEL_T : C_LABEL);
+        cv_text_c(94 - FONT_L.h - 4, &FONT_L, v, touched ? C_BLACK : C_WHITE);
+        cv_rect(0, 93, 240, 1, RGB(50, 50, 50));
+    }
+    ui.shown_gs[j] = (int16_t)hs;
+}
+static void draw_gs_page(void)
+{
+    uint32_t j, g = ui.gs_page - 1u;
+    int32_t t = (int32_t)(ui.gs_touch_until - fm1_ms) > 0 ? ui.gs_touched : -1;
+    if (ui.force) {
+        char ti[8] = "GEN 1";
+        ti[4] = (char)('1' + g);
+        cv_begin(240, 52, C_BLACK);
+        cv_text_c((52 - FONT_L.h) / 2, &FONT_L, ti, GEN_COL[g]);
+        cv_blit(0, 0);
+    }
+    for (j = 0; j < 2u; j++)
+        if (ui.force || ui.shown_gs[j] != (j ? gen_fout[g] : gen_fin[g]) ||
+            (((int32_t)j == t) != ((int32_t)j == ui.shown_gs_touch)))
+            draw_gs_row(j, (int32_t)j == t);
+    ui.shown_gs_touch = (int8_t)t;
 }
 
 /* a dial's value, very large: FONT_XL, or FONT_L if it does not fit (4.5 fits, 30.0 does not) */
@@ -2044,7 +2132,7 @@ static void draw_mod_row(uint32_t j, const char *name, const char *val, int bar,
 {
     uint16_t bg = touched ? C_WHITE : C_BLACK, fg = touched ? C_BLACK : C_WHITE;
     cv_begin(240, 47, bg);
-    cv_text(6, 0, &FONT_XS, name, touched ? C_BLACK : RGB(175, 175, 175));
+    cv_text(6, 0, &FONT_XS, name, touched ? C_LABEL_T : C_LABEL);   /* (build 39: amber, grey before) */
     if (bar) {
         int32_t x0 = 6 + text_w(&FONT_XS, name) + 12, w0 = 234 - x0, y0 = 6;
         cv_rect(x0, y0, w0, 7, touched ? C_GREY : RGB(60, 60, 60));
@@ -2165,6 +2253,14 @@ static void ui_draw(void)
         }
         ui.shown_page = 2;
         draw_ovd_page();
+        ui.force = 0;
+        return;
+    }
+    if (ui.gs_page) {                            /* a generator's page (SHIFT + its button, build 39) */
+        if (ui.shown_page != 9u + ui.gs_page)
+            ui.force = 1;
+        ui.shown_page = (uint8_t)(9u + ui.gs_page);
+        draw_gs_page();
         ui.force = 0;
         return;
     }
