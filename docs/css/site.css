@@ -197,6 +197,26 @@ main .project h2 { margin: 0; padding: 0; border: 0; font-size: 34px; }
        color: var(--dim); font-size: 14px; font-weight: 700; vertical-align: 2px; }
 .tag.current { color: var(--fg); border-color: var(--sulphur); }
 
+/* apps */
+.apps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; margin: 34px 0 0; }
+.app { --accent: #e0784a; min-width: 0; background-color: var(--plate2); border: 1px solid var(--line); border-top: 4px solid var(--accent);
+       padding: 24px 28px 26px; }
+.app-head { display: flex; align-items: center; gap: 18px; }
+.app-icon { width: 72px; height: 72px; border-radius: 16px; flex: none; }
+main .app h2 { margin: 0 0 4px; padding: 0; border: 0; font-size: 34px; }
+main .app h3 { margin: 26px 0 8px; font-size: 24px; }
+.app > p { margin: 16px 0 0; }
+.app-art { display: block; width: 100%; height: auto; margin: 20px 0 0; }
+.stores { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0 0; }
+.stores a { display: block; line-height: 0; border-radius: 8px; }
+.stores img { height: 44px; width: auto; }
+.shots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 24px 0 0; }
+.shots a { display: block; line-height: 0; border: 1px solid var(--line); overflow: hidden; }
+.shots img { width: 100%; height: auto; }
+.shots a:hover, .shots a:focus-visible { border-color: var(--accent); }
+.app-features { margin: 0; padding-left: 1.2em; }
+.app-features li { margin: 6px 0; }
+
 /* the installer and the backup page */
 .panel { background-color: var(--plate2); border: 1px solid var(--line); border-left: 4px solid var(--sulphur); padding: 24px 28px; margin-top: 20px; }
 .status { font-size: 27px; font-weight: 800; margin: 0 0 8px; font-family: var(--head); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -242,6 +262,10 @@ main .project h2 { margin: 0; padding: 0; border: 0; font-size: 34px; }
   .features dd { margin-bottom: 10px; }
   .shot { grid-template-columns: 1fr; gap: 14px; }
   .project { padding: 20px 18px 22px; }
+  .app { padding: 20px 18px 22px; }
+  main .app h2 { font-size: 28px; }
+  .app-icon { width: 56px; height: 56px; border-radius: 13px; }
+  .shots { grid-template-columns: 1fr; }
   .editions li { grid-template-columns: 1fr; }
   .ed-links { justify-content: flex-start; }
   .demo { padding: 20px 18px 10px; }
