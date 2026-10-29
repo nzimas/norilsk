@@ -2,6 +2,12 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 42 (2026-10-29): the scale's root glows on the keys
+
+- **Every white key that plays the scale's root glows dimly** (Tonitor's), lit over it when held or latched. The loops'
+  transposition (SHIFT + OCT) moves it with the notes. With a generator chosen only; dark while PLAY is held, on the
+  SNAPSHOTS page and with an effect slot chosen.
+
 ## Build 41 (2026-10-26): CLEAR; the black keys glow where they work
 
 - **CLEAR** (the 10th black key, beside SHIFT): asks NEW SESSION? -- NO first, PRESETS to YES, SAVE to answer; the key

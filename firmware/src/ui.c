@@ -9,10 +9,11 @@
  *                             two or three effects, their values, its cables across to the slots after it.
  *                             SHIFT + HOME: a new one of the same family, or recipe. HOME held 0.8 s: all six anew
  *   the white keys            play the generator chosen, in the scale chosen: the first key is the root, every
- *                             white key the next note of the scale. Four voices for the three generators. A key held
- *                             and SHIFT pressed: its note latched (the key lit while its generator is chosen); SHIFT
- *                             held and the lit key pressed: let go. An effect slot chosen: they play nothing and
- *                             nothing is lit on them (build 26) -- only a generator shows its notes
+ *                             white key the next note of the scale (each root glows dimly, Tonitor's; build 42). Four
+ *                             voices for the three generators. A key held and SHIFT pressed: its note latched (the
+ *                             key lit while its generator is chosen); SHIFT held and the lit key pressed: let go. An
+ *                             effect slot chosen: they play nothing and nothing is lit on them (build 26) -- only a
+ *                             generator shows its notes
  *   SELECT, ALGORITHM         the level and pan of the generator chosen (or chosen last, while an effect slot is):
  *                             as on Tonitor. At power-on generator 1 is in the middle, 2 left, 3 right. (The SCALE
  *                             page aside)
@@ -1248,14 +1249,16 @@ static void ui_leds(void)
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct > 0);
     for (k = 0; k < NKEY; k++) {                 /* a key held, or latched on the generator the keys play */
-        int32_t w = white_ix(k);
+        int32_t w = white_ix(k), n = SCALE_N[ui.scale], d = w + ui.lx + ui.lxt[ui.gen];
         const looper_t *p = &loop[ui.gen];
         int stored = ui.snap_page && w >= 0 && w < (int32_t)NSNAP && snap_has((uint32_t)w);
+        int root = !ui.ovd && !ui.snap_page && ui.sel < NGEN && w >= 0 && (d % n + n) % n == 0;   /* the scale's root
+                                                                  * glows (Tonitor's; the loops' transposition moves it) */
         int mk = k == KEY_REV || k == KEY_PEND || k == KEY_RAND || k == KEY_HALF || k == KEY_DOUBLE;
         int fn = w < 0 && (k == KEY_SHIFT || (ui.ovd && mk) ||   /* (build 41: a black key that does something in
                                                                   * this view glows dimly) */
                            (!ui.ovd && !ui.snap_page && (k == KEY_REWIRE || k == KEY_ROUGH || k == KEY_DARK || k == KEY_CLEAR)));
-        led_dim_key(14u + k, stored || fn);      /* (the SNAPSHOTS page: every stored snapshot glows dimly) */
+        led_dim_key(14u + k, stored || fn || root);   /* (the SNAPSHOTS page: every stored snapshot glows dimly) */
         if (ui.snap_page)                        /* .. the one chosen lit, the one a morph flows into blinking */
             fm1_led_key(14u + k, stored && (w == snap_morph_target() ? (int)((fm1_ms / 250u) & 1u)
                                                                      : w == snap_current() && snap_morph_target() < 0));
