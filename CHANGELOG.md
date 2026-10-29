@@ -2,6 +2,33 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 45 (2026-10-29): WAVESET, XMOD, CHAOS
+
+Three effects chosen from the research (build 44's survey of GitHub): mangling whose result follows what goes in more
+than its own values -- the same values on a drone, a cloud and a hiss give three different things. None sounds with
+nothing in, none bends a pitch. Names provisional.
+
+- **WAVESET** (WST, 8.5 KiB; after Trevor Wishart's waveset distortion, as the Composers' Desktop Project and Csound
+  have it): the sound cut at its upward zero crossings into its own pseudo-cycles, played back a GROUP (1 .. 8) at a
+  time by MODE: REPEAT (2 .. 6 times, the ones after skipped), REVERSE, SHUFFLE (from up to 12 ahead), OMIT (never two
+  in a row); AMOUNT; SHORTEST (0.1 .. 3 ms: closer crossings merged). A piece lasts 5.8 ms at most, a repeat 66 ms:
+  grain, never a rhythm. Joins at crossings, faded where a piece was cut short.
+- **XMOD** (XMD, 4 KiB; after Mutable Instruments' Warps): the sound against its own copy DELAY back (1 .. 40 ms,
+  cross-faded when it changes), combined by ALGO: FOLD (their sum folded), RING (a diode ring, to the square law),
+  COMPARE (Warps' comparator sequence); AMOUNT; TONE.
+- **CHAOS** (CHS, 64 B): a double-well (Duffing) oscillator pushed by the sound. Light DRIVE: a resonance at SCALE
+  (60 .. 800 Hz, fixed) that colours; harder: rough, then hopping between its wells. DAMP, TONE. Its push levelled
+  to the sound (down to -24 dB), its output brought to the sound's level (x 1/4 .. x 512): the push changes what it
+  does, not how loud. The dearest of the three: about one and a half SCREAMs on the host.
+- **Five recipes** (names provisional): SHATTER (WAVESET twice, the second with another MODE), MOSAIC (WAVESET into
+  CLOUD, GLITCH or DIFFUSE), CROSSFIRE (XMOD twice, another ALGO), ATTRACTOR (CHAOS into FILTER, VOWEL or BANK),
+  TURBINE (XMOD or WAVESET into CHAOS). XMOD and CHAOS count as harsh for the paths.
+- Tests: the three in `host modules`, `host quiet`, `host fxtails`; the five recipes in `host twins` (level on noise,
+  silent 40 s after the input stops). The new recipes change what the fixed seeds draw: `host mtails` drew a quieter
+  patch whose master tails peak at 99 and ring until 11 s (passed from 66 now, twice the silence; 100 before);
+  `host ends` drew a CLOUD into a ringing BANK whose morphed and recalled endings were 3.8 dB apart, the state the
+  same (the grains fall where its random state puts them: 6 dB where a lane holds a CLOUD, 3 elsewhere).
+
 ## Build 44 (2026-10-29): twin recipes -- one effect twice in a lane, some fed back
 
 - **Nine new recipes** (names provisional), drawn by HOME on an effect slot and with a generator's new patch, as the

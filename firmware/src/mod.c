@@ -42,7 +42,8 @@ static const char *const RM_PNAME[NKIND][4] = {
     {"SIZE", "DENSITY", "FREEZE", "SPREAD"}, {"SIZE", "FEEDBACK", "TONE", "DRIVE"}, {"FREQ", "DIODE", "SELF", "TONE"},
     {"GAIN", "GATE", "BIAS", "TONE"}, {"SHAPE", "ODD", "DRIVE", "TONE"}, {"PITCH", "Q", "SET", "BRIGHT"},
     {"SPAN", "TAIL", "MIX", "TONE"}, {"SIZE", "DIFFUSE", "MIX", "TONE"}, {"RATE", "DRIVE", "MIX", "TONE"},
-    {"MOMENT", "OP", "BITS", "TONE"}, {"GRAIN", "AMOUNT", "TONE", "SOUND"}};
+    {"MOMENT", "OP", "BITS", "TONE"}, {"GRAIN", "AMOUNT", "TONE", "SOUND"},
+    {"MODE", "GROUP", "AMOUNT", "SHORTEST"}, {"ALGO", "AMOUNT", "DELAY", "TONE"}, {"DRIVE", "DAMP", "SCALE", "TONE"}};
 
 typedef struct { uint8_t shape, rate, mode, fade; } mlfo_t;
 typedef struct { uint8_t src, dst; int8_t amt; } mslot_t;

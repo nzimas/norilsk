@@ -43,7 +43,7 @@ build/host lanepan | tail -1
 build/host mutefade | tail -1
 build/host load
 build/host setup
-build/host twins | tail -12
+build/host twins | grep -v frozen | tail -15
 build/host dis
 build/host paths | tail -1
 build/host revalue

@@ -33,34 +33,41 @@
  *
  * Build 44: twin recipes (MIRRORS .. FOG) -- one effect twice in a row, the second's values drawn from the first's and
  * kept apart from them; in SWARM, LOOPHOLE, CAVERN and FOG the second fed back into the first, its gain following the
- * lane's input (nothing in: the loop closes) */
+ * lane's input (nothing in: the loop closes).
+ *
+ * Build 45: WST WAVESET, XMD XMOD, CHS CHAOS (further down: what comes out follows what goes in), and five recipes
+ * with them (SHATTER .. TURBINE) */
 
 enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, RM_GLT,
-       RM_CLD, RM_SCR, RM_RNG, RM_STV, RM_CHB, RM_BNK, RM_SMR, RM_DIF, RM_SLW, RM_XOR, RM_DST, NKIND };
+       RM_CLD, RM_SCR, RM_RNG, RM_STV, RM_CHB, RM_BNK, RM_SMR, RM_DIF, RM_SLW, RM_XOR, RM_DST,
+       RM_WST, RM_XMD, RM_CHS, NKIND };   /* (build 45: WAVESET, XMOD, CHAOS) */
 static const char *const RM_NAME[NKIND] = {"FILTER", "FOLD", "MULAW", "SHIFT", "MODAL", "STRING", "VOWEL", "DELAY",
                                            "TAPE", "REVERSE", "SPRING", "REVERB", "GLITCH",
                                            "CLOUD", "SCREAM", "RING", "STARVE", "CHEB", "BANK",
-                                           "SMEAR", "DIFFUSE", "SLEW", "XOR", "DUST"};
+                                           "SMEAR", "DIFFUSE", "SLEW", "XOR", "DUST", "WAVESET", "XMOD", "CHAOS"};
 /* the values an effect comes back to (a draw moves them, as Vascular draws a processor's) */
 static const uint8_t RM_HOME[NKIND][4] = {
     {20, 55, 40, 30}, {45, 45, 20, 70}, {45, 60, 50, 30}, {40, 30, 70, 50}, {40, 55, 40, 50}, {35, 60, 40, 60},
     {50, 50, 50, 30}, {65, 40, 40, 60}, {50, 30, 45, 40}, {40, 60, 30, 50}, {50, 40, 50, 50}, {65, 60, 40, 55},
     {50, 40, 35, 45},
     {55, 45, 20, 50}, {50, 60, 45, 50}, {45, 50, 20, 60}, {60, 30, 35, 55}, {40, 50, 60, 60}, {40, 60, 30, 50},
-    {60, 40, 70, 55}, {60, 55, 70, 60}, {35, 40, 70, 60}, {40, 15, 45, 45}, {40, 40, 45, 70}};
+    {60, 40, 70, 55}, {60, 55, 70, 60}, {35, 40, 70, 60}, {40, 15, 45, 45}, {40, 40, 45, 70},
+    {50, 30, 50, 30}, {50, 50, 30, 60}, {50, 40, 40, 60}};
 /* .. and the bounds a draw keeps them in, so that every effect is heard: no band-pass at 15 kHz, no spring tuned where
  * the sound has nothing */
 static const uint8_t RM_LO[NKIND][4] = {
     {0, 35, 0, 0}, {10, 10, 0, 30}, {0, 30, 20, 0}, {0, 0, 0, 0}, {0, 15, 0, 20}, {0, 25, 0, 30},
     {0, 0, 10, 0}, {20, 0, 0, 40}, {10, 0, 0, 0}, {0, 30, 0, 0}, {0, 0, 35, 10}, {20, 20, 0, 40}, {15, 0, 0, 0},
     {10, 10, 0, 10}, {0, 25, 10, 10}, {0, 0, 0, 20}, {20, 0, 0, 20}, {0, 0, 20, 20}, {0, 25, 0, 10},
-    {0, 0, 30, 20}, {0, 0, 30, 20}, {0, 0, 30, 15}, {0, 0, 0, 20}, {0, 0, 15, 30}};
+    {0, 0, 30, 20}, {0, 0, 30, 20}, {0, 0, 30, 15}, {0, 0, 0, 20}, {0, 0, 15, 30},
+    {0, 0, 10, 0}, {0, 0, 0, 20}, {0, 0, 0, 20}};
 static const uint8_t RM_HI[NKIND][4] = {
     {100, 85, 80, 100}, {90, 90, 80, 100}, {100, 100, 100, 80}, {100, 90, 100, 100}, {100, 85, 100, 100}, {100, 95, 100, 100},
     {100, 100, 90, 80}, {100, 85, 100, 100}, {100, 100, 90, 85}, {100, 100, 80, 100}, {100, 100, 92, 60}, {100, 95, 100, 100},
     {100, 90, 85, 100},
     {100, 100, 100, 100}, {100, 92, 90, 100}, {100, 100, 90, 100}, {100, 70, 100, 100}, {100, 100, 100, 100}, {100, 95, 100, 100},
-    {100, 100, 100, 100}, {100, 100, 100, 100}, {85, 100, 100, 100}, {100, 100, 90, 85}, {100, 85, 90, 100}};
+    {100, 100, 100, 100}, {100, 100, 100, 100}, {85, 100, 100, 100}, {100, 100, 90, 85}, {100, 85, 90, 100},
+    {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}};
 static volatile int32_t rack_root = 48;        /* the scale's root, MIDI: what MODAL and STRING are tuned to */
 
 /* AINL helpers the effects share; then the effects */
@@ -1063,6 +1070,265 @@ static void m_dst(const uint8_t *p, m_dst_t *s, int32_t *x)
     }
 }
 
+/* ============================================================== build 45 ===
+ * Three that follow what goes in more than their own values: the same values on a drone, a cloud and a hiss give three
+ * different things. None sounding with nothing in, none bending a pitch */
+
+/* ------------------------------------------------------------ WAVESET --- */
+/* Trevor Wishart's waveset distortion, in real time (after the Composers' Desktop Project's distort programs, LGPL-2.1,
+ * and Csound's waveset: the idea): the sound cut at its upward zero crossings into wavesets -- its own pseudo-cycles,
+ * as long as the sound makes them -- and played back rearranged, a GROUP at a time (p1: 1 .. 8 wavesets). MODE (p0):
+ * REPEAT (each group 2 .. 6 times, the ones after it skipped: it keeps its place), REVERSE (AMOUNT of the groups
+ * backwards), SHUFFLE (each group from up to 2 .. 12 ahead), OMIT (AMOUNT of the groups left out, never two in a
+ * row). AMOUNT (p2); SHORTEST (p3: 0.1 .. 3 ms -- crossings closer than that merged, so a hiss is not cut to dust).
+ * A waveset is cut at 5.8 ms at most and a repeat lasts 66 ms at most: grain, never a rhythm. Each piece starts and
+ * ends at a crossing, faded over its first and last 8 samples where it was cut short. Nothing in, nothing out */
+#define WST_N 4096u              /* 93 ms */
+#define WST_Q 64u                /* crossings kept */
+#define WST_MAXW 256u            /* the longest waveset (5.8 ms) */
+#define WST_REP 2910u            /* the longest repeat (66 ms) */
+enum { WM_REPEAT, WM_REVERSE, WM_SHUFFLE, WM_OMIT };
+typedef struct {
+    int16_t line[WST_N];
+    uint32_t cross[WST_Q];
+    uint32_t w, qw, qr, last;    /* samples written; crossings written; the next waveset to play; the last cut */
+    uint32_t pos, left, len, seg;   /* the piece playing: where, samples left, its length; where it starts (repeats) */
+    int32_t dir, gain, rep, skip, omitted, prev, dx, dy;
+    uint32_t key, have, seeded;
+    int32_t mode, grp, amt, minw;
+    rnd_t r;
+} m_wst_t;
+static void wst_pick(m_wst_t *s)
+{
+    uint32_t avail = s->qw - s->qr - 1u, g, a, b, d0;
+    s->left = 0;
+    if (s->rep > 0) {                                /* (a repeat: the same piece again) */
+        s->rep--;
+        s->pos = s->seg;
+        s->left = s->len;
+        if (!s->rep) {
+            s->qr += s->skip;
+            if (s->qw - s->qr < 2u)
+                s->qr = s->qw - 2u;
+        }
+        return;
+    }
+    if (s->qw < 2u || s->qw - s->qr < 2u)
+        return;                                      /* (no waveset whole yet: a moment of nothing) */
+    if (avail > 24u)                                 /* (fallen behind: to the newest) */
+        s->qr = s->qw - 3u, avail = 2u;
+    g = (uint32_t)s->grp < avail ? (uint32_t)s->grp : avail;
+    a = s->cross[s->qr % WST_Q];
+    b = s->cross[(s->qr + g) % WST_Q];
+    s->gain = Q15;
+    s->dir = 1;
+    if (s->mode == WM_SHUFFLE && avail > g) {        /* (a group from further on) */
+        uint32_t j = (uint32_t)rnd_below(&s->r, mini(s->amt, (int32_t)(avail - g + 1u)));
+        a = s->cross[(s->qr + j) % WST_Q];
+        b = s->cross[(s->qr + j + g) % WST_Q];
+    }
+    d0 = s->w - a;
+    if (b - a > WST_N / 2u || d0 >= WST_N - 64u) {   /* (out of the line's reach: to the newest) */
+        s->qr = s->qw - 2u;
+        return;
+    }
+    s->seg = s->pos = a;
+    s->len = s->left = b - a;
+    if (s->mode == WM_REPEAT) {                      /* (as often as AMOUNT says, within 66 ms and the line) */
+        int32_t r = s->amt, room = (int32_t)((WST_N - 64u - d0) / s->len) + 1;
+        r = mini(r, mini((int32_t)(WST_REP / s->len), room));
+        if (r >= 2) {
+            s->rep = r - 1;
+            s->skip = (int32_t)(g * (uint32_t)r);
+            return;
+        }
+    } else if (s->mode == WM_REVERSE && rnd_below(&s->r, 100) < s->amt) {
+        s->pos = b - 1u;
+        s->dir = -1;
+    } else if (s->mode == WM_OMIT) {
+        s->omitted = !s->omitted && rnd_below(&s->r, 100) < s->amt;
+        s->gain = s->omitted ? 0 : Q15;
+    }
+    s->qr += g;
+}
+static void m_wst(const uint8_t *p, m_wst_t *s, int32_t *x)
+{
+    uint32_t i;
+    if (!s->seeded) {
+        rnd_seed(&s->r, 0x575354u ^ fx_place(s));
+        s->seeded = 1;
+    }
+    if (!s->have || s->key != p_key(p)) {
+        s->mode = mini(p[0] / 25, 3);
+        s->grp = 1 + p[1] * 7 / 100;
+        s->amt = s->mode == WM_REPEAT ? 2 + p[2] * 4 / 100 : s->mode == WM_SHUFFLE ? 2 + p[2] * 10 / 100
+               : s->mode == WM_OMIT ? 15 + p[2] * 51 / 100 : 30 + p[2] * 70 / 100;   /* (repeats; reach; % omitted;
+                                                                                         * % reversed) */
+        s->minw = 4 + p[3] * 128 / 100;
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    for (i = 0; i < CTL; i++) {
+        int32_t v, y = 0;
+        {   /* (the lean off, ~8 Hz: the crossings are the sound's, not its offset's) */
+            int32_t vq = x[i] - s->dx + mulz15(s->dy, 32730);
+            s->dx = x[i];
+            s->dy = vq;
+            v = clampi(vq, -32767, 32767);
+        }
+        s->line[s->w & (WST_N - 1u)] = (int16_t)v;
+        if ((s->prev < 0 && v >= 0 && s->w - s->last >= (uint32_t)s->minw) || s->w - s->last >= WST_MAXW) {
+            s->cross[s->qw % WST_Q] = s->w;
+            s->qw++;
+            s->last = s->w;
+            if (s->qw - s->qr > WST_Q - 4u)
+                s->qr = s->qw - 3u;
+        }
+        s->prev = v;
+        s->w++;
+        if (!s->left)
+            wst_pick(s);
+        if (s->left) {
+            uint32_t k = s->len - s->left, e = mini(mini((int32_t)k, (int32_t)s->left - 1), 8);
+            y = s->line[s->pos & (WST_N - 1u)];
+            if (e < 8u)                                  /* (the ends: 8 samples in, 8 out) */
+                y = y * (int32_t)e / 8;
+            y = mulq15(y, s->gain);
+            s->pos += (uint32_t)s->dir;
+            s->left--;
+        }
+        x[i] = y;
+    }
+}
+
+/* --------------------------------------------------------------- XMOD --- */
+/* the sound against itself a moment before (after Mutable Instruments' Warps, MIT: its cross-modulation, the idea):
+ * the copy DELAY back (p2: 1 .. 40 ms, a new delay cross-faded over a block), the two combined by ALGO (p0): FOLD
+ * (their sum, AMOUNT x 1 .. x 6, folded back into the window), RING (a diode ring: |a + b| - |a - b|, the smaller of
+ * the two with their signs multiplied -- AMOUNT from it to the square law, levelled by the sound's own), COMPARE
+ * (Warps' comparator: the lower of the two, the copy while the sound is up, whichever is larger, the larger's size
+ * or the other's negative -- AMOUNT through the four). Which partials meet which depends on the sound and the delay:
+ * the same values never come out the same twice. TONE (p3) a low-pass after; the lean taken off */
+#define XMD_N 2048u
+typedef struct { int16_t line[XMD_N]; uint32_t w, key, have; int32_t d, d_old, fade, algo, amt, tone, env, inv, dx, dy, lp; } m_xmd_t;
+AINL int32_t xmd_fold(int32_t v) { int32_t t = (v + 16384) & 0xFFFF; return t < 32768 ? (t - 16384) * 2 : (49151 - t) * 2; }
+static void m_xmd(const uint8_t *p, m_xmd_t *s, int32_t *x)
+{
+    uint32_t i;
+    int32_t pk = 0;
+    if (!s->have || s->key != p_key(p)) {
+        int32_t d = 44 + p[2] * (1764 - 44) / 100;
+        s->algo = mini(p[0] / 34, 2);
+        s->amt = p[1];
+        s->tone = 1400 + p[3] * (30000 - 1400) / 100;
+        if (!s->have)
+            s->d_old = d;
+        else if (d != s->d) {
+            s->d_old = s->d;
+            s->fade = CTL;
+        }
+        s->d = d;
+        s->key = p_key(p);
+        s->have = 1;
+    }
+    for (i = 0; i < CTL; i++)                           /* (the sound's level, for the square law) */
+        pk = maxi(pk, absi(x[i]));
+    s->env = pk > s->env ? pk : s->env - (s->env >> 4);
+    s->inv = (int32_t)(((uint32_t)Q15 << 15) / (uint32_t)maxi(s->env, 1500));
+    for (i = 0; i < CTL; i++) {
+        int32_t a = clampi(x[i], -32767, 32767), b, y;
+        s->line[s->w & (XMD_N - 1u)] = (int16_t)a;
+        b = s->line[(s->w - (uint32_t)s->d) & (XMD_N - 1u)];
+        if (s->fade > 0) {                              /* (a new delay: the old copy out, the new in, over a block) */
+            int32_t o = s->line[(s->w - (uint32_t)s->d_old) & (XMD_N - 1u)];
+            b = o + (b - o) * (int32_t)(CTL - (uint32_t)s->fade) / (int32_t)CTL;
+            s->fade--;
+        }
+        s->w++;
+        if (s->algo == 0)
+            y = xmd_fold(((a + b) * (4096 + s->amt * 205)) >> 13);
+        else if (s->algo == 1) {
+            int32_t dio = (absi(a + b) - absi(a - b)) / 2, sq = mulq15(mulq15(a, b), s->inv);
+            y = dio + (sq - dio) * s->amt / 100;
+        } else {
+            int32_t seq[4], q = s->amt * 3, k = mini(q / 100, 2), f = q - k * 100;
+            seq[0] = a < b ? a : b;
+            seq[1] = a > 1638 ? b : a;
+            seq[2] = absi(a) > absi(b) ? a : b;
+            seq[3] = absi(a) > absi(b) ? absi(a) : -absi(b);
+            y = seq[k] + (seq[k + 1] - seq[k]) * f / 100;
+        }
+        {   /* (the lean off) */
+            int32_t yq = y - s->dx + mulz15(s->dy, 32600);
+            s->dx = y;
+            s->dy = yq;
+            y = yq;
+        }
+        s->lp += mulz15(y - s->lp, s->tone);
+        x[i] = s->lp;
+    }
+}
+
+/* -------------------------------------------------------------- CHAOS --- */
+/* a double-well oscillator (Duffing's: x'' = -d x' + x - x^3 + g in) pushed by the sound: lightly (DRIVE, p0, low) it
+ * rings in one well, a resonance that colours; harder, it period-doubles, rough; hardest, it hops between the wells,
+ * chaotic -- and which, for how long, the sound decides. Its push levelled by the sound's own level down to -24 dB
+ * (quieter, quieter: lighter). DAMP (p1: 0.04 .. 0.9), SCALE (p2: the wells' own frequency, 60 .. 800 Hz -- fixed while
+ * it sounds, nothing glides), TONE (p3) a low-pass after. Semi-implicit Euler, two steps a sample, Q24. At rest it sits
+ * in a well: a level, taken off (~10 Hz). Its output is brought to the sound's level (x 1/4 .. x 512): lightly pushed,
+ * it is heard as much as when it hops -- the push changes what it does, not how loud. With nothing in, nothing out */
+#define CHS_ONE (1 << 24)
+typedef struct { int32_t x, v, env, gate, dx, dy, lp, oenv; uint32_t key, have; int32_t g, d, h, tone, inv; } m_chs_t;
+static void m_chs(const uint8_t *p, m_chs_t *s, int32_t *x)
+{
+    uint32_t i, k;
+    int32_t pk = 0, opk = 0, g1, dg;
+    if (!s->have || s->key != p_key(p)) {
+        int32_t hz8 = (int32_t)(((uint32_t)60u * 256u * exp2_q16(p[2] * 244498 / 100)) >> 16);   /* (60 .. 800 Hz: 2^3.73) */
+        s->g = (CHS_ONE / 100) * (25 + p[0] * 155 / 100);   /* (0.25 .. 1.8; 32-bit: no 64-bit division) */
+        s->d = (CHS_ONE / 100) * (4 + p[1] * 86 / 100);
+        s->h = (int32_t)(((int64_t)hz8 * 845) >> 8);   /* (h = f 2 pi / (2 sqrt 2 FS), Q24) */
+        s->tone = 1400 + p[3] * (30000 - 1400) / 100;
+        s->key = p_key(p);
+        if (!s->have)
+            s->x = CHS_ONE;                          /* (at rest, in a well) */
+        s->have = 1;
+    }
+    for (i = 0; i < CTL; i++)
+        pk = maxi(pk, absi(x[i]));
+    s->env = pk > s->env ? pk : s->env - (s->env >> 4) - (s->env > 0);
+    s->inv = (int32_t)(((uint32_t)Q15 << 15) / (uint32_t)maxi(s->env, 2000));
+    {   /* (out at the sound's level, as the last block measured it: a gain, Q10, x 1/4 .. x 512; none in, none out) */
+        uint32_t ec = (uint32_t)mini(s->env, 65535);
+        int32_t lvl = (int32_t)((ec << 10) / (uint32_t)maxi((s->oenv + 32) >> 6, 1));   /* (its output 64 times finer) */
+        g1 = mulq15(clampi(lvl, 256, 524288), (int32_t)((ec << 15) / (ec + 400u)));
+    }
+    dg = (g1 - s->gate) / (int32_t)CTL;
+    for (i = 0; i < CTL; i++) {
+        int32_t u = clampi((int32_t)(((int64_t)x[i] * s->inv) >> 15), -2 * Q15, 2 * Q15), y;
+        int32_t f = (int32_t)(((int64_t)s->g * u) >> 15);
+        for (k = 0; k < 2u; k++) {
+            int32_t x3 = (int32_t)(((((int64_t)s->x * s->x) >> 24) * s->x) >> 24);
+            int32_t a = -(int32_t)(((int64_t)s->d * s->v) >> 24) + s->x - x3 + f;
+            s->v = clampi(s->v + (int32_t)(((int64_t)s->h * a) >> 24), -8 * CHS_ONE, 8 * CHS_ONE);
+            s->x = clampi(s->x + (int32_t)(((int64_t)s->h * s->v) >> 24), -3 * CHS_ONE, 3 * CHS_ONE);
+        }
+        y = s->x >> 4;                               /* (1.0: 2^20 -- 64 times the sample's: a small motion kept fine) */
+        {   /* (the well's level off, ~10 Hz) */
+            int32_t yq = y - s->dx + mulz15(s->dy, 32721);
+            s->dx = y;
+            s->dy = yq;
+            y = yq;
+        }
+        s->lp += mulz15(y - s->lp, s->tone);
+        opk = maxi(opk, absi(s->lp));
+        s->gate += dg;
+        x[i] = (int32_t)(((int64_t)s->lp * s->gate) >> 16);
+    }
+    s->oenv = opk > s->oenv ? opk : s->oenv - (s->oenv >> 4);
+    s->gate = g1;
+}
+
 /* the memory each effect takes, rounded up to 8 bytes */
 static uint32_t rm_size(uint32_t k)
 {
@@ -1090,6 +1356,9 @@ static uint32_t rm_size(uint32_t k)
     case RM_SLW: n = sizeof(m_slw_t); break;
     case RM_XOR: n = sizeof(m_xor_t); break;
     case RM_DST: n = sizeof(m_dst_t); break;
+    case RM_WST: n = sizeof(m_wst_t); break;
+    case RM_XMD: n = sizeof(m_xmd_t); break;
+    case RM_CHS: n = sizeof(m_chs_t); break;
     default: n = 8u; break;                     /* (DELAY, REVERB: the master's from build 30, nothing here) */
     }
     return (n + 7u) & ~7u;
@@ -1101,12 +1370,13 @@ static uint32_t rm_size(uint32_t k)
 enum { FR_SPACE, FR_ECHO, FR_METAL, FR_STRINGS, FR_EROSION, FR_GHOST, FR_SPECTRAL, FR_RESONANT, FR_FOLDS, FR_TELEPHONE,
        FR_HELL, FR_FACTORY, FR_GLITCH, FR_BROADCAST, FR_ABYSS, FR_RUST,
        FR_FREEZER, FR_FEEDBACK, FR_FOUNDRY, FR_GONG, FR_SPECTRE, FR_SPUTTER, FR_SMOG, FR_STATIC,
-       FR_MIRRORS, FR_FOLDOVER, FR_SWARM, FR_CLANGOUR, FR_LOOPHOLE, FR_CAVERN, FR_CRUSH, FR_OVERTONE, FR_FOG, FR_N };
+       FR_MIRRORS, FR_FOLDOVER, FR_SWARM, FR_CLANGOUR, FR_LOOPHOLE, FR_CAVERN, FR_CRUSH, FR_OVERTONE, FR_FOG,
+       FR_SHATTER, FR_MOSAIC, FR_CROSSFIRE, FR_ATTRACTOR, FR_TURBINE, FR_N };
 static const char *const FR_NAME[FR_N] = {"SPACE", "ECHO", "METAL", "STRINGS", "EROSION", "GHOST", "SPECTRAL", "RESONANT",
                                           "FOLDS", "TELEPHONE", "HELL", "FACTORY", "GLITCH", "BROADCAST", "ABYSS", "RUST",
                                           "FREEZER", "FEEDBACK", "FOUNDRY", "GONG", "SPECTRE", "SPUTTER", "SMOG", "STATIC",
                                           "MIRRORS", "FOLDOVER", "SWARM", "CLANGOUR", "LOOPHOLE", "CAVERN", "CRUSH",
-                                          "OVERTONE", "FOG"};
+                                          "OVERTONE", "FOG", "SHATTER", "MOSAIC", "CROSSFIRE", "ATTRACTOR", "TURBINE"};
 #define FX_OPT 0x80000000u       /* (a place that may be left out) */
 #define FX_TWIN 0x40000000u      /* (build 44) the same effect as the place before, its values drawn from that one's and
                                   * kept apart from them (fx_twin_values) */
@@ -1152,9 +1422,15 @@ static const uint32_t FR_PLACE[FR_N][FX_N] = {   /* (build 30: DELAY and REVERB 
     {K(MU), FX_TWIN, FX_OPT | K(XOR) | K(DST) | K(SPR)},                        /* CRUSH: two rates beating, aliased */
     {K(CHB), FX_TWIN, FX_OPT | K(CLD) | K(SMR) | K(SPR)},                       /* OVERTONE: harmonics of harmonics */
     {K(SMR), FX_TWIN, FX_OPT | K(SPR) | K(FLT) | K(SLW)},                       /* FOG: smoke into smoke, fed back */
+    /* build 45: WAVESET, XMOD, CHAOS */
+    {K(WST), FX_TWIN, FX_OPT | K(SPR) | K(SMR) | K(FLT)},                       /* SHATTER: wavesets of rearranged wavesets */
+    {K(WST), K(CLD) | K(GLT) | K(DIF), FX_OPT | K(SPR) | K(SLW)},               /* MOSAIC: rearranged, scattered */
+    {K(XMD), FX_TWIN, FX_OPT | K(FLT) | K(SPR) | K(SLW)},                       /* CROSSFIRE: the sound against itself, twice */
+    {K(CHS), K(FLT) | K(VOW) | K(BNK), FX_OPT | K(SPR) | K(DIF)},               /* ATTRACTOR: pushed about, shaped */
+    {K(XMD) | K(WST), K(CHS), FX_OPT | K(SPR) | K(CLD)},                        /* TURBINE: mangled, then thrown about */
 };
 static const uint8_t FR_W[FR_N] = {4, 4, 4, 3, 4, 3, 3, 3, 3, 2, 4, 4, 4, 3, 4, 3, 5, 4, 5, 4, 4, 4, 4, 4,
-                                   3, 3, 3, 3, 3, 3, 3, 3, 3};
+                                   3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3};
 /* (build 44) the recipes whose second place feeds back into the first: one block later (0.73 ms) plus the effects' own
  * delay -- only effects that hold the sound a while (a cloud, a buffer, a spring, a smear), so the loop is an echo
  * of the texture, never a comb's whistle. Its gain, drawn, follows the lane's input: no sound in, the loop closes */
@@ -1301,6 +1577,9 @@ static void rm_block(uint32_t inst, const fx_eff_t *e, int32_t *x)
     case RM_SLW: m_slw(p, (m_slw_t *)st, x); break;
     case RM_XOR: m_xor(p, (m_xor_t *)st, x); break;
     case RM_DST: m_dst(p, (m_dst_t *)st, x); break;
+    case RM_WST: m_wst(p, (m_wst_t *)st, x); break;
+    case RM_XMD: m_xmd(p, (m_xmd_t *)st, x); break;
+    case RM_CHS: m_chs(p, (m_chs_t *)st, x); break;
     default: break;                                  /* (DELAY, REVERB: never in a slot from build 31 -- fx_retire) */
     }
     pk = rm_guard(inst, x);
@@ -1579,14 +1858,15 @@ static const uint8_t RM_ROLE[NKIND][4] = {
     {0, VR_TONE, 0, 0}, {0, 0, VR_SPACE, VR_TONE}, {VR_SPACE, VR_SPACE, VR_DAMP, 0}, {0, VR_BREAK, VR_BREAK, 0},
     {VR_SPACE, 0, 0, 0}, {0, 0, VR_TONE, VR_DRIVE}, {0, VR_DRIVE, VR_DRIVE, VR_TONE}, {VR_DRIVE, VR_BREAK, 0, VR_TONE},
     {0, 0, VR_DRIVE, VR_TONE}, {0, 0, 0, VR_TONE},
-    {VR_SPACE, 0, 0, VR_TONE}, {VR_SPACE, 0, 0, VR_TONE}, {0, VR_DRIVE, 0, VR_TONE}, {0, 0, VR_BITS, VR_TONE}, {0, VR_DRIVE, VR_TONE, 0}};
+    {VR_SPACE, 0, 0, VR_TONE}, {VR_SPACE, 0, 0, VR_TONE}, {0, VR_DRIVE, 0, VR_TONE}, {0, 0, VR_BITS, VR_TONE}, {0, VR_DRIVE, VR_TONE, 0},
+    {0, 0, VR_BREAK, 0}, {0, VR_DRIVE, 0, VR_TONE}, {VR_DRIVE, VR_DAMP, 0, VR_TONE}};
 #define RM_HARSH ((1u << RM_FLD) | (1u << RM_MU) | (1u << RM_STV) | (1u << RM_SCR) | (1u << RM_GLT) | (1u << RM_CHB) | (1u << RM_RNG) | \
-                  (1u << RM_XOR) | (1u << RM_SLW))
+                  (1u << RM_XOR) | (1u << RM_SLW) | (1u << RM_XMD) | (1u << RM_CHS))
 /* the recipes' weights on each path (ANY: FR_W) */
 static const uint8_t FR_W_ROUGH[FR_N] = {0, 1, 3, 1, 6, 1, 2, 1, 6, 4, 6, 6, 6, 5, 2, 6, 1, 6, 6, 1, 3, 6, 1, 6,
-                                         3, 6, 3, 5, 6, 2, 6, 5, 1};
+                                         3, 6, 3, 5, 6, 2, 6, 5, 1, 4, 3, 6, 5, 6};
 static const uint8_t FR_W_DARK[FR_N] = {6, 5, 1, 4, 1, 6, 4, 5, 0, 0, 2, 0, 0, 0, 6, 0, 6, 0, 0, 4, 4, 0, 6, 0,
-                                        3, 0, 5, 1, 0, 5, 0, 1, 6};
+                                        3, 0, 5, 1, 0, 5, 0, 1, 6, 2, 4, 0, 1, 0};
 /* an effect's value v (0 .. 100 within lo .. hi) leant the path's way */
 static int32_t fx_lean(uint32_t role, int32_t v, int32_t lo, int32_t hi)
 {
@@ -1656,8 +1936,10 @@ static void fx_twin_values(fx_eff_t *e, const fx_eff_t *a, rnd_t *r)
         e->p[0] = (uint8_t)fx_apart(e->p[0], a->p[0], 20, RM_LO[m][0], RM_HI[m][0]);
     else if (m == RM_CLD && a->p[2] >= 50)
         e->p[2] = (uint8_t)rnd_in(r, RM_LO[m][2], 45);
-    else if (m == RM_CHB)
+    else if (m == RM_CHB || m == RM_WST)             /* (another shape; another MODE: build 45) */
         e->p[0] = (uint8_t)fx_apart(e->p[0], a->p[0], 25, RM_LO[m][0], RM_HI[m][0]);
+    else if (m == RM_XMD)                            /* (another ALGO) */
+        e->p[0] = (uint8_t)fx_apart(e->p[0], a->p[0], 34, RM_LO[m][0], RM_HI[m][0]);
 }
 /* (build 44) a return's gain, drawn: up to the recipe's most, 35 points under it at least (abrasive: more; dark: less) */
 static uint16_t fx_ret_draw(uint32_t recipe, rnd_t *r)
