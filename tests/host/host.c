@@ -3955,7 +3955,11 @@ static int cmd_screens(int argc, char **argv)
     load_pct = 23;
 #define SHOT(nm) do { ui.load_at = fm1_ms - 1000u; ui.msg_until = 0; ui.force = 1; ui_draw(); ui_draw(); ui_draw(); \
     snprintf(name, sizeof name, "%s/screen-%s.ppm", dir, nm); screen_save(name); } while (0)
-    splash_draw("BUILD 46");                             /* (build 46) the splash: the logo, the name, the build */
+#ifndef HOST_BUILD
+#define HOST_BUILD "BUILD 48"
+#endif
+    splash_draw(HOST_BUILD);                             /* (build 46) the splash: the logo, the name, the build (the
+                                                          * firmware's, from tools/build.py: run_tests.sh) */
     snprintf(name, sizeof name, "%s/screen-splash.ppm", dir);
     screen_save(name);
     SHOT("start");
@@ -4661,6 +4665,11 @@ static int cmd_presets(void)
     press(B_ARP, 50);                                 /* NO */
     if (ui.pre_page != SP_LIST)
         PFAIL("NO did not go back to the list");
+    ui.fl_until = fm1_ms;
+    ui.msg_until = fm1_ms;
+    ui.force = 1;
+    ui_draw();
+    screen_save("build/screens/screen-presets-list.ppm");   /* (slots 3 and 5 full, 3 chosen) */
     gen_keep(0, &kb);
     pages_off();
     ses_scan(1);                                      /* (a restart) */

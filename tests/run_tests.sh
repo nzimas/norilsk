@@ -14,8 +14,9 @@ tests/check_target_ir.sh
 $PY tools/gen_font.py build/gen/norilsk_font.h >/dev/null
 $PY tools/list_says.py build/gen/norilsk_says.h >/dev/null
 mkdir -p build/screens
+BUILD=$(sed -n 's/^BUILD = \([0-9]*\).*/\1/p' tools/build.py)   # (the splash's build, as the firmware's)
 clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-unused-function -Werror \
-    -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
+    -DHOST_BUILD="\"BUILD $BUILD\"" -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
 build/host check
 build/host sustain
 build/host struck

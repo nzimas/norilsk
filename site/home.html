@@ -90,8 +90,8 @@
   a bow, the modes of a bar, a plate, a bell or a hull; then <b>Russolo's grit</b>, which drops its bits, crosses it
   with itself and makes it stutter; and last, grains, read back from a buffer the voice keeps writing, or from
   recordings of ice, the sea, the aurora's radio and a plant. An <b>invisible hand</b> keeps moving each voice, so a
-  held note never holds still. Every sound swells in and keeps moving, and nothing sounds on once no note is held,
-  latched or looped: released voices fade out within three seconds, and the effect slots close two seconds after the
+  held note never holds still. Every sound swells in and keeps moving (except on the MACHINE path, where it is struck),
+  and nothing sounds on once no note is held, latched or looped: released voices fade out within three seconds, and the effect slots close two seconds after the
   last, while the master delay's and reverb's tails ring out whole. <a href="manual.html#furnace-engine">How
   FURNACE is built</a>.</p>
 
@@ -100,9 +100,10 @@
   play. The draws are made at every scale, from the inside of a single note to the whole machine:</p>
 <ol class="layers">
   <li><b>The sound.</b> FURNACE draws a sound from a family, a seed, a path and an engine generation, bit for bit
-    the same every time it is asked: a sound is kept as its seed, and a session brings it back exactly. Twenty-eight
+    the same every time it is asked: a sound is kept as its seed, and a session brings it back exactly. Forty-four
     families: METAL, DRONE, BRUIT, GLASS, CLOUD, SHATTER, FREEZE, HUM, STATIC, HOWL, SCRAPE, ASH, TUNNEL, WIRE, STEAM,
-    CHIMNEY, GIRDER, HULL, DEPTHS, AURORA, PLANT and more.</li>
+    CHIMNEY, GIRDER, HULL, DEPTHS, AURORA, PLANT, ORGAN, CHOIR, OXIDE and more; and, on the MACHINE path only, eight of
+    industrial percussion: ANVIL, STAMP, RIVET, SHEET, GEARS, PISTON, RATCHET, FORGE.</li>
   <li><b>The note in motion.</b> Inside every voice the invisible hand drifts the brightness, detune, grain and motion;
     the grit stage cuts bits and stutters from points of its own; the grains are taken from places that wander. The
     same key held twice never sounds the same twice.</li>
@@ -112,9 +113,12 @@
     that fit the slot's memory, every value drawn around its home, the outs. In a twin recipe one effect stands twice,
     the second's values drawn apart from the first's, and in some the second feeds back into the first.</li>
   <li><b>The paths.</b> ABRASIVE (gnarly, textural, torn) and DARK (drones, depression, a little quieter) lean every
-    draw above: the scenes, the families, the recipes, the effects' values. Neither on: anything goes.</li>
+    draw above: the scenes, the families, the recipes, the effects' values. MACHINE draws only struck metal: presses,
+    rivets, anvils struck again and again at random while a key is held, and machines -- gears, pistons, ratchets, a
+    drop hammer -- running on their own, never in time. None on: anything goes, nothing struck.</li>
   <li><b>Partial throws.</b> REWIRE draws only the cables; RAND PARAMS only an effect slot's values, or a generator's
-    sound within its family; SHIFT + HOME keeps the family or the recipe; HOME held throws all six slots at once.</li>
+    sound within its family; SHIFT + HOME keeps the family or the recipe, or takes the one picked from an alphabetical
+    list (SHIFT + PRESETS); HOME held throws all six slots at once.</li>
   <li><b>Modulation.</b> SHIFT + SEQ throws a slot's two LFOs (shape, rate, mode, fade) and two to six of its eight
     routes; the STEPS and DRIFT shapes and the RANDOM source keep drawing as it plays.</li>
   <li><b>Playing.</b> The DISINTEGRATOR gates, stutters, crushes and throws each generator about the stereo image in
@@ -133,9 +137,15 @@
   <dt>FX MIX</dt><dd>KNOB 2: how much of a lane's effects is heard, from dry to wet.</dd>
   <dt>DISINTEGRATOR</dt><dd>KNOB 1: an unstable gate on each generator — stutters, crushes, sudden throws across the
     image — more erratic the higher.</dd>
-  <dt>Draw paths</dt><dd>ABRASIVE and DARK, on two black keys, lean everything HOME draws.</dd>
+  <dt>Draw paths</dt><dd>ABRASIVE, DARK and MACHINE, on three black keys, lean everything HOME draws.</dd>
+  <dt>Industrial percussion</dt><dd>On the MACHINE path: metal against metal, never a drum. ANVIL, STAMP, RIVET and SHEET
+    strike at the key and again while it is held, on a clock that never settles; GEARS, PISTON, RATCHET and FORGE run
+    like machines, early and late.</dd>
+  <dt>Presets</dt><dd>Sixty-four: a generator's sound with its lane, named by family (ANVIL 1, ANVIL 2), loaded into
+    any generator. SHIFT + ARP held.</dd>
   <dt>Snapshots</dt><dd>Sixteen whole-machine states to a session, morphed into over 0 to 30 seconds.</dd>
-  <dt>Sessions</dt><dd>Sixty-four, saved in the FM-1's flash, and backed up to a computer from this site.</dd>
+  <dt>Sessions</dt><dd>Sixty-four, saved in the FM-1's flash, and backed up to a computer from this site with the
+    presets and the global setup.</dd>
   <dt>Modulation</dt><dd>Two LFOs and eight routes on every slot, onto macros, levels, pans, sends and any effect's
     values.</dd>
   <dt>Loopers</dt><dd>Tonitor's looper on each generator: ten loops, overdubs, reverse, pendulum, random, half and
