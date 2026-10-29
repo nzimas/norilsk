@@ -59,7 +59,7 @@ when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless
 | Latch a note | Hold white key, press **SHIFT** (key stays lit) |
 | Release a latched note | Hold **SHIFT**, press lit key |
 | Set root and scale | **ARP** opens SCALE page: **SELECT** root, **ALGORITHM** scale (23). **ARP** again to leave |
-| Random root and scale | **SHIFT + ARP** |
+| Random root and scale | **SHIFT + ARP** (let go at once; held, it opens PRESETS) |
 | DISINTEGRATOR of generator being played (0 to 100) | **KNOB 1** |
 | Master DRIVE (0 off to 100) | **SHIFT + KNOB 1** |
 | FX MIX of chosen lane, dry to wet | **KNOB 2** |
@@ -78,6 +78,7 @@ when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless
 | New values only (effects), or new sound of same family (generator) | **SHIFT** + 1st black key (RAND PARAMS) |
 | Bias draws towards harsh, torn material | 2nd black key: ABRASIVE path on/off |
 | Bias draws towards dark ambient and drones | 3rd black key: DARK path on/off |
+| Draw industrial percussion: struck metal, machines | 4th black key: MACHINE path on/off |
 
 ### Pages
 
@@ -127,6 +128,16 @@ when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless
 | Pick and run a row | **PRESETS**, then **SAVE** |
 | Go back a level | **SHIFT + SAVE** |
 
+### Presets
+
+| To | Do this |
+|---|---|
+| Open PRESETS for the generator being played | Hold **SHIFT**, hold **ARP** 0.8 s |
+| Pick a slot (64) | **PRESETS** |
+| Load it into the generator | **ARP** or **SAVE** (back to playing) |
+| Save the generator into it | Hold **ARP** or **SAVE**. Over a full slot: OVERWRITE? **PRESETS** to YES, **ARP** |
+| Leave | **SHIFT + ARP**, **SHIFT + SAVE** or a slot button |
+
 ### Start-up
 
 | To | Do this |
@@ -172,7 +183,8 @@ Randomness works at every scale:
    effects that fits the slot's memory; every value is drawn around its default, and the outs are drawn too. In a twin
    recipe the second effect is the first again, its values drawn from the first's and kept apart. HOME on a generator
    also draws its lane's chain.
-5. **Paths.** ABRASIVE and DARK bias every draw above: scenes, families, recipes and effect values.
+5. **Paths.** ABRASIVE and DARK bias every draw above: scenes, families, recipes and effect values. MACHINE draws
+   only the struck families and the recipes that suit a strike.
 6. **Partial draws.** REWIRE draws only cables. RAND PARAMS draws only an effect slot's values, or a new sound of the
    same family for a generator. SHIFT + HOME keeps family or recipe. Holding HOME draws all six slots.
 7. **Modulation.** SHIFT + SEQ draws a slot's two LFOs and two to six of its eight routes. STEPS and DRIFT shapes and
@@ -207,7 +219,7 @@ takes two; a line still too wide drops one size. No word runs off the screen.
 
 ## Generators
 
-Each generator runs an instance of **FURNACE**, the engine, playing one sound drawn from thirty-six families. Four
+Each generator runs an instance of **FURNACE**, the engine, playing one sound drawn from forty-four families. Four
 voices are shared by the three generators, and each voice is a complete instance of the engine. Because of this, one
 sound on two keys never sounds quite the same. Details: [FURNACE engine](#furnace-engine) below.
 
@@ -243,7 +255,7 @@ Ideas from Destroy FX's Skidder and from buffer repeaters; none of their code.
 ## FURNACE engine
 
 FURNACE started as Tonitor's FM engine and was rebuilt around one goal: sound that is never struck, never still and
-never exactly the same twice.
+never exactly the same twice. Struck sound came later, on a path of its own (MACHINE, generation 7).
 
 It works on one voice, one note and one block of 32 samples (0.73 ms at 44.1 kHz) at a time. Everything is integer
 maths, because the chip has no floating point; per-sample code runs from RAM. Code: `firmware/src/mol.c` (voice and
@@ -341,6 +353,7 @@ New sounds are always drawn on the newest generation.
 | 4 | Exciter and body, five families |
 | 5 | Found sounds, three families |
 | 6 | Eight families; one older sound in four gets other waves (harmonic sets, bells, bent) |
+| 7 | Struck: eight families of industrial percussion, drawn only on the MACHINE path. Older families as in 6 |
 
 ### Families
 
@@ -382,6 +395,14 @@ New sounds are always drawn on the newest generation.
 | SUBSTRATE | 6 | Squares and saws an octave down, bent; sometimes a pipe's modes |
 | GLASSHARP | 6 | Noise drawn around a bell's modes an octave up, long |
 | OXIDE | 6 | Corroded metal: bent waves, crushed bits, plant grains |
+| ANVIL | 7 | Hammer on an anvil: bright inharmonic partials, a bar or plate ringing a second or two. One strike |
+| STAMP | 7 | Press coming down: low thud into a closed tube, dark burst, short. One strike |
+| RIVET | 7 | Rivet gun's single shot: high, small, a plate, very short. One strike |
+| SHEET | 7 | Metal sheet struck: crowded modes of a hull, wobbling, longer. One strike |
+| GEARS | 7 | Gears turning: quick ticks on a small plate in a pattern of teeth, pace wandering. Runs while held |
+| PISTON | 7 | Slow thump into a closed tube, a hiss of steam between. Runs while held |
+| RATCHET | 7 | Ratchet or chain: irregular clatter on a bar or bell, bounces. Runs while held |
+| FORGE | 7 | Drop hammer: slow heavy anvil strikes, each bouncing, ringing long. Runs while held |
 
 ### Macros
 
@@ -464,7 +485,7 @@ snapshots included, nothing redrawn.
 
 ## Paths
 
-Two black keys bias everything HOME draws, and RAND PARAMS too:
+Three black keys bias everything HOME draws, and RAND PARAMS too:
 
 - **ABRASIVE** (2nd black key): gnarly, textural, torn. Favours experimental scenes; harsh families (BRUIT, SHATTER,
   FURNACE, STATIC, SCRAPE, DATA, METAL); more cables and cross-modulation; torn and crushed recipes; more drive,
@@ -474,7 +495,16 @@ Two black keys bias everything HOME draws, and RAND PARAMS too:
   ringing recipes (SPACE, GHOST, ABYSS, FREEZER, RESONANT, GONG and others); darker, less driven values, larger
   spaces. Also 3 dB quieter.
 
-With neither on, anything goes. Path is saved with the session and with each snapshot.
+- **MACHINE** (4th black key): industrial percussion. HOME on a generator draws only the struck families (ANVIL,
+  STAMP, RIVET, SHEET, GEARS, PISTON, RATCHET, FORGE): metal against metal, presses, pistons, gears. No drums. The
+  first four strike once per key. The other four are machines: they keep striking on their own while the key is held,
+  each strike a little early or late, the pace wandering, no tempo. Let go, they stop and ring out. HOME on an effect
+  slot favours rooms, echoes, metal resonances and crushing; not frozen clouds or smoke, which would hold a strike into
+  a drone. The struck families are never drawn on the other paths. SHIFT + HOME on a struck sound keeps its family
+  on any path.
+
+One path at a time. With none on, anything goes (nothing struck). Path is saved with the session and with each
+snapshot.
 
 ## Modulation
 
@@ -518,6 +548,24 @@ PRESETS moves through the rows, SAVE runs the selected one, SHIFT + SAVE goes ba
 SAVE saves straight into the loaded session. A session holds the machine, its sixteen snapshots, latched notes and
 every loop, in the FM-1's flash.
 
+## Presets
+
+Hold **SHIFT** and hold **ARP** 0.8 s: the PRESETS page, for the generator being played (its number in its colour at
+the top right). 64 slots. A preset is one generator's patch: its sound, its lane (effects, values, outs, return), how
+it is cabled into the lane, its DISINTEGRATOR and its lane's FX MIX. Level, pan, delay and reverb sends, modulation
+and mute are not part of it: they belong to the mix.
+
+A preset is named by its sound's family and numbered within that family, in slot order: ANVIL 1, ANVIL 2, DRONE 1.
+Empty slots are grey.
+
+- **PRESETS** chooses a slot.
+- **ARP** (or **SAVE**) loads it into the generator and goes back to playing. A preset saved from one generator loads
+  into any other, in that generator's own lane.
+- **ARP** (or **SAVE**) held 0.8 s saves the generator into the slot. Over a full slot it asks OVERWRITE?, NO first.
+- **SHIFT + ARP**, **SHIFT + SAVE** or a slot button leaves.
+
+Presets are kept in the flash apart from the sessions, like the global setup, and backed up with them.
+
 Norilsk only writes to blank flash or to its own retired sessions, never over another firmware's data. Other firmware
 does not return the favour, however: back up your sessions before installing something else.
 
@@ -535,7 +583,7 @@ turns on VARY.
 ## Backing up sessions
 
 The website's [backup page](https://nzimas.github.io/norilsk/backup.html) saves every session on the FM-1 to a file,
-with the global setup, and writes them back, from desktop Chrome, Edge or Opera.
+with the global setup and the presets, and writes them back, from desktop Chrome, Edge or Opera.
 
 From a terminal: `tools/fm1_sessions.py` lists sessions, `tools/fm1_sessions.py save N` saves one,
 `tools/fm1_sessions.py restore FILE` writes one back. Page and script only talk to an FM-1 whose USB name is FM-1

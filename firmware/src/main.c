@@ -293,6 +293,7 @@ static void fm1_main(void)
                                                       * measured) */
     ses_init(flash_ok);                              /* the sessions in the flash: listed (none loaded: a fresh start) */
     setup_load();                                    /* GLOBAL SETUP's settings (MIDI, USB audio: build 43) */
+    pre_scan();                                      /* the presets' names (build 47) */
 #if FELUCCA_UAC
     uac_set_nch(mcfg.usb_aud ? UAC_NMAX : 2u);       /* (the USB audio's channels, before the host first sees it) */
 #endif

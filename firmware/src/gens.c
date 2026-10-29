@@ -945,7 +945,8 @@ static const uint8_t SC_W_ROUGH[SC_N] = {0, 1, 3, 3}, SC_W_DARK[SC_N] = {5, 1, 0
 static const uint8_t MF_LEAN[DP_N][MF_N] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
     {3, 1, 3, 1, 0, 1, 1, 1, 1, 3, 0, 1, 3, 1, 3, 1, 3, 3, 1, 1, 3, 1, 1, 3, 1, 1, 1, 3, 1, 1, 3, 3, 1, 3, 1, 3},   /* ABRASIVE */
-    {1, 3, 0, 0, 0, 1, 1, 1, 3, 0, 0, 3, 0, 3, 0, 3, 0, 0, 3, 3, 1, 1, 3, 1, 3, 3, 3, 0, 3, 3, 3, 0, 3, 3, 3, 0}};  /* DARK */
+    {1, 3, 0, 0, 0, 1, 1, 1, 3, 0, 0, 3, 0, 3, 0, 3, 0, 0, 3, 3, 1, 1, 3, 1, 3, 3, 3, 0, 3, 3, 3, 0, 3, 3, 3, 0},   /* DARK */
+    {0}};                        /* MACHINE (build 47): generation 7's families alone, each as likely (gen_draw) */
 static const uint8_t MF_INH[MF_N] = {6, 2, 4, 4, 2, 4, 1, 1, 4, 4, 2, 4, 5, 4, 4, 3, 5, 4, 4, 4, 4, 3, 3, 5, 4, 4, 4, 4,
                                      2, 2, 2, 4, 4, 2, 4, 5};
 
@@ -1000,7 +1001,7 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
     }
     rnd_seed(r, seed ^ 0x534C4F54u);
     p->scene = family >= 0 && gen_drawn[l] ? scene0
-             : draw_path == DP_ANY ? (uint8_t)rnd_below(r, SC_N)
+             : draw_path == DP_ANY || draw_path == DP_MACHINE ? (uint8_t)rnd_below(r, SC_N)
                                    : (uint8_t)rnd_weighted(r, draw_path == DP_ROUGH ? SC_W_ROUGH : SC_W_DARK, SC_N);
     p->seed = seed;
     p->serial = ++gen_serial;
@@ -1010,7 +1011,11 @@ static int gen_draw(uint32_t l, int32_t family, uint32_t seed)
     path = SC_PATH[p->scene];
     if (family >= 0 && family < MF_N)
         f = family;
-    else {
+    else if (draw_path == DP_MACHINE) {                 /* (the MACHINE path: the struck families alone) */
+        for (k = 0; k < MF_N; k++)
+            w[k] = (uint8_t)(k >= MF_G7);
+        f = (int32_t)rnd_weighted(r, w, MF_N);
+    } else {
         for (k = 0; k < MF_N; k++)
             w[k] = (uint8_t)((int32_t)MF_HARSH[k] <= budget ? mo_fam_w(path, GEN_NOW)[k] * (SC_FAM[p->scene][k] ? 3u : 1u) * MF_INH[k] / 2u : 0u);
         for (k = 0; draw_path != DP_ANY && k < MF_N; k++)

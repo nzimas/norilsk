@@ -42,9 +42,11 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
  * resonators), five families of it (WIRE STEAM CHIMNEY GIRDER HULL), one older sound in five given a body; 5 from
  * build 35: grains from found sounds (found_clips.h: ice and the sea, the aurora's radio, the plant), three families
  * of them (DEPTHS AURORA PLANT), one older sound with a cloud in three given one; 6 from build 37: timbres -- eight
- * families (ORGAN CHOIR FOGHORN SWARM CORONA SUBSTRATE GLASSHARP OXIDE), one older sound in four given other waves */
-#define GEN_NOW 6u
-#define GEN_N 7u
+ * families (ORGAN CHOIR FOGHORN SWARM CORONA SUBSTRATE GLASSHARP OXIDE), one older sound in four given other waves;
+ * 7 from build 47: struck -- industrial percussion, eight families (ANVIL STAMP RIVET SHEET struck once; GEARS PISTON
+ * RATCHET FORGE striking again and again while held), drawn only on the MACHINE path; the older families as in 6 */
+#define GEN_NOW 7u
+#define GEN_N 8u
 /* EDIT's four macros on a sound: -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
 #define NMAC 4u

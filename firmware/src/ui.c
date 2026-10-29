@@ -20,6 +20,11 @@
  *   ARP                       the SCALE page (its light: on it): SELECT the root, ALGORITHM the scale; SHIFT + ARP: a root
  *                             and a scale drawn, the page up two seconds to show them (build 36; drawn at power-on
  *                             and in a new session too)
+ *   SHIFT + ARP held 0.8 s    (build 47, Tonitor's; presets.c) PRESETS, for the generator the keys play: 64 slots, each a
+ *                             generator's patch -- its sound, its lane, DISINTEGRATOR, FX MIX -- named by its family
+ *                             and numbered within it (ANVIL 2). PRESETS chooses a slot; ARP or SAVE: loaded into the
+ *                             generator, back to playing; held 0.8 s: the generator saved there (over a full one:
+ *                             asked, NO first). SHIFT + ARP, SHIFT + SAVE or a slot button: back
  *   OCT- / OCT+               the octave, -3 .. +3
  *   REC                       the looper of the generator the keys play (Tonitor's, loop.c): pressed, a new loop
  *                             armed (the first note starts it); again, ended (it plays at once); again while they
@@ -43,12 +48,15 @@
  *                             break: its effects and cables stay); a generator's sound, of the same family (its cables
  *                             stay). The path's way
  *   the 2nd black key         the ABRASIVE path on or off (lit while on): what HOME draws, gnarly, textural, abrasive
- *   the 3rd black key         the DARK path on or off: dark ambient, drones, quieter. One path at a time; neither:
- *                             anything goes. Kept with the session
+ *   the 3rd black key         the DARK path on or off: dark ambient, drones, quieter
+ *   the 4th black key         (build 47) the MACHINE path on or off: what HOME draws on a generator is industrial
+ *                             percussion, struck once or running while held (mol.c generation 7); on an effect slot,
+ *                             the recipes that suit a strike. One path at a time; none: anything goes (and nothing
+ *                             struck). Kept with the session
  *   PLAY held + the 4th .. 8th black keys  the loops of the generator the keys play: REVERSE, PENDULUM, RANDOM; HALF,
  *                             DOUBLE speed (pressed again: as recorded). While PLAY is held they glow dimly, the ones
- *                             on lit (Tonitor's); playing, they do nothing and stay dark (for what comes later). The
- *                             black keys do what the view they are in gives them
+ *                             on lit (Tonitor's); playing, the 5th .. 8th do nothing and stay dark (for what comes
+ *                             later). The black keys do what the view they are in gives them
  *   SHIFT + OCT- / OCT+       every loop a step of the scale down or up; a generator's button held too: its loops
  *                             only. The white keys and the latched notes move with them
  *   SHIFT + KNOB 1            playing: the master's DRIVE, 0 (off) .. 100 (build 37), laid out as KNOB 1's
@@ -116,6 +124,7 @@ static const uint8_t SLOT_BTN[NSLOT] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO
 #define KEY_ROUGH 3u             /* the 2nd black key: the ABRASIVE path on or off (build 18; rack.c draw_path) */
 #define KEY_DARK 5u              /* the 3rd black key: the DARK path on or off (one path at a time; neither: anything) */
 #define KEY_REV 8u               /* the 4th black key: the loops backwards (again: forwards) */
+#define KEY_MACHINE 8u           /* .. playing (PLAY not held): the MACHINE path on or off (build 47) */
 #define KEY_PEND 10u             /* the 5th: PENDULUM, forwards and backwards in turn */
 #define KEY_RAND 13u             /* the 6th: RANDOM, forwards from a note drawn at random each time the next is due */
 #define KEY_HALF 15u             /* the 7th: half speed (again: normal) */
@@ -219,6 +228,12 @@ static struct {
     uint8_t set_page;            /* (build 43) GLOBAL SETUP up (setup.c) */
     uint8_t shs_down, shs_done;  /* SHIFT + SAVE down since shs_t0 (playing): held, GLOBAL SETUP; let go soon, SESSIONS */
     uint32_t shs_t0;
+    uint8_t pre_page, pre_ix, pre_yes;   /* (build 47) PRESETS up: SP_LIST, SP_ASK (overwrite?); the slot chosen; the answer */
+    uint8_t pre_gen;             /* .. the generator it saves and loads (the keys', as it opened) */
+    uint8_t scl_down, scl_done;  /* SHIFT + the scale button down since scl_t0: held, PRESETS; let go soon, a scale drawn */
+    uint8_t pk_down, pk_done;    /* the scale button (or SAVE) down on PRESETS since pk_t0: held, saved; let go, loaded */
+    uint32_t scl_t0, pk_t0;
+    int32_t shown_pre;
     uint32_t latch[NGEN];        /* each generator's keys latched */
     uint8_t latch_note[NGEN][NKEY];
     uint8_t was_on;              /* (CPU1 running, last time: its loss said once) */
@@ -492,13 +507,15 @@ static void fade_text(char *v, uint32_t hs)    /* OFF, 4.5 S, 60 S */
 /* every page down: back to playing */
 static void pages_off(void)
 {
-    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = ui.set_page = 0;
+    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = ui.set_page = ui.pre_page = 0;
     ui.force = 1;
 }
 /* a session's or a snapshot's outcome, on the whole screen, saying which (build 27): SESSION or SNAPSHOT, in its
  * colour, at the top; what happened; its number, very large */
 #define SD_SES 0
 #define SD_SNAP 1
+#define SD_PRE 2                 /* (build 47) */
+#define C_PRE RGB(210, 170, 255)
 static void ses_done(int rc, int subj, const char *what, uint32_t num)
 {
     char n[8];
@@ -507,8 +524,8 @@ static void ses_done(int rc, int subj, const char *what, uint32_t num)
         flash(what, num ? n : "", C_OK);
     else
         flash(rc == SES_FULL ? "NO ROOM" : rc == SES_NOFLASH ? "NO FLASH" : rc == SES_BUSY ? "BUSY" : "FAILED", "", C_FULL);
-    str_cpy(ui.fl0, subj == SD_SNAP ? "SNAPSHOT" : "SESSION", sizeof ui.fl0);
-    ui.fl0_col = subj == SD_SNAP ? C_SNAP : C_SES;
+    str_cpy(ui.fl0, subj == SD_SNAP ? "SNAPSHOT" : subj == SD_PRE ? "PRESET" : "SESSION", sizeof ui.fl0);
+    ui.fl0_col = subj == SD_SNAP ? C_SNAP : subj == SD_PRE ? C_PRE : C_SES;
 }
 /* SAVE held (Tonitor's save_long); on the SNAPSHOTS page, the state now stored into the snapshot framed */
 static void save_long(void)
@@ -553,6 +570,48 @@ static void ses_page_on(void)
     pages_off();
     ui.ses_page = SP_LIST;
     ui.ses_ix = (uint8_t)(ses_current() ? ses_current() : 1u);
+}
+/* (build 47) the PRESETS page up, on the generator the keys play */
+static void pre_page_on(void)
+{
+    pages_off();
+    ui.pre_page = SP_LIST;
+    ui.pre_gen = ui.gen;
+    if (!ui.pre_ix)
+        ui.pre_ix = 1;
+}
+/* .. the scale button (or SAVE) held: the generator saved into the slot chosen (asked first over a full one) */
+static void pre_long(void)
+{
+    if (ui.pre_page == SP_ASK)
+        return;
+    if (pre_has(ui.pre_ix)) {
+        ui.pre_page = SP_ASK;
+        ui.pre_yes = 0;                          /* (over a preset: NO until turned to YES) */
+        ui.force = 1;
+        return;
+    }
+    ses_done(pre_save(ui.pre_gen, ui.pre_ix), SD_PRE, "SAVED", ui.pre_ix);
+    ui.force = 1;
+}
+/* .. pressed: the slot loaded into the generator, back to playing; or the question answered */
+static void pre_short(void)
+{
+    ui.force = 1;
+    if (ui.pre_page == SP_ASK) {
+        ui.pre_page = SP_LIST;
+        if (ui.pre_yes)
+            ses_done(pre_save(ui.pre_gen, ui.pre_ix), SD_PRE, "SAVED", ui.pre_ix);
+        else
+            say("NOT SAVED", 1200);
+        return;
+    }
+    if (!pre_has(ui.pre_ix)) {
+        say("EMPTY", 900);
+        return;
+    }
+    pages_off();
+    ses_done(pre_load(ui.pre_gen, ui.pre_ix), SD_PRE, "LOADED", ui.pre_ix);
 }
 /* SAVE pressed (let go before it was held): the SNAPSHOTS page, or back from it; on the SESSIONS page, what it asks
  * or the slot shown */
@@ -726,7 +785,7 @@ static void ui_input(void)
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_sh[l] = (uint8_t)(l < NGEN && shift_held() ? (ui.gs_page == l + 1u ? 2u : 1u) : 0u);
             ui.btn_t0[l] = fm1_ms;
-            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page || ui.set_page)
+            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page || ui.set_page || ui.pre_page)
                 pages_off();
             for (o = 0; l < NGEN && shift_held() && o < NGEN; o++)   /* SHIFT, generator o held, then generator l: o
                                                                     * modulates l, or no more (gens.c gen_link) */
@@ -780,21 +839,53 @@ static void ui_input(void)
         if (!ui.home_done && !new_patch(ui.sel, ui.home_shift))
             say("BUSY", 600);
     }
-    if (btn_bit(press, B_ARP) && shift_held()) { /* SHIFT and the scale button: a root and a scale drawn (build 36),
-                                                  * the SCALE page up a moment to show them */
-        scale_random(next_seed());
-        lx_post();                               /* (the loops moved walk the new scale) */
-        if (!ui.sc_page) {
-            pages_off();
-            ui.sc_page = 1;
-            ui.sc_close_at = fm1_ms + 2000u;
-        }
-        ui.force = 1;
+    if (btn_bit(press, B_ARP) && shift_held() && ui.pre_page)
+        pages_off();                             /* (SHIFT and the scale button on PRESETS: back) */
+    else if (btn_bit(press, B_ARP) && shift_held()) {   /* SHIFT and the scale button: held 0.8 s, PRESETS (build 47,
+                                                  * Tonitor's); let go soon, a root and a scale drawn (build 36) */
+        ui.scl_down = 1;
+        ui.scl_done = 0;
+        ui.scl_t0 = fm1_ms;
+    } else if ((btn_bit(press, B_ARP) || (btn_bit(press, B_SAVE) && !shift_held())) && ui.pre_page) {
+        ui.pk_down = 1;                          /* (on PRESETS: the scale button or SAVE, pressed loads, held saves) */
+        ui.pk_done = 0;
+        ui.pk_t0 = fm1_ms;
+        press &= ~(1u << PANEL_BTN[B_SAVE]);
     } else if (btn_bit(press, B_ARP)) {
         uint8_t was = ui.sc_page;
         pages_off();
         ui.sc_page = (uint8_t)!was;
         ui.sc_close_at = 0;
+    }
+    if (ui.scl_down) {
+        if (!btn_bit(fm1_in.buttons, B_ARP)) {
+            ui.scl_down = 0;
+            if (!ui.scl_done) {                  /* (let go soon: a root and a scale drawn, the SCALE page up a moment
+                                                  * to show them) */
+                scale_random(next_seed());
+                lx_post();                       /* (the loops moved walk the new scale) */
+                if (!ui.sc_page) {
+                    pages_off();
+                    ui.sc_page = 1;
+                    ui.sc_close_at = fm1_ms + 2000u;
+                }
+            }
+            ui.force = 1;
+        } else if (!ui.scl_done && (uint32_t)(fm1_ms - ui.scl_t0) >= HOLD_MS) {
+            ui.scl_done = 1;
+            pre_page_on();
+        }
+    }
+    if (ui.pk_down) {
+        if (!btn_bit(fm1_in.buttons, B_ARP) && !btn_bit(fm1_in.buttons, B_SAVE)) {
+            ui.pk_down = 0;
+            if (!ui.pk_done && ui.pre_page)
+                pre_short();
+        } else if (!ui.pk_done && (uint32_t)(fm1_ms - ui.pk_t0) >= HOLD_MS) {
+            ui.pk_done = 1;
+            if (ui.pre_page)
+                pre_long();
+        }
     }
     if (ui.sc_close_at && (int32_t)(fm1_ms - ui.sc_close_at) >= 0) {
         ui.sc_close_at = 0;
@@ -815,6 +906,14 @@ static void ui_input(void)
     }
     if (ui.set_page && btn_bit(press, B_SAVE)) {    /* GLOBAL SETUP: SAVE chooses, SHIFT + SAVE a level back (build 43) */
         setup_press(shift_held());
+        press &= ~(1u << PANEL_BTN[B_SAVE]);
+    }
+    if (btn_bit(press, B_SAVE) && shift_held() && ui.pre_page) {   /* SHIFT and SAVE on PRESETS: a level back */
+        if (ui.pre_page == SP_ASK)
+            ui.pre_page = SP_LIST;
+        else
+            pages_off();
+        ui.force = 1;
         press &= ~(1u << PANEL_BTN[B_SAVE]);
     }
     if (btn_bit(press, B_SAVE) && shift_held() && !ui.ses_page) {   /* SHIFT and SAVE, playing: held 0.8 s, GLOBAL SETUP
@@ -860,6 +959,10 @@ static void ui_input(void)
     s = fm1_enc_take(PANEL_ENC[EN_PRESET]);      /* PRESETS: through the page's list */
     if (s && ui.set_page) {
         setup_preset(s);
+    } else if (s && ui.pre_page == SP_LIST) {
+        ui.pre_ix = (uint8_t)clampi((int32_t)ui.pre_ix + s, 1, PRE_SLOTS);
+    } else if (s && ui.pre_page == SP_ASK) {
+        ui.pre_yes = (uint8_t)(s > 0);
     } else if (s && ui.ses_page == SP_LIST) {
         ui.ses_ix = (uint8_t)clampi((int32_t)ui.ses_ix + s, 1, SES_SLOTS);
     } else if (s && ui.ses_page == SP_PAGE) {
@@ -1159,11 +1262,12 @@ static void ui_input(void)
         int ok = ui.sel < NGEN ? gen_rewire(ui.sel, next_seed()) : fx_rewire(ui.sel - NGEN, next_seed());
         say_slot(ui.sel, ok ? "REWIRED" : "BUSY", 1000);
     }
-    if (!ui.ovd && (((ch & keys) >> KEY_ROUGH & 1u) || ((ch & keys) >> KEY_DARK & 1u))) {   /* the paths: on, off, or
-                                                                                         * the other (playing) */
-        uint8_t want = ((ch & keys) >> KEY_ROUGH & 1u) ? DP_ROUGH : DP_DARK;
+    if (!ui.ovd && (((ch & keys) >> KEY_ROUGH & 1u) || ((ch & keys) >> KEY_DARK & 1u) ||
+                    ((ch & keys) >> KEY_MACHINE & 1u))) {   /* the paths: on, off, or another (playing) */
+        uint8_t want = ((ch & keys) >> KEY_ROUGH & 1u) ? DP_ROUGH : ((ch & keys) >> KEY_DARK & 1u) ? DP_DARK : DP_MACHINE;
         draw_path = draw_path == want ? DP_ANY : want;
-        say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : "ANY PATH", 1200);
+        say(draw_path == DP_ROUGH ? "ABRASIVE" : draw_path == DP_DARK ? "DARK" : draw_path == DP_MACHINE ? "MACHINE" : "ANY PATH",
+            1200);
     }
     if (!ui.ovd && ((ch & keys) >> KEY_CLEAR & 1u)) {  /* the 10th black key: CLEAR, asked (build 41); again: not */
         int asked = ui.ses_page == SP_ASK && ui.ses_ask == AK_CLEAR;
@@ -1246,7 +1350,7 @@ static void ui_leds(void)
         fm1_led_key(PANEL_BTN[SLOT_BTN[k]], k == ui.sel ? !muted || (fm1_ms / 300u) & 1u : muted && (fm1_ms / 300u) % 4u == 0u);
     }
     fm1_led_key(PANEL_BTN[B_HOME], (int32_t)(ui.home_until - fm1_ms) > 0);
-    fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
+    fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page || ui.pre_page || ui.scl_down);
     fm1_led_key(PANEL_BTN[B_SEQ], ui.fx_page != 0u);
     fm1_led_key(PANEL_BTN[B_SAVE], ui.ses_page || ui.snap_page || ui.set_page || ui.save_down || ui.shs_down);
     {
@@ -1268,7 +1372,8 @@ static void ui_leds(void)
         int mk = k == KEY_REV || k == KEY_PEND || k == KEY_RAND || k == KEY_HALF || k == KEY_DOUBLE;
         int fn = w < 0 && (k == KEY_SHIFT || (ui.ovd && mk) ||   /* (build 41: a black key that does something in
                                                                   * this view glows dimly) */
-                           (!ui.ovd && !ui.snap_page && (k == KEY_REWIRE || k == KEY_ROUGH || k == KEY_DARK || k == KEY_CLEAR)));
+                           (!ui.ovd && !ui.snap_page && (k == KEY_REWIRE || k == KEY_ROUGH || k == KEY_DARK || k == KEY_MACHINE ||
+                                                           k == KEY_CLEAR)));
         led_dim_key(14u + k, stored || fn || root);   /* (the SNAPSHOTS page: every stored snapshot glows dimly) */
         if (ui.snap_page)                        /* .. the one chosen lit, the one a morph flows into blinking */
             fm1_led_key(14u + k, stored && (w == snap_morph_target() ? (int)((fm1_ms / 250u) & 1u)
@@ -1283,6 +1388,7 @@ static void ui_leds(void)
             fm1_led_key(14u + k, ui.sel < NGEN && (((ui.keys >> k) & 1u) || ((ui.latch[ui.gen] >> k) & 1u)));
         else                                     /* playing: the path chosen lit; CLEAR while it asks */
             fm1_led_key(14u + k, (k == KEY_ROUGH && draw_path == DP_ROUGH) || (k == KEY_DARK && draw_path == DP_DARK) ||
+                                 (k == KEY_MACHINE && draw_path == DP_MACHINE) ||
                                  (k == KEY_CLEAR && ui.ses_page == SP_ASK && ui.ses_ask == AK_CLEAR));
     }
     fm1_led_key(14u + KEY_SHIFT, shift_held());
@@ -2101,6 +2207,69 @@ static void draw_ses_page(void)
     } else
         draw_ses_list();
 }
+/* (build 47) the PRESETS page: the title, black, on a band in the colour of the generator it is for, over a rule in the
+ * presets' colour; four rows, a slot each -- its number, its name (ANVIL 2) in the largest size it fits, the one chosen
+ * black on white, an empty one grey. Or, asked: the slot, its name, OVERWRITE?, NO | YES */
+static void pre_title(const char *t)
+{
+    uint16_t c = GEN_COL[ui.pre_gen % NGEN];
+    cv_begin(240, 55, c);
+    cv_text_fit((52 - (int32_t)FONT_M.h) / 2, &FONT_M, t, C_BLACK);
+    cv_bg_set(C_BLACK);
+    cv_rect(0, 52, 240, 3, C_PRE);
+    cv_blit(0, 0);
+}
+static void draw_pre_page(void)
+{
+    uint32_t sel = ui.pre_ix, top = sel <= 2u ? 1u : sel > PRE_SLOTS - 2u ? PRE_SLOTS - 3u : sel - 1u, r;
+    int32_t key = ui.pre_page | ui.pre_ix << 3 | ui.pre_yes << 10 | ui.pre_gen << 11 | pre_has(ui.pre_ix) << 13;
+    char nm[24], n[8];
+    if (!ui.force && ui.shown_pre == key)
+        return;
+    ui.shown_pre = key;
+    if (ui.pre_page == SP_ASK) {
+        char t[16] = "PRESET ";
+        fmt_int(t + 7, (int32_t)ui.pre_ix);
+        pre_title(t);
+        pre_name(ui.pre_ix, nm, sizeof nm);
+        for (r = 0; r < 4u; r++) {
+            cv_begin(240, SES_ROW_H, C_BLACK);
+            if (r == 0u)
+                cv_text_fit((SES_ROW_H - (int32_t)FONT_S.h) / 2, &FONT_S, nm, C_WHITE);
+            else if (r == 1u)
+                cv_text_fit((SES_ROW_H - (int32_t)FONT_M.h) / 2, fit_font(&FONT_M, &FONT_S, "OVERWRITE?", 236), "OVERWRITE?", C_FULL);
+            else if (r == 2u) {
+                cv_rect(10, 2, 100, SES_ROW_H - 4, ui.pre_yes ? C_BLACK : C_WHITE);
+                cv_rect(130, 2, 100, SES_ROW_H - 4, ui.pre_yes ? C_WHITE : C_BLACK);
+                cv_frame(10, 2, 100, SES_ROW_H - 4, 2, C_GREY);
+                cv_frame(130, 2, 100, SES_ROW_H - 4, 2, C_GREY);
+                cv_text(60 - text_w(&FONT_M, "NO") / 2, (SES_ROW_H - (int32_t)FONT_M.h) / 2, &FONT_M, "NO",
+                        ui.pre_yes ? C_GREY : C_BLACK);
+                cv_text(180 - text_w(&FONT_M, "YES") / 2, (SES_ROW_H - (int32_t)FONT_M.h) / 2, &FONT_M, "YES",
+                        ui.pre_yes ? C_BLACK : C_GREY);
+            }
+            cv_blit(0, 55 + SES_ROW_H * r);
+        }
+        ses_foot();
+        return;
+    }
+    pre_title("PRESETS");
+    for (r = 0; r < 4u; r++) {
+        uint32_t k = top + r;
+        int has = pre_has(k), chosen = k == sel;
+        uint16_t fg = chosen ? C_BLACK : has ? C_WHITE : C_GREY;
+        const font_t *f;
+        pre_name(k, nm, sizeof nm);
+        fmt_int(n, (int32_t)k);
+        f = text_fits(&FONT_M, nm, 180) ? &FONT_M : &FONT_S;
+        cv_begin(240, SES_ROW_H, chosen ? C_WHITE : C_BLACK);
+        cv_text(6, (SES_ROW_H - (int32_t)FONT_S.h) / 2, &FONT_S, n, chosen ? C_BLACK : has ? C_PRE : C_GREY);
+        cv_text(56, (SES_ROW_H - (int32_t)f->h) / 2, f, nm, fg);
+        cv_rect(0, SES_ROW_H - 1, 240, 1, RGB(50, 50, 50));
+        cv_blit(0, 55 + SES_ROW_H * r);
+    }
+    ses_foot();
+}
 /* the SNAPSHOTS page: 1 .. 16 in four rows of four (as the white keys have them) -- holding a state, filled (the one
  * last stored or recalled in white); empty, a grey frame; the one framed in white (PRESETS, a key) */
 static void draw_snap_page(void)
@@ -2277,6 +2446,14 @@ static void ui_draw(void)
             ui.force = 1;
         ui.shown_page = 20;
         setup_draw();
+        ui.force = 0;
+        return;
+    }
+    if (ui.pre_page) {                           /* PRESETS (build 47) */
+        if (ui.shown_page != 21u)
+            ui.force = 1;
+        ui.shown_page = 21;
+        draw_pre_page();
         ui.force = 0;
         return;
     }

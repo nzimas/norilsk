@@ -43,11 +43,13 @@ function refresh() {
   ui.restore.disabled = busy || !device || !backup || !ui.agree.checked;
 }
 const SET_NUM = 1000;   // GLOBAL SETUP's settings (build 43)
-const what = (n) => (n === SET_NUM ? "The global setup" : `Session ${n}`);
+const PRE_NUM = 1001;   // the presets (build 47)
+const what = (n) => (n === SET_NUM ? "The global setup" : n === PRE_NUM ? "The presets" : `Session ${n}`);
 const describe = (recs) => {
-  const ses = recs.filter((r) => r.number !== SET_NUM).map((r) => r.number).sort((a, b) => a - b);
+  const ses = recs.filter((r) => r.number !== SET_NUM && r.number !== PRE_NUM).map((r) => r.number).sort((a, b) => a - b);
   const parts = [ses.length ? `${ses.length} session${ses.length > 1 ? "s" : ""} (${ses.join(", ")})` : "no sessions"];
   if (recs.some((r) => r.number === SET_NUM)) parts.push("global setup");
+  if (recs.some((r) => r.number === PRE_NUM)) parts.push("presets");
   return parts.join(", ");
 };
 const isNorilsk = (bytes) => MAGIC.every((m, i) => bytes[i] === m);
@@ -135,7 +137,7 @@ async function openFile() {
     const j = JSON.parse(await f.text());
     if (j.format !== "norilsk-backup" || !Array.isArray(j.records)) throw new Error("This is not a Norilsk backup file.");
     const recs = j.records.map((r) => ({ number: r.number, bytes: unb64(r.data) }));
-    if (recs.some((r) => !Number.isInteger(r.number) || ((r.number < 1 || r.number > 64) && r.number !== SET_NUM) || r.bytes.length < 32 || !isNorilsk(r.bytes)))
+    if (recs.some((r) => !Number.isInteger(r.number) || ((r.number < 1 || r.number > 64) && r.number !== SET_NUM && r.number !== PRE_NUM) || r.bytes.length < 32 || !isNorilsk(r.bytes)))
       throw new Error("The file is damaged.");
     backup = recs;
     ui.facts.hidden = false;

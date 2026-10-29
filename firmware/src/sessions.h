@@ -29,3 +29,11 @@ static void setup_press(int sh);
 static void setup_preset(int32_t s);
 static void setup_draw(void);
 static void midi_take(void);
+/* PRESETS (presets.c, build 47): their record's number, the slots, saved and loaded on a generator */
+#define PRE_NUM 1001u
+#define PRE_SLOTS 64u
+static int pre_has(uint32_t slot);
+static void pre_name(uint32_t slot, char *b, uint32_t nb);
+static int pre_save(uint32_t l, uint32_t slot);
+static int pre_load(uint32_t l, uint32_t slot);
+static void pre_scan(void);

@@ -16,7 +16,7 @@
  * and the website's backup page (docs/js/backup.js) use it. All in the main loop. */
 
 static int bk_wire(const uint8_t *p, uint32_t n);   /* one F0 .. F7 message to the host (main.c; host.c) */
-static void bk_done(uint32_t num) { ses_done(SES_OK, SD_SES, "RESTORED", num); }   /* (the screen says so: ui.c) */
+static void bk_done(uint32_t num) { ses_done(SES_OK, SD_SES, "RESTORED", num <= SES_SLOTS ? num : 0u); }   /* (the screen says so: ui.c) */
 
 #define BK_DATA 256u
 static struct {
@@ -129,7 +129,7 @@ static void bk_handle(const uint8_t *m, uint32_t d)
             bk_status(0x52u, 1u);
             return;
         }
-        if (len < sizeof(ses_head_t) || len > SES_NSECT * SES_SECT || ((num < 1u || num > SES_SLOTS) && num != SET_NUM)) {
+        if (len < sizeof(ses_head_t) || len > SES_NSECT * SES_SECT || ((num < 1u || num > SES_SLOTS) && num != SET_NUM && num != PRE_NUM)) {
             bk_status(0x52u, 2u);
             return;
         }
@@ -169,6 +169,8 @@ static void bk_handle(const uint8_t *m, uint32_t d)
             st = 5u;
         if (!st && bk.num == SET_NUM)
             setup_load();                        /* (GLOBAL SETUP's settings put back: in use at once) */
+        if (!st && bk.num == PRE_NUM)
+            pre_scan();                          /* (the presets put back: their names on the page) */
         bk.on = 0;
         ses_ext = 0;
         bk_status(0x54u, st);

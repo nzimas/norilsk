@@ -68,5 +68,6 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "ui.c"
 #include "sessions.c"
 #include "setup.c"
+#include "presets.c"
 #include "backup.c"
 #include "main.c"

@@ -55,16 +55,19 @@ enum { MF_METAL, MF_DRONE, MF_BRUIT, MF_IMPACT, MF_PULSE, MF_GLASS, MF_FORMANT, 
        MF_G3, MF_FURNACE = MF_G3, MF_HUM, MF_STATIC, MF_HOWL, MF_SCRAPE, MF_DATA, MF_ASH, MF_TUNNEL,
        MF_G4, MF_WIRE = MF_G4, MF_STEAM, MF_CHIMNEY, MF_GIRDER, MF_HULL,
        MF_G5, MF_DEPTHS = MF_G5, MF_AURORA, MF_PLANT,
-       MF_G6, MF_ORGAN = MF_G6, MF_CHOIR, MF_FOGHORN, MF_SWARM, MF_CORONA, MF_SUBSTRATE, MF_GLASSHARP, MF_OXIDE, MF_N };
+       MF_G6, MF_ORGAN = MF_G6, MF_CHOIR, MF_FOGHORN, MF_SWARM, MF_CORONA, MF_SUBSTRATE, MF_GLASSHARP, MF_OXIDE,
+       MF_G7, MF_ANVIL = MF_G7, MF_STAMP, MF_RIVET, MF_SHEET, MF_GEARS, MF_PISTON, MF_RATCHET, MF_FORGE, MF_N };
 #define MF_N_OLD MF_G3           /* the families generations 0 .. 2 know */
 #define MF_N_G3 MF_G4            /* .. and generation 3 */
 #define MF_N_G4 MF_G5            /* .. and generation 4 */
 #define MF_N_G5 MF_G6            /* .. and generation 5 */
+#define MF_N_G6 MF_G7            /* .. and generation 6 */
 static const char *const MF_NAME[MF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "PULSE", "GLASS", "FORMANT", "REED",
                                           "CLOUD", "SHATTER", "PULSAR", "FREEZE",
                                           "FURNACE", "HUM", "STATIC", "HOWL", "SCRAPE", "DATA", "ASH", "TUNNEL",
                                           "WIRE", "STEAM", "CHIMNEY", "GIRDER", "HULL", "DEPTHS", "AURORA", "PLANT",
-                                          "ORGAN", "CHOIR", "FOGHORN", "SWARM", "CORONA", "SUBSTRATE", "GLASSHARP", "OXIDE"};
+                                          "ORGAN", "CHOIR", "FOGHORN", "SWARM", "CORONA", "SUBSTRATE", "GLASSHARP", "OXIDE",
+                                          "ANVIL", "STAMP", "RIVET", "SHEET", "GEARS", "PISTON", "RATCHET", "FORGE"};
 /* the families' weights on each path (generation 0) */
 static const uint8_t MF_W[PATH_N][MF_N] = {
     {2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3},
@@ -187,7 +190,28 @@ typedef struct {
         uint8_t track;           /* how far its pitch follows the keys, % (0: the same at every key) */
         uint8_t rsv;
     } fs;
+    /* generation 7 (zero before it): struck -- a burst of noise into the body at each strike, the operators struck
+     * with it; once at the key (STRIKE), or again and again while it is held (MOTION: a machine running) */
+    struct {
+        uint8_t mode;            /* MC_NONE, MC_STRIKE, MC_MOTION */
+        uint8_t rate;            /* MOTION: strikes a second x 4 (1 .. 80) */
+        uint8_t jit;             /* .. each strike early or late, % of the period */
+        uint8_t drift;           /* .. the pace wandering, % */
+        uint8_t accn;            /* .. the strikes' pattern, 1 .. 8 long */
+        uint8_t pat;             /* .. bit k: strike k of it at full level, the others at SOFT */
+        uint8_t soft;            /* .. their level, % */
+        uint8_t flam;            /* .. the chance a strike bounces, % (a second strike, quieter, FLAM_MS later) */
+        uint8_t flam_ms;
+        uint8_t off;             /* .. a hiss halfway between strikes (steam let out): its level %, 0 none */
+        uint8_t off_ms;          /* .. its length, x 4 ms */
+        uint8_t click;           /* the burst: its length, ms (60 dB down) */
+        uint8_t color;           /* .. dark 0 .. bright 100 */
+        uint8_t level;           /* .. its level, % (into the body; half of it heard dry) */
+        uint8_t retrig;          /* the operators struck again with each strike */
+        uint8_t rsv;
+    } mc;
 } mo_design_t;
+enum { MC_NONE, MC_STRIKE, MC_MOTION };
 enum { BD_NONE, BD_TUBE, BD_MODAL };
 enum { EX_FM, EX_NOISE, EX_BOW };
 enum { BS_BAR, BS_PLATE, BS_BELL, BS_PIPE, BS_HULL, BS_N };
@@ -270,12 +294,20 @@ typedef struct {
     /* generation 5: the found sound the grains may read (this note's), the share, the rate (Q16, the keys' share) */
     uint8_t fclip, fshare;
     int32_t frate;
+    /* generation 7: the strikes -- the burst's level (Q15, falling by kdec a sample), its colour's low-pass and step;
+     * the hiss's the same; samples to the next strike, to the hiss, to a bounce; the period now (samples); where in
+     * the pattern; the pace's wander (Q15 around 1) */
+    int32_t kenv, kdec, klp, kcol, henv, hdec, hlp;
+    int32_t knext, khiss, kflam, kper, kwand, kflev;
+    int32_t kog, kot;            /* the operators' level as it glides, and where to (Q15: a soft strike quieter) */
+    uint8_t kstep, krsv[3];
     uint8_t buf[MO_GR_N];
 } mo_voice_t;
 
 /* ------------------------------------------------------------ the voice --- */
 static void mo_hand_start(mo_voice_t *v, const mo_design_t *d);   /* (generation 3: below) */
 static void mo_body_start(mo_voice_t *v, const mo_design_t *d);   /* (generation 4: below) */
+static void mo_strike_start(mo_voice_t *v, const mo_design_t *d);   /* (generation 7: below) */
 static void mo_env_adsr(const mo_design_t *d, int32_t *a);
 static void mo_note_on(mo_voice_t *v, const mo_design_t *d, int32_t note, int fresh)
 {
@@ -310,6 +342,7 @@ static void mo_note_on(mo_voice_t *v, const mo_design_t *d, int32_t note, int fr
     v->live = 1;
     v->g3 = (uint8_t)(d->gen >= 3u);
     mo_body_start(v, d);                         /* (generation 4: the body, tuned to the note; off before) */
+    mo_strike_start(v, d);                       /* (generation 7: the first strike; none before) */
     v->fclip = (uint8_t)(d->gen >= 5u && d->fs.clip <= FC_N ? d->fs.clip : 0u);   /* (generation 5: a found sound) */
     v->fshare = d->fs.share;
     v->frate = v->fclip ? (int32_t)exp2_q16((v->note - 60) * 65536 / 12 * clampi(d->fs.track, 0, 100) / 100) : Q16;
@@ -1053,8 +1086,8 @@ static void mo_body_start(mo_voice_t *v, const mo_design_t *d)
         }
     }
 }
-/* the body over the operators' sound y (Q15), in place */
-static FAST void mo_body_run(mo_voice_t *v, const mo_design_t *d, int32_t *y)
+/* the body over the operators' sound y (Q15), in place; kb: generation 7's strikes into it (0: none) */
+static FAST void mo_body_run(mo_voice_t *v, const mo_design_t *d, int32_t *y, const int32_t *kb)
 {
     uint32_t i, k;
     int32_t ex = d->bd.ex, bpk = 0;
@@ -1079,7 +1112,7 @@ static FAST void mo_body_run(mo_voice_t *v, const mo_design_t *d, int32_t *y)
         src = ex == EX_FM ? fm : nz;
         if (d->bd.body == BD_MODAL) {            /* (the operators into the modes with a breath of noise beside them, a
                                                   * quarter of their level: so the modes sound whatever the partials) */
-            int32_t in23 = ex == EX_FM ? fm * 256 : 0, nz23 = (ex == EX_FM ? nz / 4 : nz) * 256, acc = 0;
+            int32_t in23 = ex == EX_FM ? fm * 256 : 0, nz23 = ((ex == EX_FM ? nz / 4 : nz) + (kb ? kb[i] : 0)) * 256, acc = 0;
             for (k = 0; k < v->bnm; k++) {
                 int64_t m = (int64_t)v->ma1[k] * v->my1[k] - (int64_t)v->ma2[k] * v->my2[k];
                 int32_t yk = (int32_t)(m < 0 ? -((-m) >> 29) : m >> 29) + (int32_t)(((int64_t)in23 * v->mg[k]) >> 30) +
@@ -1145,7 +1178,7 @@ static FAST void mo_body_run(mo_voice_t *v, const mo_design_t *d, int32_t *y)
             fb = mulz15(t, v->bg);
             if (v->bclosed)
                 fb = -fb;
-            e = mulq15(src, v->bkin);
+            e = mulq15(src + (kb ? kb[i] : 0), v->bkin);
             v->bline[v->bw] = (int16_t)clampi(fb + e, -32767, 32767);
             if (++v->bw >= MO_BD_N)
                 v->bw = 0;
@@ -1161,6 +1194,93 @@ static FAST void mo_body_run(mo_voice_t *v, const mo_design_t *d, int32_t *y)
         v->blp = v->bapx = v->bapy = v->bhx = v->bhy = 0;
         for (k = 0; k < 6u; k++)
             v->my1[k] = v->my2[k] = 0;
+    }
+}
+
+/* ---------------------------------------------------------- generation 7 --- *
+ * Struck sounds: a strike is a burst of coloured noise, falling 60 dB in CLICK ms, into the body (the modes ring, the
+ * tube booms) with half of it heard dry, and the operators struck with it (their envelopes from the top, RETRIG).
+ * STRIKE: one at the key. MOTION: a machine -- strikes again and again while the key is held, at RATE, each early or
+ * late by JIT, the pace wandering by DRIFT; a pattern of ACCN strikes, those of PAT full, the others at SOFT; now and
+ * then a bounce (FLAM); a hiss of steam halfway between strikes (OFF). Let go: no more strikes, the body rings out.
+ * Nothing in it moves the pitch */
+static void mo_strike_start(mo_voice_t *v, const mo_design_t *d)
+{
+    int32_t ms;
+    v->kenv = v->henv = v->kflam = v->khiss = 0;
+    v->kog = v->kot = Q15;
+    if (d->gen < 7u || !d->mc.mode)
+        return;
+    if (!v->bdon)
+        rnd_seed(&v->brnd, d->seed ^ 0x4B4E4F43u ^ (uint32_t)v->note * 2654435761u);
+    ms = clampi(d->mc.click, 1, 60);
+    v->kdec = (int32_t)(exp2_q16(-(int32_t)(6531317u / (uint32_t)(ms * 441))) >> 1);   /* 60 dB in ms, a sample */
+    ms = clampi(d->mc.off_ms, 1, 125) * 4;
+    v->hdec = (int32_t)(exp2_q16(-(int32_t)(6531317u / (uint32_t)(ms * 441))) >> 1);
+    v->kcol = 1500 + clampi(d->mc.color, 0, 100) * 285;
+    v->kper = (int32_t)(FS * 4u / (uint32_t)clampi(d->mc.rate, 1, 80));
+    v->kwand = Q15;
+    v->kstep = 0;
+    v->kenv = d->mc.level * 327;                 /* (the first strike: at the key, full) */
+    v->knext = v->kper;
+    v->khiss = d->mc.mode == MC_MOTION && d->mc.off ? v->kper / 2 : 0;
+}
+/* a strike at level lev (Q15) */
+AINL void mo_strike(mo_voice_t *v, const mo_design_t *d, int32_t lev)
+{
+    uint32_t k;
+    v->kenv = mulq15(lev, d->mc.level * 327);
+    v->kot = maxi(lev, Q15 / 8);
+    if (d->mc.retrig) {
+        for (k = 0; k < 6u; k++) {
+            v->n.env[k].down = 1;
+            fm6_env_advance(&v->n.env[k], d->p + k * FP_OP, 0);
+        }
+        v->fm_done = 0;
+    }
+}
+/* this block's strikes: the machine's clock (MOTION, the key held), the bursts into kb, the hiss into hb */
+static FAST void mo_strikes(mo_voice_t *v, const mo_design_t *d, int32_t *kb, int32_t *hb)
+{
+    uint32_t i;
+    if (d->mc.mode == MC_MOTION && (v->n.down || v->hold)) {
+        if ((v->knext -= (int32_t)CTL) <= 0) {
+            int32_t per = mulq15(v->kper, v->kwand), lev, dr = d->mc.drift * 328;
+            if (++v->kstep >= maxi(d->mc.accn, 1))
+                v->kstep = 0;
+            lev = (d->mc.pat >> v->kstep) & 1u ? Q15 : d->mc.soft * 327;
+            lev -= mulq15(lev, rnd_q15(&v->brnd) >> 3);   /* (no two strikes alike: up to 12 % under) */
+            mo_strike(v, d, lev);
+            v->kwand = clampi(v->kwand + mulq15(rnd_bi(&v->brnd), d->mc.drift * 82), Q15 - dr, Q15 + dr);
+            v->knext = maxi(v->knext + per + mulq15(per * d->mc.jit / 100, rnd_bi(&v->brnd)), (int32_t)CTL);
+            if (d->mc.off)
+                v->khiss = per / 2;
+            if (d->mc.flam && rnd_chance(&v->brnd, d->mc.flam)) {
+                v->kflam = d->mc.flam_ms * 44;
+                v->kflev = lev * 5 / 8;
+            }
+        }
+        if (v->khiss > 0 && (v->khiss -= (int32_t)CTL) <= 0)
+            v->henv = d->mc.off * 327;
+        if (v->kflam > 0 && (v->kflam -= (int32_t)CTL) <= 0)
+            mo_strike(v, d, v->kflev);
+    }
+    v->kog += (v->kot - v->kog) >> 1;
+    for (i = 0; i < CTL; i++) {
+        int32_t b = 0, h = 0;
+        if (v->kenv > 8) {
+            v->klp += mulz15(rnd_bi(&v->brnd) - v->klp, v->kcol);
+            b = mulq12(mulq15(v->klp, v->kenv), d->gain);
+            v->kenv = mulq15(v->kenv, v->kdec);
+        }
+        if (v->henv > 8) {                       /* (the hiss: bright, its low end taken off) */
+            int32_t n = rnd_bi(&v->brnd);
+            h = mulq12(mulq15(n - v->hlp, v->henv), d->gain) >> 2;
+            v->hlp += (n - v->hlp) >> 3;
+            v->henv = mulq15(v->henv, v->hdec);
+        }
+        kb[i] = b;
+        hb[i] = h;
     }
 }
 
@@ -1246,8 +1366,18 @@ static FAST int mo_render(mo_voice_t *v, const mo_design_t *d, int32_t *out, con
             }
         }
     }
-    if (v->bdon)
-        mo_body_run(v, d, y);                    /* (generation 4: the exciter and the body) */
+    if (d->gen >= 7u && d->mc.mode) {            /* (generation 7: the strikes, into the body and heard dry) */
+        int32_t kb[CTL], hb[CTL];
+        mo_strikes(v, d, kb, hb);
+        if (v->kog != Q15)
+            for (i = 0; i < CTL; i++)
+                y[i] = mulq15(y[i], v->kog);
+        if (v->bdon)
+            mo_body_run(v, d, y, kb);
+        for (i = 0; i < CTL; i++)
+            y[i] += (kb[i] >> 1) + hb[i];
+    } else if (v->bdon)
+        mo_body_run(v, d, y, 0);                 /* (generation 4: the exciter and the body) */
     if (d->gen >= 3u && (d->grit.bits | d->grit.hold | d->grit.logic | d->grit.stut | (uint32_t)v->hoff[HD_GLITCH]))
         mo_grit(v, d, y);                        /* (generation 3: Russolo's grit) */
     mo_grains(v, gr, y, out, gmac, motion);
@@ -2478,6 +2608,213 @@ static void mo_timbre6(mo_design_t *d, rnd_t *r)
             }
         }
 }
+/* generation 7's families: industrial percussion -- metal struck, never a drum. Each sets its operators anew over a
+ * borrowed body's (METAL: its draws kept, so the seeds stay apart), struck: they fall away while the key is held. A
+ * body after them rings; the strikes drive it (mo_strikes). No swell, no hand: a strike is the sound
+ *   ANVIL     a hammer on an anvil: bright inharmonic partials, a bar or a plate ringing a second or two
+ *   STAMP     a press coming down: a low thud into a closed tube, a dark burst, short
+ *   RIVET     a rivet gun's single shot: high, small, a plate, very short
+ *   SHEET     a metal sheet struck: crowded modes of a hull, wobbling, longer
+ *   GEARS     gears turning: quick ticks on a small plate, a pattern of teeth, the pace wandering a little
+ *   PISTON    a piston: a slow thump into a closed tube and a hiss of steam between
+ *   RATCHET   a ratchet, a chain: irregular clatter on a bar or a bell, bounces
+ *   FORGE     a drop hammer: slow heavy anvil strikes, each bouncing, ringing long */
+static int mo_fam7_body(int32_t f, rnd_t *r)
+{
+    (void)f;
+    (void)r;
+    return MF_METAL;
+}
+/* operator op struck: up at once, down to l2 at rate r2, on to nothing at r3 (held or not), r4 let go */
+static void mo_struck(uint8_t *op, int r2, int l2, int r3, int r4)
+{
+    mo_env(op, 99, r2, r3, r4, 99, l2, 0, 0);
+}
+/* the operators of a struck metal: carriers on bell ratios (x 2 bright), modulators at an index that dies first */
+static void mo_ops7(mo_design_t *d, rnd_t *r, int lo, int hi, int bright, int r2, int r3, int idx)
+{
+    uint8_t *p = d->p;
+    int n;
+    p[FP_ALG] = mo_alg(r, lo, hi);
+    for (n = 1; n <= 6; n++) {
+        uint8_t *op = mo_op(p, n);
+        if (mo_is_carrier(p, n)) {
+            int32_t ratio = INHARM[rnd_below(r, 12)] * (rnd_chance(r, bright) ? 2 : 1);
+            mo_ratio(op, ratio);
+            op[FP_OL] = (uint8_t)clampi(rnd_in(r, 86, 99) - (ratio - 100) / 40, 50, 99);
+            mo_struck(op, clampi(r2 + rnd_in(r, -8, 8) + (ratio > 300 ? 10 : 0), 1, 99), rnd_in(r, 20, 60),
+                      clampi(r3 + rnd_in(r, -8, 8), 1, 99), rnd_in(r, 40, 70));
+            op[FP_DET] = (uint8_t)rnd_in(r, 3, 11);
+            if (rnd_chance(r, 40))
+                mo_bellwave(mo_wsel(d, n), r);
+        } else {
+            mo_ratio(op, rnd_chance(r, 50) ? INHARM[rnd_below(r, 12)] : rnd_in(r, 150, 900));
+            op[FP_OL] = (uint8_t)clampi(idx + rnd_in(r, -10, 10), 0, 99);
+            mo_struck(op, clampi(r2 + 20 + rnd_in(r, 0, 15), 1, 99), rnd_in(r, 0, 30), 60, 70);
+        }
+    }
+    p[FP_FB] = (uint8_t)rnd_in(r, 1, 5);
+    p[FP_LAMD] = 0;
+    p[FP_LPMD] = 0;
+}
+static void mo_fam7(mo_design_t *d, int32_t f, rnd_t *r)
+{
+    uint8_t *p = d->p;
+    mo_defaults(d);
+    d->bd.body = BD_MODAL;
+    d->bd.ex = EX_FM;
+    d->bd.ratio = 8;
+    d->mc.retrig = 1;
+    d->mc.accn = 1;
+    d->mc.pat = 1;
+    switch (f) {
+    case MF_ANVIL:
+        mo_ops7(d, r, 2, 4, 50, 35, 30, 70);
+        d->bd.set = (uint8_t)(rnd_chance(r, 50) ? BS_BAR : BS_PLATE);
+        d->bd.ratio = (uint8_t)rnd_in(r, 8, 16);
+        d->bd.ring = (uint8_t)rnd_in(r, 8, 20);
+        d->bd.spread = (uint8_t)rnd_in(r, 10, 60);
+        d->bd.dry = (uint8_t)rnd_in(r, 40, 70);
+        d->mc.mode = MC_STRIKE;
+        d->mc.click = (uint8_t)rnd_in(r, 2, 6);
+        d->mc.color = (uint8_t)rnd_in(r, 70, 100);
+        d->mc.level = (uint8_t)rnd_in(r, 50, 90);
+        break;
+    case MF_STAMP:
+        mo_ops7(d, r, 1, 2, 0, 55, 45, 60);
+        mo_ratio(mo_op(p, 1), rnd_chance(r, 50) ? 50 : 100);
+        d->bd.body = BD_TUBE;
+        d->bd.ex = EX_NOISE;
+        d->bd.closed = 1;
+        d->bd.ratio = (uint8_t)rnd_in(r, 4, 8);
+        d->bd.ring = (uint8_t)rnd_in(r, 3, 8);
+        d->bd.tone = (uint8_t)rnd_in(r, 15, 50);
+        d->bd.disp = (uint8_t)rnd_in(r, 0, 60);
+        d->bd.color = (uint8_t)rnd_in(r, 10, 40);
+        d->bd.dry = (uint8_t)rnd_in(r, 40, 80);
+        d->mc.mode = MC_STRIKE;
+        d->mc.click = (uint8_t)rnd_in(r, 10, 30);
+        d->mc.color = (uint8_t)rnd_in(r, 5, 40);
+        d->mc.level = (uint8_t)rnd_in(r, 70, 100);
+        break;
+    case MF_RIVET:
+        mo_ops7(d, r, 2, 3, 80, 65, 55, 55);
+        d->bd.set = BS_PLATE;
+        d->bd.ratio = (uint8_t)rnd_in(r, 12, 16);
+        d->bd.ring = (uint8_t)rnd_in(r, 3, 6);
+        d->bd.spread = (uint8_t)rnd_in(r, 20, 80);
+        d->bd.dry = (uint8_t)rnd_in(r, 30, 60);
+        d->mc.mode = MC_STRIKE;
+        d->mc.click = (uint8_t)rnd_in(r, 1, 3);
+        d->mc.color = (uint8_t)rnd_in(r, 80, 100);
+        d->mc.level = (uint8_t)rnd_in(r, 60, 100);
+        break;
+    case MF_SHEET:
+        mo_ops7(d, r, 3, 5, 30, 30, 32, 50);
+        p[FP_LFW] = 0;                           /* (a wobble: the sheet's level, a triangle, 3 .. 7 Hz) */
+        p[FP_LFS] = (uint8_t)rnd_in(r, 45, 65);
+        p[FP_LAMD] = (uint8_t)rnd_in(r, 20, 50);
+        p[FP_LFD] = 0;
+        {
+            int n;
+            for (n = 1; n <= 6; n++)
+                if (mo_is_carrier(p, n))
+                    mo_op(p, n)[FP_AMS] = 2;
+        }
+        d->bd.set = BS_HULL;
+        d->bd.ratio = (uint8_t)rnd_in(r, 6, 12);
+        d->bd.ring = (uint8_t)rnd_in(r, 15, 25);
+        d->bd.spread = (uint8_t)rnd_in(r, 40, 90);
+        d->bd.dry = (uint8_t)rnd_in(r, 30, 60);
+        d->mc.mode = MC_STRIKE;
+        d->mc.click = (uint8_t)rnd_in(r, 5, 15);
+        d->mc.color = (uint8_t)rnd_in(r, 40, 80);
+        d->mc.level = (uint8_t)rnd_in(r, 50, 90);
+        break;
+    case MF_GEARS:
+        mo_ops7(d, r, 2, 3, 70, 75, 60, 50);
+        d->bd.set = (uint8_t)(rnd_chance(r, 60) ? BS_PLATE : BS_BAR);
+        d->bd.ratio = (uint8_t)rnd_in(r, 10, 16);
+        d->bd.ring = (uint8_t)rnd_in(r, 3, 6);
+        d->bd.spread = (uint8_t)rnd_in(r, 10, 60);
+        d->bd.dry = (uint8_t)rnd_in(r, 30, 60);
+        d->mc.mode = MC_MOTION;
+        d->mc.rate = (uint8_t)rnd_in(r, 24, 72);  /* (6 .. 18 a second) */
+        d->mc.jit = (uint8_t)rnd_in(r, 2, 8);
+        d->mc.drift = (uint8_t)rnd_in(r, 3, 12);
+        d->mc.accn = (uint8_t)rnd_in(r, 3, 7);
+        d->mc.pat = (uint8_t)(1u | rnd_below(r, 256));
+        d->mc.soft = (uint8_t)rnd_in(r, 30, 65);
+        d->mc.click = (uint8_t)rnd_in(r, 1, 4);
+        d->mc.color = (uint8_t)rnd_in(r, 60, 100);
+        d->mc.level = (uint8_t)rnd_in(r, 50, 90);
+        break;
+    case MF_PISTON:
+        mo_ops7(d, r, 1, 2, 0, 55, 45, 55);
+        mo_ratio(mo_op(p, 1), rnd_chance(r, 50) ? 50 : 100);
+        d->bd.body = BD_TUBE;
+        d->bd.ex = EX_NOISE;
+        d->bd.closed = 1;
+        d->bd.ratio = (uint8_t)rnd_in(r, 4, 8);
+        d->bd.ring = (uint8_t)rnd_in(r, 3, 6);
+        d->bd.tone = (uint8_t)rnd_in(r, 15, 45);
+        d->bd.color = (uint8_t)rnd_in(r, 10, 40);
+        d->bd.dry = (uint8_t)rnd_in(r, 40, 80);
+        d->mc.mode = MC_MOTION;
+        d->mc.rate = (uint8_t)rnd_in(r, 3, 12);   /* (0.75 .. 3 a second) */
+        d->mc.jit = (uint8_t)rnd_in(r, 2, 6);
+        d->mc.drift = (uint8_t)rnd_in(r, 2, 8);
+        d->mc.accn = 2;
+        d->mc.pat = (uint8_t)(rnd_chance(r, 50) ? 3 : 1);
+        d->mc.soft = (uint8_t)rnd_in(r, 50, 80);
+        d->mc.off = (uint8_t)rnd_in(r, 35, 80);
+        d->mc.off_ms = (uint8_t)rnd_in(r, 20, 60);   /* (80 .. 240 ms) */
+        d->mc.click = (uint8_t)rnd_in(r, 15, 40);
+        d->mc.color = (uint8_t)rnd_in(r, 5, 35);
+        d->mc.level = (uint8_t)rnd_in(r, 70, 100);
+        break;
+    case MF_RATCHET:
+        mo_ops7(d, r, 2, 4, 50, 65, 55, 60);
+        d->bd.set = (uint8_t)(rnd_chance(r, 50) ? BS_BAR : BS_BELL);
+        d->bd.ratio = (uint8_t)rnd_in(r, 8, 14);
+        d->bd.ring = (uint8_t)rnd_in(r, 4, 10);
+        d->bd.spread = (uint8_t)rnd_in(r, 20, 80);
+        d->bd.dry = (uint8_t)rnd_in(r, 30, 60);
+        d->mc.mode = MC_MOTION;
+        d->mc.rate = (uint8_t)rnd_in(r, 12, 48);  /* (3 .. 12 a second) */
+        d->mc.jit = (uint8_t)rnd_in(r, 20, 45);
+        d->mc.drift = (uint8_t)rnd_in(r, 15, 35);
+        d->mc.accn = (uint8_t)rnd_in(r, 2, 5);
+        d->mc.pat = (uint8_t)(1u | rnd_below(r, 256));
+        d->mc.soft = (uint8_t)rnd_in(r, 25, 60);
+        d->mc.flam = (uint8_t)rnd_in(r, 10, 35);
+        d->mc.flam_ms = (uint8_t)rnd_in(r, 15, 40);
+        d->mc.click = (uint8_t)rnd_in(r, 2, 8);
+        d->mc.color = (uint8_t)rnd_in(r, 50, 90);
+        d->mc.level = (uint8_t)rnd_in(r, 50, 90);
+        break;
+    default:                                     /* FORGE */
+        mo_ops7(d, r, 2, 4, 40, 30, 25, 70);
+        d->bd.set = (uint8_t)(rnd_chance(r, 50) ? BS_BAR : BS_PLATE);
+        d->bd.ratio = (uint8_t)rnd_in(r, 6, 12);
+        d->bd.ring = (uint8_t)rnd_in(r, 10, 20);
+        d->bd.spread = (uint8_t)rnd_in(r, 10, 50);
+        d->bd.dry = (uint8_t)rnd_in(r, 40, 70);
+        d->mc.mode = MC_MOTION;
+        d->mc.rate = (uint8_t)rnd_in(r, 1, 5);    /* (0.25 .. 1.25 a second) */
+        d->mc.jit = (uint8_t)rnd_in(r, 5, 25);
+        d->mc.drift = (uint8_t)rnd_in(r, 5, 20);
+        d->mc.accn = 2;
+        d->mc.pat = (uint8_t)(rnd_chance(r, 50) ? 3 : 1);
+        d->mc.soft = (uint8_t)rnd_in(r, 55, 85);
+        d->mc.flam = (uint8_t)rnd_in(r, 30, 60);
+        d->mc.flam_ms = (uint8_t)rnd_in(r, 60, 120);
+        d->mc.click = (uint8_t)rnd_in(r, 3, 8);
+        d->mc.color = (uint8_t)rnd_in(r, 60, 95);
+        d->mc.level = (uint8_t)rnd_in(r, 60, 95);
+        break;
+    }
+}
 /* the hand drawn: most sounds of generation 3 have one; what it moves leans on the family (the glitchy ones' speed
  * on their glitches, the dark ones' age on the cloud's darkness); paced by the path (AMBIENT slower) */
 static void mo_hand_draw(mo_design_t *d, int32_t f, uint32_t path, rnd_t *r)
@@ -2543,7 +2880,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     d->gen = (uint8_t)gen;
     d->gain = 4096;
     mo_defaults(d);
-    if (f >= MF_G6)                                      /* (generation 6's families: a body borrowed) */
+    if (f >= MF_G7)                                      /* (generation 7's families: a body borrowed) */
+        body = mo_fam7_body(f, r);
+    else if (f >= MF_G6)                                 /* (generation 6's families: a body borrowed) */
         body = mo_fam6_body(f, r);
     else if (f >= MF_G5)                                 /* (generation 5's families: a body borrowed) */
         body = mo_fam5_body(f, r);
@@ -2571,7 +2910,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     case MF_PULSAR: mo_pulsar(&d->gr, r); break;
     case MF_FREEZE: mo_freeze(&d->gr, r); break;
     default:
-        if (f >= MF_G6)
+        if (f >= MF_G7)
+            mo_fam7(d, f, r);
+        else if (f >= MF_G6)
             mo_fam6(d, f, r);
         else if (f >= MF_G5)
             mo_fam5(d, f, r);
@@ -2585,7 +2926,11 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     d->gr_def.freeze_ms = 0;
     d->gr_def.mix = 100;
     d->gr_def.atk_ms = 20;
-    if (path == PATH_AMBIENT) {
+    if (f >= MF_G7) {                                    /* (generation 7: struck -- the path's slow attacks, its
+                                                          * mutations, its swell kept off; EXPERIMENTAL's drive kept) */
+        if (path == PATH_EXP)
+            mo_experimental(d, r);
+    } else if (path == PATH_AMBIENT) {
         mo_ambient(d, r);
         if (rnd_chance(r, 15))
             mo_mutate(d, r);
@@ -2598,9 +2943,9 @@ static void mo_design(mo_design_t *d, int32_t f, uint32_t seed, uint32_t path, u
     } else if (rnd_chance(r, 33))
         mo_mutate(d, r);
     mo_care(d, r);
-    if (gen >= 2u)
+    if (gen >= 2u && f < MF_G7)
         mo_gen2(d, r);
-    if (gen >= 3u) {                                     /* generation 3: the hand; the older families' grit */
+    if (gen >= 3u && f < MF_G7) {                        /* generation 3: the hand; the older families' grit */
         if (f < MF_G3)
             mo_grit_draw(d, path, r);
         mo_hand_draw(d, f, path, r);

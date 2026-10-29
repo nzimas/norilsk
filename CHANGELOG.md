@@ -2,6 +2,44 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 47 (2026-10-29): presets; industrial percussion on the MACHINE path
+
+- **PRESETS** (Tonitor's; `firmware/src/presets.c`): hold SHIFT, hold ARP 0.8 s. 64 slots for the generator being
+  played. A preset is one generator's patch: its sound (family, seed, path, generation, level), its lane (effects,
+  values, outs, return), its cable into the lane, DISINTEGRATOR and FX MIX. Not level, pan, sends, modulation or mute.
+  Named by family and numbered within it in slot order (ANVIL 1, ANVIL 2). PRESETS chooses; ARP or SAVE loads and goes
+  back to playing; held, saves (over a full slot: OVERWRITE?, NO first); SHIFT + ARP, SHIFT + SAVE or a slot button
+  leaves. A preset loads into any generator, in that generator's lane. One record of the store (number 1001, 3.6 KiB),
+  written as GLOBAL SETUP's is; the web backup and `tools/fm1_sessions.py` carry it. SHIFT + ARP let go at once still
+  draws a root and a scale.
+- **MACHINE path** on the 4th black key (playing; with PLAY held it is still REVERSE): HOME on a generator draws only
+  the struck families below; on an effect slot, recipes that suit a strike (rooms, echoes, metal resonances, crushing;
+  not frozen clouds or smoke). One path at a time, kept with the session and snapshots. The struck families are never
+  drawn on the other paths.
+- **Engine generation 7**: struck sound. A strike is a burst of coloured noise (1 to 60 ms) into the body, half of it
+  heard dry, with the operators struck from the top of their envelopes; they fall away while the key is held. Eight
+  families, industrial percussion, no drums:
+  - struck once per key: **ANVIL** (bright inharmonic partials, a bar or plate), **STAMP** (a press: low thud into a
+    closed tube), **RIVET** (high, small, very short), **SHEET** (a hull's crowded modes, wobbling);
+  - machines, striking again and again while the key is held: **GEARS** (6 to 18 ticks a second in a pattern of 3 to
+    7 teeth), **PISTON** (a thump every 0.3 to 1.3 s and a hiss of steam between), **RATCHET** (irregular clatter, 3 to
+    12 a second, bounces), **FORGE** (a drop hammer every 0.8 to 4 s, bouncing, ringing long). Each strike early or
+    late, the pace wandering, soft strikes up to 12 % apart: no tempo, no sequence. Let go: no more strikes, the body
+    rings out.
+  Nothing in it moves the pitch. Older families draw as before (golden hashes of generations 0 to 6 unchanged). On
+  the host the struck families cost less than the held ones (290 to 450 ns a block against 480 to 830).
+- Tests: `host struck` (each struck family heard at once, a single strike falling away while held, a machine striking
+  through every 5 s held, all quiet 3 s after letting go), `host presets` (the gestures, save, names, load into another
+  lane, the question, a restart), the PRESETS pages in `host paint` and `build/screens`, golden generation 7. `host
+  sustain` leaves the struck families out.
+- **Fixed: a FOLD into a FOLD into a FILTER could hold a faint DC (-56 dB) for ever after its input stopped**, against
+  the rule that every effect falls silent. FOLD's tone filter now rounds towards zero; FILTER lets go of its state
+  after 1.5 s with nothing in (its longest ring is 60 dB down in 0.9 s). Found by `host twins` once its draws moved
+  with the new path. The test runner now stops on a failing test whose output it shortens (`set -o pipefail`): `host
+  twins` had printed the FAIL without stopping the run, and so had `host paths`, whose list of ABRASIVE's families
+  ended at the first twenty (it reads the path's own lean now: 268 of 300 draws abrasive; MACHINE: 300 of 300 struck,
+  none off it).
+
 ## Build 46 (2026-10-29): the logo on the splash screen
 
 - **The splash** shows the logo as Tonitor's does: the mark (the three stacks, their fumes, their red reflection) large

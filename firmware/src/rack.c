@@ -130,7 +130,7 @@ AINL int32_t mu_dec8(uint8_t b) { return gr_dec(b); }
 /* (build 32: an effect's values from its knobs are worked out when the knobs move, not every block -- the same
  * numbers; key: the knobs packed, have: worked out once) */
 AINL uint32_t p_key(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-typedef struct { svf_t f; uint32_t key, have; svf_c c; int32_t type, drive, comp; } m_flt_t;
+typedef struct { svf_t f; uint32_t key, have; svf_c c; int32_t type, drive, comp; uint32_t still; } m_flt_t;
 static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
 {
     int32_t type, drive, comp;
@@ -154,6 +154,11 @@ static void m_flt(const uint8_t *p, m_flt_t *s, int32_t *x)
         for (i = 0; i < CTL; i++)
             any |= (uint32_t)x[i];
         if (!any && absi(s->f.ic1) < 128 && absi(s->f.ic2) < 128)
+            s->f.ic1 = s->f.ic2 = 0;
+        s->still = any ? 0u : s->still + 1u;            /* (build 47: nothing in for 1.5 s -- the longest ring, Q 12 at
+                                                             * 30 Hz, 60 dB down in 0.9 s -- and a rounding's fixed point
+                                                             * above that let go too) */
+        if (s->still >= 2067u)
             s->f.ic1 = s->f.ic2 = 0;
     }
     for (i = 0; i < CTL; i++) {
@@ -204,7 +209,8 @@ static void m_fld(const uint8_t *p, m_fld_t *s, int32_t *x)
         int32_t y = fold_into(mulq12(x[i], g1), w, rp);
         y = fold_into(mulq12(y, g2), w, rp);
         y = mulq15(y, back > 4 * Q15 ? 4 * Q15 : back);
-        s->lp += mulq15(y - s->lp, tone);
+        s->lp += mulz15(y - s->lp, tone);        /* (towards zero: nothing in, it settles at 0, not a step under it --
+                                                  * build 47: a FOLD after a FOLD made that step heard) */
         x[i] = s->lp;
     }
 }
@@ -1840,7 +1846,8 @@ typedef char rack_sum_three[NFX == 3 ? 1 : -1];
  * ambient, drones -- the quiet, wide scenes and families, nothing harsh, a little quieter, the spaces and the ringing
  * recipes, the values darker and less driven. The sounds themselves are drawn by the engine as ever (mol.c): the path
  * chooses among them */
-enum { DP_ANY, DP_ROUGH, DP_DARK, DP_N };
+enum { DP_ANY, DP_ROUGH, DP_DARK, DP_MACHINE, DP_N };   /* (MACHINE, build 47: the struck families alone -- industrial
+                                                           * percussion -- and the recipes that suit a strike) */
 static uint8_t draw_path;
 /* The signal flow: LANES, the only one from build 36 (MESH, from build 28 to 35, a session's other MODE -- a generator
  * cabled into any effect, effects across slots -- is gone): generator l runs through effect slot l alone, its lane:
@@ -1867,6 +1874,11 @@ static const uint8_t FR_W_ROUGH[FR_N] = {0, 1, 3, 1, 6, 1, 2, 1, 6, 4, 6, 6, 6, 
                                          3, 6, 3, 5, 6, 2, 6, 5, 1, 4, 3, 6, 5, 6};
 static const uint8_t FR_W_DARK[FR_N] = {6, 5, 1, 4, 1, 6, 4, 5, 0, 0, 2, 0, 0, 0, 6, 0, 6, 0, 0, 4, 4, 0, 6, 0,
                                         3, 0, 5, 1, 0, 5, 0, 1, 6, 2, 4, 0, 1, 0};
+static const uint8_t FR_W_MACHINE[FR_N] = {4, 4, 6, 3, 3, 1, 2, 5, 3, 2, 4, 6, 4, 2, 3, 5, 0, 1, 6, 5, 1, 4, 1, 2,
+                                           2, 3, 1, 5, 3, 4, 5, 2, 0, 4, 3, 4, 3, 3};   /* (build 47: the rooms, the
+                                                  * echoes, the metal resonances, the crushed and torn; not the frozen
+                                                  * clouds and smoke that would hold a strike into a drone) */
+typedef char fr_w_machine_whole[sizeof FR_W_MACHINE == FR_N ? 1 : -1];
 /* an effect's value v (0 .. 100 within lo .. hi) leant the path's way */
 static int32_t fx_lean(uint32_t role, int32_t v, int32_t lo, int32_t hi)
 {
@@ -1974,7 +1986,8 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
     f->seed = seed;
     f->serial = ++fx_serial;
     f->recipe = (uint8_t)(recipe >= 0 && recipe < FR_N ? recipe
-                          : (int32_t)rnd_weighted(r, draw_path == DP_ROUGH ? FR_W_ROUGH : draw_path == DP_DARK ? FR_W_DARK : FR_W,
+                          : (int32_t)rnd_weighted(r, draw_path == DP_ROUGH ? FR_W_ROUGH : draw_path == DP_DARK ? FR_W_DARK
+                                                     : draw_path == DP_MACHINE ? FR_W_MACHINE : FR_W,
                                                   FR_N));
     for (k = 0; k < FX_N; k++) {
         uint32_t can = FR_PLACE[f->recipe][k], m, nc = 0;   /* (a bit an effect, FX_OPT the top one) */

@@ -164,6 +164,7 @@ static void audio_worker_check(void) {}
 #include "ui.c"
 #include "sessions.c"
 #include "setup.c"
+#include "presets.c"
 #include "backup.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
@@ -538,7 +539,7 @@ static int cmd_sustain(void)
     int f, s, path, fails = 0, n = 0, still = 0;
     int32_t blk[CTL];
     for (path = 0; path < PATH_N; path++)
-        for (f = 0; f < MF_N; f++)
+        for (f = 0; f < MF_G7; f++)                      /* (generation 7's struck families: host struck) */
             for (s = 0; s < 20; s++) {
                 uint32_t seed = 9000u + (uint32_t)f * 173u + (uint32_t)s * 11u + (uint32_t)path * 1301u, b, i;
                 double w[NW] = {0}, br[NW] = {0}, mx = 0, held = 0, lo = 1e30, hi = 0, blo = 1e30, bhi = 0;
@@ -615,12 +616,85 @@ static int cmd_sustain(void)
     return fails ? 1 : 0;
 }
 
+/* generation 7's promise (build 47): struck -- each family heard at once (in its first half second its loudest 50 ms,
+ * or a machine's quarter of it: its strikes build up the body's ring);
+ * STRIKE falls away while held (its last 2 s of 8 under a tenth of its loudest); MOTION keeps striking while held (no
+ * 5 s of the 12 held under a twentieth of its loudest, so the slowest machine strikes in every one); every one quiet
+ * 3 s after it is let go (the body rung out) */
+static int cmd_struck(void)
+{
+    enum { WB = 69, NW = 260 };                          /* windows of 69 blocks (50 ms): 13 s */
+    int f, s, path, fails = 0, n = 0;
+    int32_t blk[CTL];
+    for (path = 0; path < PATH_N; path++)
+        for (f = MF_G7; f < MF_N; f++)
+            for (s = 0; s < 12; s++) {
+                uint32_t seed = 7100u + (uint32_t)f * 131u + (uint32_t)s * 17u + (uint32_t)path * 911u, b, i;
+                double w[NW] = {0}, mx = 0, first = 0, tail = 0, lull = 1e30, after = 0;
+                int motion, k, j;
+                mo_design(&design, f, seed, (uint32_t)path, GEN_NOW);
+                mo_measure(&design);
+                motion = design.mc.mode == MC_MOTION;
+                memset(&voice, 0, sizeof voice - MO_GR_N);
+                mo_note_on(&voice, &design, 60, 1);
+                for (b = 0; b < (uint32_t)(WB * NW); b++) {
+                    if (b == (uint32_t)(WB * (motion ? 240 : 160)))
+                        mo_note_off(&voice, &design);
+                    if (!mo_render(&voice, &design, blk, 0))
+                        break;
+                    for (i = 0; i < CTL; i++)
+                        w[b / WB] += (double)blk[i] * blk[i];
+                }
+                for (k = 0; k < NW; k++) {
+                    w[k] = __builtin_sqrt(w[k] / (WB * CTL)) / 32768.0;
+                    if (w[k] > mx)
+                        mx = w[k];
+                    if (k < 10 && w[k] > first)
+                        first = w[k];
+                }
+                for (k = 120; k < 160; k++)              /* (STRIKE: 6 .. 8 s) */
+                    tail = w[k] > tail ? w[k] : tail;
+                for (k = 0; k + 100 <= 240; k += 10) {   /* (MOTION: every 5 s of the 12 held) */
+                    double m = 0;
+                    for (j = k; j < k + 100; j++)
+                        m = w[j] > m ? w[j] : m;
+                    lull = m < lull ? m : lull;
+                }
+                for (k = (motion ? 240 : 160) + 60; k < NW; k++)   /* (3 s after letting go, on) */
+                    after = w[k] > after ? w[k] : after;
+                n++;
+                if (mx < 0.01 || first < (motion ? 0.25 : 0.7) * mx) {   /* (a machine's later strikes may meet in a
+                                                                          * window: louder than its first) */
+                    printf("FAIL struck %s %s seed %u: not heard at once (first %.3f, loudest %.3f)\n", MF_NAME[f],
+                           PATH_NAME[path], seed, first, mx);
+                    fails++;
+                }
+                if (!motion && tail > 0.1 * mx) {
+                    printf("FAIL struck %s %s seed %u: does not fall away (%.3f of %.3f)\n", MF_NAME[f], PATH_NAME[path],
+                           seed, tail, mx);
+                    fails++;
+                }
+                if (motion && lull < 0.05 * mx) {
+                    printf("FAIL struck %s %s seed %u: stops while held (%.4f of %.3f)\n", MF_NAME[f], PATH_NAME[path],
+                           seed, lull, mx);
+                    fails++;
+                }
+                if (after > 0.001) {
+                    printf("FAIL struck %s %s seed %u: rings on after letting go (%.4f)\n", MF_NAME[f], PATH_NAME[path],
+                           seed, after);
+                    fails++;
+                }
+            }
+    printf("struck: %d sounds, %d failures\n", n, fails);
+    return fails ? 1 : 0;
+}
+
 static int cmd_golden(uint32_t gen)
 {
     int f, s, path;
     int32_t blk[CTL];
     for (path = 0; path < PATH_N; path++)
-        for (f = 0; f < (gen < 3u ? MF_N_OLD : gen < 4u ? MF_N_G3 : gen < 5u ? MF_N_G4 : gen < 6u ? MF_N_G5 : MF_N); f++)
+        for (f = 0; f < (gen < 3u ? MF_N_OLD : gen < 4u ? MF_N_G3 : gen < 5u ? MF_N_G4 : gen < 6u ? MF_N_G5 : gen < 7u ? MF_N_G6 : MF_N); f++)
             for (s = 0; s < 8; s++) {
                 uint32_t seed = 100u + (uint32_t)f * 31u + (uint32_t)s + (uint32_t)path * 503u, h, b;
                 mo_design(&design, f, seed, (uint32_t)path, gen);
@@ -628,7 +702,8 @@ static int cmd_golden(uint32_t gen)
                 /* (the design as generations 0 .. 2 laid it out: generation 3's fields after it, zero before it) */
                 h = fnv(2166136261u, &design, gen < 3u ? (uint32_t)__builtin_offsetof(mo_design_t, hand)
                                               : gen < 4u ? (uint32_t)__builtin_offsetof(mo_design_t, bd)
-                                              : gen < 5u ? (uint32_t)__builtin_offsetof(mo_design_t, fs) : (uint32_t)sizeof design);
+                                              : gen < 5u ? (uint32_t)__builtin_offsetof(mo_design_t, fs)
+                                              : gen < 7u ? (uint32_t)__builtin_offsetof(mo_design_t, mc) : (uint32_t)sizeof design);
                 memset(&voice, 0, sizeof voice - MO_GR_N);
                 mo_note_on(&voice, &design, 60, 1);
                 for (b = 0; b < 2756u; b++) {            /* 2 s */
@@ -1828,6 +1903,13 @@ static int cmd_paint(void)
     set.val = 12;
     fails += paint_one("setup rows");
     pages_off();
+    ui.pre_page = SP_LIST;                           /* (build 47) PRESETS: the list, asked */
+    ui.pre_ix = 2;
+    ui.pre_gen = 1;
+    fails += paint_one("presets");
+    ui.pre_page = SP_ASK;
+    fails += paint_one("presets asked");
+    pages_off();
     ui.morph = 9;
     ui.dial_until = fm1_ms + 1500u;
     ui.dial_shown = 0;
@@ -2543,11 +2625,10 @@ static int cmd_dis(void)
  * nothing else could stand; ANY: as before */
 static int cmd_paths(void)
 {
-    static const uint8_t ROUGH_FAM[MF_N] = {1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0};
     int fails = 0;
     uint32_t p, n;
     for (p = 0; p < DP_N; p++) {
-        uint32_t rough = 0, harsh = 0, rrec = 0, drec = 0, hfx = 0;
+        uint32_t rough = 0, harsh = 0, rrec = 0, drec = 0, hfx = 0, struck = 0, mrec = 0;
         fw_init();
         draw_path = (uint8_t)p;
         for (n = 0; n < 300u; n++) {
@@ -2556,22 +2637,30 @@ static int cmd_paths(void)
             gen_draw(0, -1, 1000u + n * 7u);
             fw_run(2);
             fam = gbuf[0][g_pub[0]].gen.family;
-            rough += ROUGH_FAM[fam];
+            rough += MF_LEAN[DP_ROUGH][fam] == 3u;      /* (build 47: the families ABRASIVE favours, every
+                                                         * generation's -- a list of the first twenty before) */
+            struck += fam >= MF_G7;
             harsh += MF_HARSH[fam] > 0;
             fx_draw(0, -1, 5000u + n * 13u);
             fw_run(25);
             f = &fbuf[0][f_pub[0]];
             rrec += FR_W_ROUGH[f->recipe] >= 4;
             drec += FR_W_DARK[f->recipe] == 0;
+            mrec += FR_W_MACHINE[f->recipe] == 0;
             for (k = 0; k < f->n; k++)
                 hfx += (RM_HARSH >> f->e[k].kind) & 1u;
         }
-        printf("paths %s: abrasive families %u, harsh %u, abrasive recipes %u, not-dark recipes %u, harsh effects %u (of 300)\n",
-               p == DP_ANY ? "ANY" : p == DP_ROUGH ? "ABRASIVE" : "DARK", rough, harsh, rrec, drec, hfx);
+        printf("paths %s: abrasive families %u, harsh %u, struck %u, abrasive recipes %u, not-dark recipes %u, harsh effects %u (of 300)\n",
+               p == DP_ANY ? "ANY" : p == DP_ROUGH ? "ABRASIVE" : p == DP_DARK ? "DARK" : "MACHINE", rough, harsh, struck,
+               rrec, drec, hfx);
         if (p == DP_ROUGH && (rough < 180u || rrec < 200u))
             printf("FAIL paths: ABRASIVE not abrasive enough\n"), fails++;
         if (p == DP_DARK && (harsh || drec))
             printf("FAIL paths: DARK drew something harsh\n"), fails++;
+        if (p == DP_MACHINE && (struck != 300u || mrec))
+            printf("FAIL paths: MACHINE drew something not struck, or a recipe it leaves out\n"), fails++;
+        if (p != DP_MACHINE && struck)
+            printf("FAIL paths: a struck family drawn off the MACHINE path\n"), fails++;
     }
     draw_path = DP_ANY;
     printf("paths: %d failures\n", fails);
@@ -4446,6 +4535,139 @@ static int host_mout_has(uint32_t from, uint32_t pkt, uint32_t mask)
             return 1;
     return 0;
 }
+/* PRESETS (build 47): SHIFT + the scale button let go soon draws a scale, held opens the page; the MACHINE path draws a
+ * struck family; a generator saved into a slot (its sound, lane, cable, DISINTEGRATOR, FX MIX) comes back whole into
+ * another generator, in that one's lane; over a full slot it asks; the names count within a family; kept over a
+ * restart; not a session */
+static void shift_arp(uint32_t ms)
+{
+    key(KEY_SHIFT, 1);
+    press(B_ARP, ms);
+    key(KEY_SHIFT, 0);
+}
+static int cmd_presets(void)
+{
+    int fails = 0;
+    gen_keep_t ka, kb;
+    fx_patch_t fa;
+    const fx_patch_t *fb;
+    char nm[24], want[24];
+    uint32_t fam;
+#define PFAIL(...) do { printf("FAIL presets: " __VA_ARGS__); printf("\n"); fails++; } while (0)
+    memset(hflash, 0xFF, sizeof hflash);
+    fm1_in.notes = fm1_in.buttons = 0;
+    batt_raw = 600;
+    fw_init();
+    setup_load();
+    pre_scan();
+    shift_arp(50);                                    /* let go soon: a scale drawn, the SCALE page a moment */
+    if (ui.pre_page || !ui.sc_page)
+        PFAIL("SHIFT + the scale button let go soon does not draw a scale (%u %u)", ui.pre_page, ui.sc_page);
+    pages_off();
+    key(KEY_MACHINE, 1);                              /* the MACHINE path */
+    ui_input();
+    key(KEY_MACHINE, 0);
+    ui_input();
+    if (draw_path != DP_MACHINE)
+        PFAIL("the 4th black key does not turn the MACHINE path on");
+    press(SLOT_BTN[0], 50);
+    press(B_HOME, 50);
+    fw_run(200);
+    fam = gbuf[0][g_use[0]].gen.family;
+    if (fam < MF_G7)
+        PFAIL("HOME on the MACHINE path drew %s, not a struck family", MF_NAME[fam % MF_N]);
+    gen_dis[0] = 37;
+    fx_wet[0] = 63;
+    gen_keep(0, &ka);
+    fa = fbuf[0][f_pub[0]];
+    shift_arp(1000);                                  /* held: PRESETS, on generator 1 */
+    if (ui.pre_page != SP_LIST || ui.pre_gen != 0u)
+        PFAIL("SHIFT + the scale button held does not open PRESETS on generator 1");
+    ui.force = 1;
+    ui_draw();
+    screen_save("build/screens/screen-presets.ppm");
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 2;             /* slot 3 */
+    ui_input();
+    press(B_ARP, 1000);                               /* held: saved (empty: not asked) */
+    if (ui.pre_ix != 3u || !pre_has(3))
+        PFAIL("the scale button held did not save into slot 3 (%u)", ui.pre_ix);
+    pre_name(3, nm, sizeof nm);
+    str_cpy(want, MF_NAME[fam], sizeof want);
+    str_cpy(want + str_len(want), " 1", sizeof want - str_len(want));
+    if (strcmp(nm, want))
+        PFAIL("slot 3 is named %s, not %s", nm, want);
+    pages_off();
+    press(B_HOME, 50);                                /* generator 1 anew, and generator 3 chosen */
+    gen_dis[0] = 5;
+    fx_wet[0] = 20;
+    fw_run(200);
+    press(SLOT_BTN[2], 50);
+    shift_arp(1000);
+    if (ui.pre_gen != 2u || ui.pre_ix != 3u)
+        PFAIL("PRESETS did not open on generator 3 at slot 3 (%u %u)", ui.pre_gen, ui.pre_ix);
+    press(B_ARP, 50);                                 /* pressed: loaded into generator 3, back to playing */
+    fw_run(300);
+    if (ui.pre_page)
+        PFAIL("loading did not go back to playing");
+    gen_keep(2, &kb);
+    fb = &fbuf[2][f_pub[2]];
+    if (kb.family != ka.family || kb.dseed != ka.dseed || kb.gain != ka.gain || kb.path != ka.path || kb.gen != ka.gen ||
+        kb.send != ka.send || kb.dry != ka.dry)
+        PFAIL("generator 3's sound is not the preset's");
+    if (kb.nent != ka.nent || (kb.nent && (kb.ent[0] / FX_N != 2u || kb.ent[0] % FX_N != ka.ent[0] % FX_N)))
+        PFAIL("generator 3 is not wired into its own lane as the preset was (%u %u)", kb.nent, kb.ent[0]);
+    if (fb->n != fa.n || fb->recipe != fa.recipe || fb->out != fa.out || fb->ret != fa.ret || fb->seed != fa.seed ||
+        memcmp(fb->e, fa.e, sizeof fa.e))
+        PFAIL("lane 3 is not the preset's lane");
+    if (gen_dis[2] != 37 || fx_wet[2] != 63)
+        PFAIL("DISINTEGRATOR and FX MIX not the preset's (%d %u)", gen_dis[2], fx_wet[2]);
+    /* a second of the family: numbered 2; over a full slot, asked */
+    press(SLOT_BTN[0], 50);
+    shift_arp(1000);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 2;             /* slot 5 */
+    ui_input();
+    {
+        uint32_t f1 = gbuf[0][g_use[0]].gen.family;
+        press(B_SAVE, 1000);                          /* (SAVE as the scale button) */
+        if (!pre_has(5))
+            PFAIL("SAVE held on PRESETS did not save");
+        if (f1 == fam) {
+            pre_name(5, nm, sizeof nm);
+            want[str_len(want) - 1u] = '2';
+            if (strcmp(nm, want))
+                PFAIL("slot 5 is named %s, not %s", nm, want);
+        }
+    }
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = -2;            /* slot 3: full -- asked */
+    ui_input();
+    press(B_ARP, 1000);
+    if (ui.pre_page != SP_ASK)
+        PFAIL("saving over a full slot was not asked");
+    ui.fl_until = fm1_ms;                             /* (SAVED 5 gone) */
+    ui.force = 1;
+    ui_draw();
+    screen_save("build/screens/screen-presets-ask.ppm");
+    press(B_ARP, 50);                                 /* NO */
+    if (ui.pre_page != SP_LIST)
+        PFAIL("NO did not go back to the list");
+    gen_keep(0, &kb);
+    pages_off();
+    ses_scan(1);                                      /* (a restart) */
+    pre_scan();
+    if (!pre_has(3) || !pre_has(5) || pre_has(4))
+        PFAIL("the presets are not kept over a restart");
+    {
+        pre_rec_t r;
+        pre_read(2, &r);
+        if (r.dseed != ka.dseed)
+            PFAIL("NO overwrote slot 3");
+    }
+    if (ses_has(SES_SLOTS + 1u) || ses_next_number() != 1u)
+        PFAIL("the presets' record is taken for a session");
+    printf("presets: %s\n", fails ? "FAILED" : "saved, named, loaded into another lane, asked, kept");
+    return fails ? 1 : 0;
+#undef PFAIL
+}
 static int cmd_setup(void)
 {
     int fails = 0;
@@ -4681,8 +4903,10 @@ static int cmd_twins(void)
             for (k = 0; k < f->n; k++)                   /* (a frozen CLOUD holds what it took, by design) */
                 frozen |= f->e[k].kind == RM_CLD && f->e[k].p[2] >= 50;
             if (pk_end >= 32 && !frozen)
-                TFAIL("%s (seed %u, return %u%%): still sounding 40 s after its input stopped (peak %d)", FR_NAME[rc], t,
-                      f->ret & 0x7Fu, pk_end);
+                TFAIL("%s (seed %u, return %u%%): still sounding 40 s after its input stopped (peak %d: %s %u %u %u %u, %s %u %u %u %u, %s)",
+                      FR_NAME[rc], t, f->ret & 0x7Fu, pk_end, RM_NAME[f->e[0].kind], f->e[0].p[0], f->e[0].p[1],
+                      f->e[0].p[2], f->e[0].p[3], RM_NAME[f->e[1].kind], f->e[1].p[0], f->e[1].p[1], f->e[1].p[2],
+                      f->e[1].p[3], f->n > 2u ? RM_NAME[f->e[2].kind] : "-");
             else if (pk_end >= 32)
                 printf("  (%s seed %u: its first cloud frozen -- held, as a frozen CLOUD alone is, until the gate closes)\n",
                        FR_NAME[rc], t);
@@ -5084,6 +5308,8 @@ int main(int argc, char **argv)
         return cmd_mutefade();
     if (!strcmp(argv[1], "load"))
         return cmd_load();
+    if (!strcmp(argv[1], "presets"))
+        return cmd_presets();
     if (!strcmp(argv[1], "setup"))
         return cmd_setup();
     if (!strcmp(argv[1], "twins"))
@@ -5122,6 +5348,8 @@ int main(int argc, char **argv)
         return cmd_tails(argc, argv);
     if (!strcmp(argv[1], "sustain"))
         return cmd_sustain();
+    if (!strcmp(argv[1], "struck"))
+        return cmd_struck();
     if (!strcmp(argv[1], "golden"))
         return cmd_golden(argc > 2 ? (uint32_t)atoi(argv[2]) : 0u);
     if (!strcmp(argv[1], "bench"))

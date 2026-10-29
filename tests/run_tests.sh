@@ -3,6 +3,7 @@
 # NORILSK host tests (no toolchain, no FM-1 needed): the generated tables, the engine checked for a runtime the
 # chip lacks, then the sounds rendered on the computer. Renders land in build/sounds (WAV).
 set -e
+set -o pipefail                  # (build 47: a test piped through tail fails the run too)
 cd "$(dirname "$0")/.."
 PY=python3
 [ -x .venv/bin/python ] && PY=.venv/bin/python
@@ -17,6 +18,7 @@ clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-
     -Ifirmware/src -Ibuild/gen tests/host/host.c -o build/host
 build/host check
 build/host sustain
+build/host struck
 build/host fxtails | tail -1
 build/host tails 24 | tail -1
 build/host mtails > build/mtails.txt || { cat build/mtails.txt; exit 1; }; tail -1 build/mtails.txt
@@ -44,7 +46,9 @@ build/host lanepan | tail -1
 build/host mutefade | tail -1
 build/host load
 build/host setup
-build/host twins | grep -v frozen | tail -15
+build/host presets
+build/host twins > build/twins.txt || { grep -v frozen build/twins.txt | tail -15; exit 1; }
+grep -v frozen build/twins.txt | tail -15
 build/host dis
 build/host paths | tail -1
 build/host revalue
@@ -56,7 +60,7 @@ build/host patches build/sounds 12 > build/sounds/patches.txt
 rm -f build/screens/*.png
 build/host screens build/screens > build/screens/patches.txt
 $PY tools/ppm2png.py build/screens/*.ppm
-for g in 0 1 2 3 4 5 6; do
+for g in 0 1 2 3 4 5 6 7; do
     build/host golden $g > build/golden$g.txt
     if [ -f tests/golden/gen$g.txt ]; then
         diff -q build/golden$g.txt tests/golden/gen$g.txt >/dev/null || { echo "FAIL golden: generation $g no longer draws its sounds again (tests/golden/gen$g.txt)"; exit 1; }
@@ -65,7 +69,7 @@ for g in 0 1 2 3 4 5 6; do
         echo "golden: tests/golden/gen$g.txt written"
     fi
 done
-echo "golden: generations 0 .. 6 as they were"
+echo "golden: generations 0 .. 7 as they were"
 build/host bench
 build/host render build/sounds 3 0 > build/sounds/stats-open.txt
 build/host render build/sounds 2 1 > build/sounds/stats-ambient.txt
