@@ -77,6 +77,7 @@
 <a href="#looper">Looper</a>
 <a href="#backing-up-sessions">Backing up sessions</a>
 <a href="#usb-audio">USB audio</a>
+<a href="#global-setup-and-midi">Global setup and MIDI</a>
 </nav>
 <h2 id="first-steps">First steps</h2>
 <ol>
@@ -89,7 +90,7 @@
 <li>Hold <b>SAVE</b> (outside the SNAPSHOTS page) to keep everything in the FM-1's flash as a session.</li>
 </ol>
 <h2 id="cheat-sheet">Cheat sheet</h2>
-<p>SHIFT is the rightmost black key. Black keys are contextual: a key with no job in the current view does nothing and stays dark. "Hold" means 0.8 s unless stated otherwise.</p>
+<p>SHIFT is the rightmost black key. Black keys are contextual: a key with a job in the current view glows dimly (lit when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless stated otherwise.</p>
 <h3 id="slots">Slots</h3>
 <table>
 <tr><th>To</th><th>Do this</th></tr>
@@ -103,7 +104,8 @@
 <h3 id="playing">Playing</h3>
 <table>
 <tr><th>To</th><th>Do this</th></tr>
-<tr><td>Play</td><td>White keys: chosen generator, in current scale. Same with USB MIDI notes</td></tr>
+<tr><td>Play</td><td>White keys: chosen generator, in current scale. Keys playing the scale's root glow dimly</td></tr>
+<tr><td>Play from a MIDI keyboard or computer</td><td>USB or the TRS MIDI IN jack: channels 1, 2, 3 play generators 1, 2, 3; channel 16 the chosen one (GLOBAL SETUP changes them)</td></tr>
 <tr><td>Change octave (−3 to +3)</td><td><b>OCT−</b> / <b>OCT+</b></td></tr>
 <tr><td>Latch a note</td><td>Hold white key, press <b>SHIFT</b> (key stays lit)</td></tr>
 <tr><td>Release a latched note</td><td>Hold <b>SHIFT</b>, press lit key</td></tr>
@@ -135,8 +137,8 @@
 <tr><td>Modulation of chosen slot</td><td><b>SEQ</b> three times. <b>PRESETS</b> picks LFO 1, LFO 2 or route A to H; <b>KNOB 1</b> to <b>4</b> set its values</td></tr>
 <tr><td>Back to playing</td><td><b>SEQ</b> a fourth time</td></tr>
 <tr><td>A generator's page (MUTE FADE IN, MUTE FADE OUT)</td><td><b>SHIFT</b> + its button, then <b>KNOB 1</b> / <b>KNOB 2</b>. Its button to leave</td></tr>
-<tr><td>LOAD page: how busy the FM-1 is</td><td>10th black key (beside SHIFT), lit while on. Again to leave</td></tr>
 <tr><td>Random modulation for chosen slot</td><td><b>SHIFT + SEQ</b></td></tr>
+<tr><td>GLOBAL SETUP (MIDI, USB audio)</td><td>Hold <b>SHIFT</b>, hold <b>SAVE</b> 0.8 s. <b>PRESETS</b> moves, <b>SAVE</b> chooses, <b>SHIFT + SAVE</b> goes back (from the top: out)</td></tr>
 </table>
 <h3 id="looper-generator-being-played">Looper (generator being played)</h3>
 <table>
@@ -164,7 +166,8 @@
 <table>
 <tr><th>To</th><th>Do this</th></tr>
 <tr><td>Save while playing</td><td>Hold <b>SAVE</b> (saves into loaded session; with none loaded, offers first empty slot)</td></tr>
-<tr><td>Open SESSIONS list</td><td><b>SHIFT + SAVE</b></td></tr>
+<tr><td>Clear: a new session in place of the one loaded</td><td>10th black key (beside SHIFT): NEW SESSION? <b>PRESETS</b> to YES, <b>SAVE</b>. The saved one stays in the flash until you save over it</td></tr>
+<tr><td>Open SESSIONS list</td><td><b>SHIFT + SAVE</b> (let go at once; held, it opens GLOBAL SETUP)</td></tr>
 <tr><td>Pick a session</td><td><b>PRESETS</b></td></tr>
 <tr><td>Open its page (BACK, LOAD or NEW, SAVE, COPY, DELETE)</td><td><b>SAVE</b></td></tr>
 <tr><td>Pick and run a row</td><td><b>PRESETS</b>, then <b>SAVE</b></td></tr>
@@ -193,7 +196,7 @@
 <li><b>Sound.</b> FURNACE, the engine, draws a sound from family, seed, path and engine generation. The same four values always give exactly the same sound, so a session only needs to store the seed.</li>
 <li><b>Note while it sounds.</b> An invisible hand (after Anima) keeps moving each voice's four macros. Russolo's grit drops bits, crosses the sound with itself and makes it stutter. Grains are read from places that wander. In other words, the same key held twice never sounds the same twice.</li>
 <li><b>Generator</b> (HOME on a generator): scene, family (chosen by how harsh it may be), which effects it is cabled into, and how much of it is heard dry.</li>
-<li><b>Effect slot</b> (HOME on an effect slot): one of 24 recipes. Each place in the recipe gets one of its allowed effects that fits the slot's memory; every value is drawn around its default, and the outs are drawn too. HOME on a generator also draws its lane's chain.</li>
+<li><b>Effect slot</b> (HOME on an effect slot): one of 38 recipes. Each place in the recipe gets one of its allowed effects that fits the slot's memory; every value is drawn around its default, and the outs are drawn too. In a twin recipe the second effect is the first again, its values drawn from the first's and kept apart. HOME on a generator also draws its lane's chain.</li>
 <li><b>Paths.</b> ABRASIVE and DARK bias every draw above: scenes, families, recipes and effect values.</li>
 <li><b>Partial draws.</b> REWIRE draws only cables. RAND PARAMS draws only an effect slot's values, or a new sound of the same family for a generator. SHIFT + HOME keeps family or recipe. Holding HOME draws all six slots.</li>
 <li><b>Modulation.</b> SHIFT + SEQ draws a slot's two LFOs and two to six of its eight routes. STEPS and DRIFT shapes and the RANDOM source keep drawing new values as they play.</li>
@@ -202,11 +205,10 @@
 </ol>
 <h2 id="screen">Screen</h2>
 <p>Designed for low vision: few words, very large type, high contrast.</p>
-<p>Main view is drawn as a place. Smog drifts slowly across the top, with audio load on the left and battery on the right. Below ground, the three effect slots are rusty pipes, one above the other. Each effect is a section between bolted flanges, its name on a dark plate: FLT filter, FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, TAP tape, RVS reverse, SPR spring, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank, SMR smear, DIF diffuse, SLW slew, XOR xor, DST dust.</p>
+<p>Main view is drawn as a place. Smog drifts slowly across the top, with audio load on the left and battery on the right. Below ground, the three effect slots are rusty pipes, one above the other. Each effect is a section between bolted flanges, its name on a dark plate: FLT filter, FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel, TAP tape, RVS reverse, SPR spring, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank, SMR smear, DIF diffuse, SLW slew, XOR xor, DST dust, WST waveset, XMD xmod, CHS chaos.</p>
 <p>Under each name, a band shows the colours of the generators feeding it. Plates fed by the chosen generator are filled with its colour. A section glows hotter while sound passes through it; a muted pipe is cold grey.</p>
 <p>At the bottom, the generators are brick furnaces, fire in their mouths in their colours (red, blue, green): brighter while they sound, dark when muted. Chosen slot has a white frame. Cables are not drawn. KNOB 1 shows its value on a full-screen dial.</p>
 <p>On the settings pages (DELAY, REVERB, MOD, a generator's page) each setting's name is amber and its value white. The setting just turned is black on white, its name dark amber.</p>
-<p>The LOAD page shows each part of the work, its peak over the last second, in % of the time a block has (0.73 ms): CPU 0 (the whole block), CPU 1 (its share), VOICES, LANES, MASTER (delay, reverb, drive), MIX (what CPU 0 does alone). A value at 90 % or more turns red. Near 100 % on CPU 0, the FM-1 lets a held note go and says OVERLOAD.</p>
 <p>Messages (LANE 2 REWIRED, GEN 1 WIRE, OVERLOAD) cover the top of the screen for a moment. One too wide for a line takes two; a line still too wide drops one size. No word runs off the screen.</p>
 <h2 id="generators">Generators</h2>
 <p>Each generator runs an instance of <b>FURNACE</b>, the engine, playing one sound drawn from thirty-six families. Four voices are shared by the three generators, and each voice is a complete instance of the engine. Because of this, one sound on two keys never sounds quite the same. Details: <a href="#furnace-engine">FURNACE engine</a> below.</p>
@@ -320,7 +322,7 @@
 </ul>
 <p>Hand and modulation routes can move the macros at the same time.</p>
 <h2 id="effect-slots">Effect slots</h2>
-<p>Twenty-two effects, two or three per slot. The last five came in build 32; their names are provisional. Delay and plate reverb belong to the master only (since build 30). A session saved with them in a slot loads them as TAPE and SPRING.</p>
+<p>Twenty-five effects, two or three per slot. SMEAR to DUST came in build 32, WAVESET, XMOD and CHAOS in build 45; their names are provisional. Delay and plate reverb belong to the master only (since build 30). A session saved with them in a slot loads them as TAPE and SPRING.</p>
 <table>
 <tr><th>Effect</th><th>What it is</th></tr>
 <tr><td>FILTER</td><td>Driven state-variable filter: low-pass, band-pass, high-pass or notch. Resonant to the edge of screaming, never piercing</td></tr>
@@ -345,8 +347,13 @@
 <tr><td>SLEW</td><td>Limits how far the sound can move in one sample: highs turned into dark, grinding ramps (after Airwindows' Slew)</td></tr>
 <tr><td>XOR</td><td>Sound combined bit by bit (XOR, AND, OR) with itself a moment earlier: broken and digital, but following its shape</td></tr>
 <tr><td>DUST</td><td>Hiss and crackle where the sound moves, none where it is still (after Airwindows' TapeDust)</td></tr>
+<tr><td>WAVESET</td><td>Sound cut at its zero crossings into its own small cycles, replayed a group at a time: repeated, reversed, shuffled or left out (after Trevor Wishart). Grain, never rhythm</td></tr>
+<tr><td>XMOD</td><td>Sound against its own copy 1 to 40 ms back: folded, diode ring or Warps' comparator (after Mutable Instruments' Warps)</td></tr>
+<tr><td>CHAOS</td><td>Double-well oscillator pushed by the sound: light, a resonance at a fixed pitch; harder, rough; hardest, jumping between its wells</td></tr>
 </table>
-<p>Twenty-four <b>recipes</b> decide which effects may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST, SPECTRAL, RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE, SPUTTER, SMOG, STATIC.</p>
+<p>Last three follow what goes in more than their own values: same values on a drone, a cloud and a hiss give three different things.</p>
+<p>Thirty-eight <b>recipes</b> decide which effects may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST, SPECTRAL, RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG, SPECTRE, SPUTTER, SMOG, STATIC; with the new effects, SHATTER, MOSAIC, CROSSFIRE, ATTRACTOR, TURBINE.</p>
+<p><b>Twin recipes</b> put one effect twice in a row: MIRRORS (SHIFT), FOLDOVER (FOLD), CLANGOUR (RING), CRUSH (MULAW), OVERTONE (CHEB), SHATTER (WAVESET), CROSSFIRE (XMOD). Second one's values are drawn from the first's and kept apart: shifter going the other way, ring and crusher at another rate, another shape, mode or algorithm. In SWARM (CLOUD), LOOPHOLE (GLITCH), CAVERN (SPRING) and FOG (SMEAR) the second also feeds back into the first. The feedback follows what comes into the lane: no sound in, it dies within about 2 s. Recipe names are provisional.</p>
 <p>Every effect falls silent with nothing coming in. None sounds on by itself.</p>
 <h2 id="lanes">Lanes</h2>
 <p>Generator 1 plays through lane 1 only, generator 2 through lane 2, generator 3 through lane 3. Each generator is cabled into the head of its lane, with a small dry share. No cables between lanes. A lane has no pan of its own: it and every effect in it follow its generator's pan (centre, left and right at power-on).</p>
@@ -387,10 +394,38 @@
 <p>Press REC to arm a loop; the first note starts it. Press REC again to end it; it plays at once. Press REC again while loops play to overdub. A note held across the end of a loop is tied over.</p>
 <p>Hold PLAY to show loops on the white keys and take them out or bring them back. This also lights the 4th to 8th black keys: REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED. SHIFT + OCT moves all loops along the scale; SHIFT + REC turns on VARY.</p>
 <h2 id="backing-up-sessions">Backing up sessions</h2>
-<p>The website's <a href="https://nzimas.github.io/norilsk/backup.html">backup page</a> saves every session on the FM-1 to a file and writes them back, from desktop Chrome, Edge or Opera.</p>
+<p>The website's <a href="https://nzimas.github.io/norilsk/backup.html">backup page</a> saves every session on the FM-1 to a file, with the global setup, and writes them back, from desktop Chrome, Edge or Opera.</p>
 <p>From a terminal: <code>tools/fm1_sessions.py</code> lists sessions, <code>tools/fm1_sessions.py save N</code> saves one, <code>tools/fm1_sessions.py restore FILE</code> writes one back. Page and script only talk to an FM-1 whose USB name is FM-1 Norilsk.</p>
 <h2 id="usb-audio">USB audio</h2>
-<p>Connected to a computer, the FM-1 is also a class-compliant USB audio interface: no driver needed. It sends the stereo master at 16 bits, 48 kHz (or 44.1 kHz), taken before the MASTER knob. Recordings therefore don't follow the headphone level. Code from Tonitor and Bigorna.</p>
+<p>Connected to a computer, the FM-1 is also a class-compliant USB audio interface: no driver needed. It sends 16 bits, 48 kHz (or 44.1 kHz), taken before the MASTER knob: recordings don't follow the headphone level. Code from Tonitor and Bigorna.</p>
+<p>GLOBAL SETUP, AUDIO &gt; USB chooses what it sends:</p>
+<ul>
+<li><b>STEREO</b> (default): the master, left and right.</li>
+<li><b>TRACKS</b>: three channels, one per generator, mono: the generator with its lane of effects, after its level, before its pan, the master delay and reverb, and the drive. For recording each generator apart.</li>
+</ul>
+<p>Changing it, the FM-1 leaves USB for a moment and comes back as the new device.</p>
+<h2 id="global-setup-and-midi">Global setup and MIDI</h2>
+<p>Settings of the machine, not of a session. Hold SHIFT, hold SAVE 0.8 s. PRESETS moves through the list, SAVE chooses or sets, SHIFT + SAVE goes back a level (from the top: out). A slot's button also leaves. Changes are written to the flash on leaving. Sessions and snapshots never change them; the backup page saves them with the sessions.</p>
+<table>
+<tr><th>Setting</th><th>Default</th></tr>
+<tr><td>MIDI &gt; IN CHAN: GEN 1, 2, 3; AUTO (the generator being played)</td><td>1, 2, 3; 16</td></tr>
+<tr><td>MIDI &gt; OUT CHAN: GEN 1, 2, 3</td><td>1, 2, 3</td></tr>
+<tr><td>MIDI &gt; RECEIVE: NOTES, CC</td><td>ON, ON</td></tr>
+<tr><td>MIDI &gt; SEND: NOTES, CC</td><td>OFF, OFF</td></tr>
+<tr><td>MIDI &gt; PORTS: USB IN, TRS IN (the 3.5 mm MIDI IN jack)</td><td>ON, ON</td></tr>
+<tr><td>AUDIO &gt; USB</td><td>STEREO</td></tr>
+</table>
+<p>MIDI in plays each generator on its channel, from USB or the TRS jack. CCs set the generator on that channel:</p>
+<table>
+<tr><th>CC</th><th>Sets</th></tr>
+<tr><td>7</td><td>Level</td></tr>
+<tr><td>10</td><td>Pan</td></tr>
+<tr><td>16</td><td>DISINTEGRATOR</td></tr>
+<tr><td>17</td><td>FX MIX of its lane</td></tr>
+<tr><td>91</td><td>Reverb send</td></tr>
+<tr><td>92</td><td>Delay send</td></tr>
+</table>
+<p>With SEND on, each generator's notes (keys, loops, MIDI) and those CCs go out on its OUT channel. A note sent on is always sent off on the same channel, even if the setting changes while it sounds. No clock, no transport.</p>
     </main>
     <footer>
       <p>Developed by Nuno Zimas. Firmware: GPL-3.0. Website and logo: MIT. <a href="https://github.com/nzimas/norilsk">Source on GitHub</a>.</p>

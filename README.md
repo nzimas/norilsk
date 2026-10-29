@@ -53,7 +53,8 @@ when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless
 
 | To | Do this |
 |---|---|
-| Play | White keys: chosen generator, in current scale. Same with USB MIDI notes |
+| Play | White keys: chosen generator, in current scale. Keys playing the scale's root glow dimly |
+| Play from a MIDI keyboard or computer | USB or the TRS MIDI IN jack: channels 1, 2, 3 play generators 1, 2, 3; channel 16 the chosen one (GLOBAL SETUP changes them) |
 | Change octave (−3 to +3) | **OCT−** / **OCT+** |
 | Latch a note | Hold white key, press **SHIFT** (key stays lit) |
 | Release a latched note | Hold **SHIFT**, press lit key |
@@ -88,6 +89,7 @@ when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless
 | Back to playing | **SEQ** a fourth time |
 | A generator's page (MUTE FADE IN, MUTE FADE OUT) | **SHIFT** + its button, then **KNOB 1** / **KNOB 2**. Its button to leave |
 | Random modulation for chosen slot | **SHIFT + SEQ** |
+| GLOBAL SETUP (MIDI, USB audio) | Hold **SHIFT**, hold **SAVE** 0.8 s. **PRESETS** moves, **SAVE** chooses, **SHIFT + SAVE** goes back (from the top: out) |
 
 ### Looper (generator being played)
 
@@ -119,7 +121,7 @@ when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless
 |---|---|
 | Save while playing | Hold **SAVE** (saves into loaded session; with none loaded, offers first empty slot) |
 | Clear: a new session in place of the one loaded | 10th black key (beside SHIFT): NEW SESSION? **PRESETS** to YES, **SAVE**. The saved one stays in the flash until you save over it |
-| Open SESSIONS list | **SHIFT + SAVE** |
+| Open SESSIONS list | **SHIFT + SAVE** (let go at once; held, it opens GLOBAL SETUP) |
 | Pick a session | **PRESETS** |
 | Open its page (BACK, LOAD or NEW, SAVE, COPY, DELETE) | **SAVE** |
 | Pick and run a row | **PRESETS**, then **SAVE** |
@@ -166,9 +168,10 @@ Randomness works at every scale:
    words, the same key held twice never sounds the same twice.
 3. **Generator** (HOME on a generator): scene, family (chosen by how harsh it may be), which effects it is cabled
    into, and how much of it is heard dry.
-4. **Effect slot** (HOME on an effect slot): one of 24 recipes. Each place in the recipe gets one of its allowed
-   effects that fits the slot's memory; every value is drawn around its default, and the outs are drawn too. HOME on a
-   generator also draws its lane's chain.
+4. **Effect slot** (HOME on an effect slot): one of 38 recipes. Each place in the recipe gets one of its allowed
+   effects that fits the slot's memory; every value is drawn around its default, and the outs are drawn too. In a twin
+   recipe the second effect is the first again, its values drawn from the first's and kept apart. HOME on a generator
+   also draws its lane's chain.
 5. **Paths.** ABRASIVE and DARK bias every draw above: scenes, families, recipes and effect values.
 6. **Partial draws.** REWIRE draws only cables. RAND PARAMS draws only an effect slot's values, or a new sound of the
    same family for a generator. SHIFT + HOME keeps family or recipe. Holding HOME draws all six slots.
@@ -187,7 +190,7 @@ Main view is drawn as a place. Smog drifts slowly across the top, with audio loa
 right. Below ground, the three effect slots are rusty pipes, one above the other. Each effect is a section between
 bolted flanges, its name on a dark plate: FLT filter, FLD fold, MU mulaw, SHF shift, MDL modal, STR string, VOX vowel,
 TAP tape, RVS reverse, SPR spring, GLT glitch, CLD cloud, SCR scream, RNG ring, STV starve, CHB cheb, BNK bank, SMR
-smear, DIF diffuse, SLW slew, XOR xor, DST dust.
+smear, DIF diffuse, SLW slew, XOR xor, DST dust, WST waveset, XMD xmod, CHS chaos.
 
 Under each name, a band shows the colours of the generators feeding it. Plates fed by the chosen generator are filled
 with its colour. A section glows hotter while sound passes through it; a muted pipe is cold grey.
@@ -397,9 +400,9 @@ Hand and modulation routes can move the macros at the same time.
 
 ## Effect slots
 
-Twenty-two effects, two or three per slot. The last five came in build 32; their names are provisional. Delay and
-plate reverb belong to the master only (since build 30). A session saved with them in a slot loads them as TAPE and
-SPRING.
+Twenty-five effects, two or three per slot. SMEAR to DUST came in build 32, WAVESET, XMOD and CHAOS in build 45;
+their names are provisional. Delay and plate reverb belong to the master only (since build 30). A session saved with
+them in a slot loads them as TAPE and SPRING.
 
 | Effect | What it is |
 |---|---|
@@ -425,10 +428,22 @@ SPRING.
 | SLEW | Limits how far the sound can move in one sample: highs turned into dark, grinding ramps (after Airwindows' Slew) |
 | XOR | Sound combined bit by bit (XOR, AND, OR) with itself a moment earlier: broken and digital, but following its shape |
 | DUST | Hiss and crackle where the sound moves, none where it is still (after Airwindows' TapeDust) |
+| WAVESET | Sound cut at its zero crossings into its own small cycles, replayed a group at a time: repeated, reversed, shuffled or left out (after Trevor Wishart). Grain, never rhythm |
+| XMOD | Sound against its own copy 1 to 40 ms back: folded, diode ring or Warps' comparator (after Mutable Instruments' Warps) |
+| CHAOS | Double-well oscillator pushed by the sound: light, a resonance at a fixed pitch; harder, rough; hardest, jumping between its wells |
 
-Twenty-four **recipes** decide which effects may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST,
+Last three follow what goes in more than their own values: same values on a drone, a cloud and a hiss give three
+different things.
+
+Thirty-eight **recipes** decide which effects may stand at each place: SPACE, ECHO, METAL, STRINGS, EROSION, GHOST,
 SPECTRAL, RESONANT, FOLDS, TELEPHONE, HELL, FACTORY, GLITCH, BROADCAST, ABYSS, RUST, FREEZER, FEEDBACK, FOUNDRY, GONG,
-SPECTRE, SPUTTER, SMOG, STATIC.
+SPECTRE, SPUTTER, SMOG, STATIC; with the new effects, SHATTER, MOSAIC, CROSSFIRE, ATTRACTOR, TURBINE.
+
+**Twin recipes** put one effect twice in a row: MIRRORS (SHIFT), FOLDOVER (FOLD), CLANGOUR (RING), CRUSH (MULAW),
+OVERTONE (CHEB), SHATTER (WAVESET), CROSSFIRE (XMOD). Second one's values are drawn from the first's and kept apart:
+shifter going the other way, ring and crusher at another rate, another shape, mode or algorithm. In SWARM (CLOUD),
+LOOPHOLE (GLITCH), CAVERN (SPRING) and FOG (SMEAR) the second also feeds back into the first. The feedback follows
+what comes into the lane: no sound in, it dies within about 2 s. Recipe names are provisional.
 
 Every effect falls silent with nothing coming in. None sounds on by itself.
 
@@ -519,8 +534,8 @@ turns on VARY.
 
 ## Backing up sessions
 
-The website's [backup page](https://nzimas.github.io/norilsk/backup.html) saves every session on the FM-1 to a file
-and writes them back, from desktop Chrome, Edge or Opera.
+The website's [backup page](https://nzimas.github.io/norilsk/backup.html) saves every session on the FM-1 to a file,
+with the global setup, and writes them back, from desktop Chrome, Edge or Opera.
 
 From a terminal: `tools/fm1_sessions.py` lists sessions, `tools/fm1_sessions.py save N` saves one,
 `tools/fm1_sessions.py restore FILE` writes one back. Page and script only talk to an FM-1 whose USB name is FM-1
@@ -528,9 +543,46 @@ Norilsk.
 
 ## USB audio
 
-Connected to a computer, the FM-1 is also a class-compliant USB audio interface: no driver needed. It sends the
-stereo master at 16 bits, 48 kHz (or 44.1 kHz), taken before the MASTER knob. Recordings therefore don't follow the
-headphone level. Code from Tonitor and Bigorna.
+Connected to a computer, the FM-1 is also a class-compliant USB audio interface: no driver needed. It sends 16 bits,
+48 kHz (or 44.1 kHz), taken before the MASTER knob: recordings don't follow the headphone level. Code from Tonitor and
+Bigorna.
+
+GLOBAL SETUP, AUDIO > USB chooses what it sends:
+
+- **STEREO** (default): the master, left and right.
+- **TRACKS**: three channels, one per generator, mono: the generator with its lane of effects, after its level, before
+  its pan, the master delay and reverb, and the drive. For recording each generator apart.
+
+Changing it, the FM-1 leaves USB for a moment and comes back as the new device.
+
+## Global setup and MIDI
+
+Settings of the machine, not of a session. Hold SHIFT, hold SAVE 0.8 s. PRESETS moves through the list, SAVE chooses
+or sets, SHIFT + SAVE goes back a level (from the top: out). A slot's button also leaves. Changes are written to the
+flash on leaving. Sessions and snapshots never change them; the backup page saves them with the sessions.
+
+| Setting | Default |
+|---|---|
+| MIDI > IN CHAN: GEN 1, 2, 3; AUTO (the generator being played) | 1, 2, 3; 16 |
+| MIDI > OUT CHAN: GEN 1, 2, 3 | 1, 2, 3 |
+| MIDI > RECEIVE: NOTES, CC | ON, ON |
+| MIDI > SEND: NOTES, CC | OFF, OFF |
+| MIDI > PORTS: USB IN, TRS IN (the 3.5 mm MIDI IN jack) | ON, ON |
+| AUDIO > USB | STEREO |
+
+MIDI in plays each generator on its channel, from USB or the TRS jack. CCs set the generator on that channel:
+
+| CC | Sets |
+|---|---|
+| 7 | Level |
+| 10 | Pan |
+| 16 | DISINTEGRATOR |
+| 17 | FX MIX of its lane |
+| 91 | Reverb send |
+| 92 | Delay send |
+
+With SEND on, each generator's notes (keys, loops, MIDI) and those CCs go out on its OUT channel. A note sent on is
+always sent off on the same channel, even if the setting changes while it sounds. No clock, no transport.
 
 # Building from source
 
@@ -565,9 +617,10 @@ website: `tools/make_logo.py`, `tools/make_demos.sh`, then `tools/make_site.py` 
 | `firmware/src/norilsk.c` | the single compilation unit: the sources in order |
 | `firmware/hal/`, `crt0.S`, `app.ld`, `loader/` | the board layer, boot, memory map and update loader (Tonitor's, from Felucca and SLOOP) |
 | `firmware/src/main.c`, `usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c` | boot and interrupts, USB, the installer's handshake, the rescue mode, the screen |
+| `firmware/src/setup.c`, `midi.c`, `midi_uart.c` | GLOBAL SETUP, MIDI in and out, the TRS MIDI IN jack |
 | `firmware/src/mol.c`, `fm6_core.c`, `wt.c` | FURNACE: the voice, the grains, the hand, the grit, the families; the FM core; the waves |
 | `firmware/src/gens.c` | the three generators: the draw, the voices, the two cores, the DISINTEGRATOR, the mix |
-| `firmware/src/rack.c`, `reverb.c` | the effect slots: the twenty-two effects, the recipes, the paths, the memory, the cables |
+| `firmware/src/rack.c`, `reverb.c` | the effect slots: the twenty-five effects, the recipes, the paths, the memory, the cables |
 | `firmware/src/mod.c`, `loop.c`, `master.c` | the modulation; the loopers; the master delay and reverb |
 | `firmware/src/sessions.c`, `backup.c` | sessions, snapshots and the morph; the sessions over USB |
 | `firmware/src/ui.c` | the panel and the screen |

@@ -45,6 +45,53 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.</p>
+<h2 id="build-45-2026-10-29-waveset-xmod-chaos">Build 45 (2026-10-29): WAVESET, XMOD, CHAOS</h2>
+<p>Three effects chosen from the research (build 44's survey of GitHub): mangling whose result follows what goes in more than its own values — the same values on a drone, a cloud and a hiss give three different things. None sounds with nothing in, none bends a pitch. Names provisional.</p>
+<ul>
+<li><b>WAVESET</b> (WST, 8.5 KiB; after Trevor Wishart's waveset distortion, as the Composers' Desktop Project and Csound have it): the sound cut at its upward zero crossings into its own pseudo-cycles, played back a GROUP (1 .. 8) at a time by MODE: REPEAT (2 .. 6 times, the ones after skipped), REVERSE, SHUFFLE (from up to 12 ahead), OMIT (never two in a row); AMOUNT; SHORTEST (0.1 .. 3 ms: closer crossings merged). A piece lasts 5.8 ms at most, a repeat 66 ms: grain, never a rhythm. Joins at crossings, faded where a piece was cut short.</li>
+<li><b>XMOD</b> (XMD, 4 KiB; after Mutable Instruments' Warps): the sound against its own copy DELAY back (1 .. 40 ms, cross-faded when it changes), combined by ALGO: FOLD (their sum folded), RING (a diode ring, to the square law), COMPARE (Warps' comparator sequence); AMOUNT; TONE.</li>
+<li><b>CHAOS</b> (CHS, 64 B): a double-well (Duffing) oscillator pushed by the sound. Light DRIVE: a resonance at SCALE (60 .. 800 Hz, fixed) that colours; harder: rough, then hopping between its wells. DAMP, TONE. Its push levelled to the sound (down to -24 dB), its output brought to the sound's level (x 1/4 .. x 512): the push changes what it does, not how loud. The dearest of the three: about one and a half SCREAMs on the host.</li>
+<li><b>Five recipes</b> (names provisional): SHATTER (WAVESET twice, the second with another MODE), MOSAIC (WAVESET into CLOUD, GLITCH or DIFFUSE), CROSSFIRE (XMOD twice, another ALGO), ATTRACTOR (CHAOS into FILTER, VOWEL or BANK), TURBINE (XMOD or WAVESET into CHAOS). XMOD and CHAOS count as harsh for the paths.</li>
+<li>Tests: the three in <code>host modules</code>, <code>host quiet</code>, <code>host fxtails</code>; the five recipes in <code>host twins</code> (level on noise, silent 40 s after the input stops). The new recipes change what the fixed seeds draw: <code>host mtails</code> drew a quieter patch whose master tails peak at 99 and ring until 11 s (passed from 66 now, twice the silence; 100 before); <code>host ends</code> drew a CLOUD into a ringing BANK whose morphed and recalled endings were 3.8 dB apart, the state the same (the grains fall where its random state puts them: 6 dB where a lane holds a CLOUD, 3 elsewhere).</li>
+</ul>
+<h2 id="build-44-2026-10-29-twin-recipes----one-effect-twice-in-a-lane-some-fed-back">Build 44 (2026-10-29): twin recipes — one effect twice in a lane, some fed back</h2>
+<ul>
+<li><b>Nine new recipes</b> (names provisional), drawn by HOME on an effect slot and with a generator's new patch, as the others are. In each the same effect stands twice in a row; the second's values are drawn from the first's, each moved 15 .. 45 either way, its drive a third of the first's range, and kept apart where the same values would only double the sound (a shifter goes the other way, a ring and a crusher at another rate, a Chebyshev shaper with another shape, a frozen cloud's twin not frozen). A third effect after them one time in two.
+<ul>
+<li>MIRRORS: SHIFT, SHIFT. FOLDOVER: FOLD, FOLD. CLANGOUR: RING, RING. CRUSH: MULAW, MULAW. OVERTONE: CHEB, CHEB.</li>
+<li>Fed back, the second into the first: SWARM (CLOUD, CLOUD: grains of grains), LOOPHOLE (GLITCH, GLITCH), CAVERN (SPRING, SPRING), FOG (SMEAR, SMEAR). Only effects that hold the sound a while: a return between instant ones (FOLD, RING) is a 0.73 ms loop, a fixed whistle. The return's gain is drawn (up to 60 .. 90 %, by recipe) and follows the lane's input: with nothing in, it closes over about 2 s, so nothing is held.</li>
+<li>Their weights: about a quarter of all draws on ANY; ABRASIVE leans to FOLDOVER, LOOPHOLE, CRUSH, CLANGOUR, OVERTONE; DARK to FOG, SWARM, CAVERN. The existing recipes are unchanged, but which recipe a seed draws changes.</li>
+</ul></li>
+<li>The return is kept where the cables across to other slots were (unused from build 36): the session format is the same; an older session or snapshot loads with no return.</li>
+<li>Tests: <code>host twins</code> (each recipe drawn as meant and within memory, neither silent nor running away on noise, what the return changes, silent 40 s after its input stops with the gate held open).</li>
+</ul>
+<h2 id="build-43-2026-10-29-global-setup-midi-by-channel-the-trs-jack-usb-audio-of-the-three-generators">Build 43 (2026-10-29): GLOBAL SETUP; MIDI by channel, the TRS jack; USB audio of the three generators</h2>
+<ul>
+<li><b>GLOBAL SETUP</b> (Tonitor's): SHIFT + SAVE held 0.8 s. SHIFT + SAVE let go sooner opens SESSIONS, as before. PRESETS moves through it, SAVE chooses or sets, SHIFT + SAVE goes a level back (from the top: out); a slot's button leaves it. What changed is written to the flash on leaving, as a record of its own (number 1000), not a session: a session or snapshot does not change it.
+<ul>
+<li>MIDI &gt; IN CHAN: GEN 1 .. 3 (1, 2, 3), AUTO (16: the generator the keys play); OFF or 1 .. 16.</li>
+<li>MIDI &gt; OUT CHAN: GEN 1 .. 3 (1, 2, 3).</li>
+<li>MIDI &gt; RECEIVE: NOTES, CC (on). MIDI &gt; SEND: NOTES, CC (off). MIDI &gt; PORTS: USB IN, TRS IN (on).</li>
+<li>AUDIO &gt; USB: STEREO (the mix, as before) or TRACKS: three channels, each generator mono — its dry sound and its effect slot, after its level, before its pan, the master delay and reverb and the drive. Changed, the FM-1 leaves USB for a moment and comes back as the new device.</li>
+</ul></li>
+<li><b>MIDI in by channel</b> (before: every note to the generator the keys play, any channel). CCs: 7 level, 10 pan, 16 DISINTEGRATOR, 17 FX MIX, 91 reverb send, 92 delay send.</li>
+<li><b>The TRS MIDI IN jack</b> (Tonitor's midi_uart.c): notes and CCs, as USB's.</li>
+<li><b>MIDI out</b>: each generator's notes (the keys', the loops', MIDI's) and the CCs above on its OUT channel. A note sent on is always sent off on the channel it went out on, also when SEND NOTES or OUT CHAN changes while it sounds (in Tonitor, turning SEND NOTES off left those notes on).</li>
+<li>USB audio: the packet is looked to every tick (10 kHz; Tonitor build 62's), the ring's band higher with three channels, the 48 kHz resampler in RAM.</li>
+<li>The backup page and <code>tools/fm1_sessions.py</code> know the settings' record (1000): saved and restored with the sessions.</li>
+<li>Tests: <code>host setup</code> (the gesture and pages, values kept over a restart and a session, MIDI in by channel and port, CC 7, notes and CCs out, a note sent off after SEND NOTES off, each track its generator alone); the pages in <code>host paint</code>.</li>
+</ul>
+<h2 id="build-42-2026-10-29-the-scales-root-glows-on-the-keys">Build 42 (2026-10-29): the scale's root glows on the keys</h2>
+<ul>
+<li><b>Every white key that plays the scale's root glows dimly</b> (Tonitor's), lit over it when held or latched. The loops' transposition (SHIFT + OCT) moves it with the notes. With a generator chosen only; dark while PLAY is held, on the SNAPSHOTS page and with an effect slot chosen.</li>
+</ul>
+<h2 id="build-41-2026-10-26-clear-the-black-keys-glow-where-they-work">Build 41 (2026-10-26): CLEAR; the black keys glow where they work</h2>
+<ul>
+<li><b>CLEAR</b> (the 10th black key, beside SHIFT): asks NEW SESSION? — NO first, PRESETS to YES, SAVE to answer; the key again, or SHIFT + SAVE, leaves it. YES: a clean slate in place of the session loaded, as NEW on an empty slot (every slot drawn anew, a root and scale drawn, the snapshots and loops empty, every setting at its default). The session saved in the flash is not touched until SAVE is held over it. None loaded: a clean slate, unnumbered.</li>
+<li><b>The black keys glow dimly in each view where they do something</b>, lit when on: playing (and on the other pages), the 1st (REWIRE), 2nd and 3rd (the paths), the 10th (CLEAR) and SHIFT; PLAY held, the 4th .. 8th (the loops' modes) and SHIFT; the SNAPSHOTS page, SHIFT. Dark otherwise.</li>
+<li><b>The LOAD page is gone</b> (his: the load at the top left is enough); its key is CLEAR. The work is still dealt in units to both cores (build 40).</li>
+<li>Tests: <code>host load</code> (the dealing; CLEAR asked, NO, again, YES); the question in <code>host paint</code>, <code>host fit</code>, <code>host screens</code>. <code>host mtails</code> and <code>host ends</code> draw their patches from fixed seeds: through HOME the host's clock went into them, and removing the LOAD page's clock reads drew other patches (a quieter one in mtails, now passed from 100 rather than 300 — a cut tail is under 33; in ends, one with REVERSE slices and FREEZE, whose sound depends on the moment it was taken, as a frozen CLOUD's).</li>
+</ul>
 <h2 id="build-40-2026-10-26-the-work-shared-better-between-the-cores-the-load-page">Build 40 (2026-10-26): the work shared better between the cores; the LOAD page</h2>
 <ul>
 <li><b>The work dealt in units</b>: each voice, each lane, and the master (delay, reverb, drive) is a unit of its own, dealt to either core by what it took its last block, the dearest first. Before, the three lanes and the master were one unit, always on CPU1 — about as heavy as all four voices together, it could not be split. The lanes have had no cables between them since build 36, so each runs apart; their outputs are summed after the join. One core and two give the same sound (<code>host cores</code>).</li>
