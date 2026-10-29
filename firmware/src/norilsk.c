@@ -19,6 +19,8 @@
 #define FELUCCA_CDC 0
 #define FELUCCA_UAC 1            /* USB audio out to the host (build 26, Tonitor's and Bigorna's): the master before the
                                   * MASTER knob, stereo, 16-bit, class compliant */
+#define UAC_NBLK 5u              /* (build 43) USB audio's block: the mix L R, then generators 1 .. 3 mono (gens.c trk_out) */
+#define UAC_NMAX 3u              /* (.. sent: the mix, or the three tracks -- GLOBAL SETUP's AUDIO > USB; usb.c) */
 #define FELUCCA_UAC_48K 1        /* (48 kHz offered first, 44.1 kHz too; 44.1 is what is rendered: at 48 SLOOP's polyphase
                                   * filter resamples it, usb.c, uac_fir.h) */
 #define HALF_FRAMES 256u         /* an I2S half buffer: 5.8 ms (main.c renders it) */
@@ -55,6 +57,7 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #define MO_PROBE_CANVAS 1                                   /* (the probe voice in the screen's canvas) */
 #include "mol.c"
 #include "usb.c"
+#include "midi_uart.c"
 #include "rack.c"
 #include "gens.c"
 #include "loop.c"
@@ -63,5 +66,6 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "sessions.h"
 #include "ui.c"
 #include "sessions.c"
+#include "setup.c"
 #include "backup.c"
 #include "main.c"

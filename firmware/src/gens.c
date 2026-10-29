@@ -114,7 +114,8 @@ static int32_t gbus[NGEN][CTL], graw[NGEN][CTL];
 
 /* ------------------------------------------------------------ the events --- */
 enum { EV_ON, EV_OFF, EV_LATCH, EV_STOP,
-       EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE, EV_LOOP_SET };   /* (loop.c's) */
+       EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE, EV_LOOP_SET,   /* (loop.c's) */
+       EV_MIDI_OFF };            /* (GLOBAL SETUP: SEND NOTES or an OUT CHAN changed -- the notes sent on, off) */
 typedef struct { uint8_t type, slot, note, val; } ev_t;
 #define EVQ 64u
 static ev_t evq[EVQ];
@@ -130,6 +131,8 @@ static void ev_post(uint32_t type, uint32_t slot, uint32_t note, uint32_t val)
     RING_PUBLISH();
     ev_w++;
 }
+
+#include "midi.c"                /* (the MIDI settings, the notes sent out: build 43) */
 
 /* ------------------------------------------------------------ the voices --- */
 static uint8_t note_vel = 127;   /* the level of the note about to start (the looper's VARY sets it) */
@@ -179,6 +182,7 @@ static void note_on(uint32_t slot, uint32_t note, uint32_t src)
 {
     uint32_t k;
     mod_note(slot, note, note_vel);                       /* (the modulation's note sources) */
+    midi_note_out(slot, note, note_vel, 1);               /* (SEND NOTES: on the generator's OUT channel) */
     for (k = 0; k < NVOICE; k++)                          /* the same note again on the slot: its voice retriggers */
         if (vox[k].sounding && vox[k].gate && vox[k].slot == slot && vox[k].note == note && vox[k].src == src &&
             !vox[k].fade) {
@@ -204,6 +208,7 @@ static void note_on(uint32_t slot, uint32_t note, uint32_t src)
 static void note_off(uint32_t slot, uint32_t note, uint32_t src)
 {
     uint32_t k;
+    midi_note_out(slot, note, 0, 0);
     for (k = 0; k < NVOICE; k++) {
         voice_t *v = &vox[k];
         if (v->sounding && v->gate && v->slot == slot && v->note == note && v->src == src) {
@@ -250,6 +255,7 @@ static void drive_block(int32_t *l, int32_t *r);   /* (master.c: the master's dr
 static volatile int32_t gen_rsend[NGEN], gen_dsend[NGEN];   /* each generator's sends to them, Q15 (KNOB 4, KNOB 3) */
 static void events_take(void)
 {
+    uint32_t k;
     while (ev_r != ev_w) {
         ev_t e = evq[ev_r % EVQ];
         RING_PUBLISH();
@@ -262,8 +268,13 @@ static void events_take(void)
             note_off(e.slot, e.note, SRC_KEY);
         } else if (e.type == EV_LATCH)
             note_latch(e.slot, e.note);
-        else if (e.type == EV_STOP)
+        else if (e.type == EV_STOP) {
             all_fade();
+            for (k = 0; k < NGEN; k++)
+                midi_gen_off(k);
+        } else if (e.type == EV_MIDI_OFF)
+            for (k = 0; k < NGEN; k++)
+                midi_gen_off(k);
         else
             loop_event(&e);
     }
@@ -698,9 +709,18 @@ static void dis_block(uint32_t l, int32_t *x)
         d->pan = 0;
 }
 
+/* (build 43) each generator's track, mono: its dry sound after its level, and its lane's output after the lane's level
+ * -- both before their pan, the master delay and reverb and the drive. trk_now is this block's; trk_out the block
+ * before, as the mix that goes out with it (the drive runs a block late) */
+static int32_t trk_now[NGEN][CTL], trk_out[NGEN][CTL];
 #if defined(FELUCCA_UAC) && FELUCCA_UAC
-static int32_t usb_blk[2 * CTL];                 /* (the block for USB audio: the master before the MASTER knob, at
-                                                  * unity -- a recording does not follow the headphones' level) */
+#ifndef UAC_NBLK
+#define UAC_NBLK 2u
+#endif
+static int32_t usb_blk[UAC_NBLK * CTL];           /* (the block for USB audio: the master before the MASTER knob, at
+                                                  * unity -- a recording does not follow the headphones' level; then
+                                                  * the three generators' tracks, mono: usb.c sends the one or the
+                                                  * other, GLOBAL SETUP's AUDIO > USB) */
 #endif
 /* one block: the events, the patches, the effects (on what the generators sent the block before), the voices, the
  * generators, their sends for the next block, the master (Q15 stereo, interleaved) */
@@ -708,6 +728,7 @@ static void mix_block(int32_t *out)
 {
     int32_t l_[CTL], r_[CTL], pk[NGEN], dlin[CTL], rvin[CTL], g_rs[NGEN], g_ds[NGEN];
     uint32_t i, l, k;
+    midi_main_drain();                                  /* (the main loop's MIDI out: the CCs) */
     events_take();
     loops_run();                                        /* (the loops' notes for this block) */
     gens_take();
@@ -776,6 +797,7 @@ static void mix_block(int32_t *out)
     blk_render();                                       /* the effects and the voices, on the two cores */
     memset(ebus_next, 0, EBUS_SIZE);
     ebus_fed = 0;
+    memcpy(trk_now, lane_m, sizeof trk_now);           /* (each generator's track: its lane, then its dry part) */
     for (i = 0; i < CTL; i++) {
         l_[i] = fx_l[i];                                /* (the effects' output) */
         r_[i] = fx_r[i];
@@ -832,6 +854,7 @@ static void mix_block(int32_t *out)
             s = (int32_t)(((int64_t)gbus[l][i] * gl_gg[l]) >> 14);
             gbus[l][i] = s;                             /* (after the level: what the effects hear too) */
             s = mulq15(s, p->dry);
+            trk_now[l][i] += s;
             l_[i] += mulq15(s, gl_pl[l]);
             r_[i] += mulq15(s, gl_pr[l]);
             dlin[i] += mulq15(s, g_ds[l]);               /* (its dry share on to the master delay and reverb) */
@@ -858,14 +881,19 @@ static void mix_block(int32_t *out)
     for (i = 0; i < CTL; i++) {                         /* out: the block before, driven in the master's job (SHIFT +
                                                          * KNOB 1; build 40: here, last, before); this one left for it */
 #if defined(FELUCCA_UAC) && FELUCCA_UAC
-        usb_blk[2u * i] = ceiling(drv_l[i]);
-        usb_blk[2u * i + 1u] = ceiling(drv_r[i]);
+        usb_blk[UAC_NBLK * i] = ceiling(drv_l[i]);
+        usb_blk[UAC_NBLK * i + 1u] = ceiling(drv_r[i]);
+#if UAC_NBLK > 2u
+        for (l = 0; l < NGEN && l + 2u < UAC_NBLK; l++)
+            usb_blk[UAC_NBLK * i + 2u + l] = ceiling(trk_out[l][i]);
+#endif
 #endif
         out[2u * i] = ceiling(mulq12(drv_l[i], master_q12));
         out[2u * i + 1u] = ceiling(mulq12(drv_r[i], master_q12));
         drv_l[i] = l_[i];
         drv_r[i] = r_[i];
     }
+    memcpy(trk_out, trk_now, sizeof trk_out);
     blk_clock++;
 }
 

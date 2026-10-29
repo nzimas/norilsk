@@ -124,8 +124,15 @@ static volatile uint32_t mi_w, mi_r;
 #include "fm6_core.c"
 #define MO_PROBE_CANVAS 1                                   /* (the probe voice in the screen's canvas) */
 #include "mol.c"
-/* usb.c's state, as the screen reads it (no host: on battery) */
+/* usb.c's state, as the screen reads it (no host: on battery); what would be sent out kept, for the MIDI tests */
 static struct { uint8_t config, suspended; } usb;
+static uint32_t host_mout[256], host_mout_n;
+static void midi_out_event(uint32_t pkt)
+{
+    if (host_mout_n < 256u)
+        host_mout[host_mout_n] = pkt;
+    host_mout_n++;
+}
 /* CPU1's mailbox (src/audio_worker.h), as one core sees it (Tonitor's host): a job posted runs at the join -- the
  * units of work are apart, so the sound is the same as with the two cores at once. host_cores 1: CPU1 off */
 static int audio_worker_online;
@@ -155,6 +162,7 @@ static void audio_worker_check(void) {}
 #include "sessions.h"
 #include "ui.c"
 #include "sessions.c"
+#include "setup.c"
 #include "backup.c"
 
 static const char *const PATH_NAME[PATH_N] = {"OPEN", "AMBIENT", "EXP"};
@@ -1808,6 +1816,16 @@ static int cmd_paint(void)
     ui.ses_new = 3;
     fails += paint_one("clear");
     ui.ses_ask = 0;
+    pages_off();
+    setup_open();                                    /* (build 43) GLOBAL SETUP: the sections, a part's rows, a value */
+    fails += paint_one("setup");
+    set.lvl = 2;
+    set.sec = 0;
+    set.part = 0;
+    set.row = 4;
+    set.edit = 1;
+    set.val = 12;
+    fails += paint_one("setup rows");
     pages_off();
     ui.morph = 9;
     ui.dial_until = fm1_ms + 1500u;
@@ -4394,6 +4412,184 @@ static int cmd_mutefade(void)
 
 /* build 40: the work dealt by units -- voices, lanes, the master -- to both cores (one core and two the same sound:
  * host cores); build 41: the CLEAR key (the 10th black key) -- asked, a new session in place */
+/* build 43: GLOBAL SETUP (SHIFT + SAVE held; SHIFT + SAVE let go soon: SESSIONS) -- its pages, values set and kept across
+ * a restart, not a session; the MIDI in by channel and port, a CC on a generator, the notes and CCs sent out (a note sent
+ * on always sent off); the three USB tracks, each its generator alone */
+static void host_midi(uint32_t pkt)
+{
+    midi_in_q[mi_w % MQ] = pkt;
+    mi_w++;
+}
+static void shift_save(uint32_t ms)
+{
+    key(KEY_SHIFT, 1);
+    press(B_SAVE, ms);
+    key(KEY_SHIFT, 0);
+}
+static int host_mout_has(uint32_t from, uint32_t pkt, uint32_t mask)
+{
+    uint32_t i;
+    for (i = from; i < host_mout_n && i < 256u; i++)
+        if ((host_mout[i] & mask) == pkt)
+            return 1;
+    return 0;
+}
+static int cmd_setup(void)
+{
+    int fails = 0;
+    uint32_t k, found, m0, b;
+    double e[NGEN] = {0};
+#define GSFAIL(...) do { printf("FAIL setup: " __VA_ARGS__); printf("\n"); fails++; } while (0)
+    memset(hflash, 0xFF, sizeof hflash);
+    fm1_in.notes = fm1_in.buttons = 0;
+    batt_raw = 600;
+    fw_init();
+    setup_load();
+    shift_save(50);                                   /* let go soon: SESSIONS, as before */
+    if (ui.ses_page != SP_LIST || ui.set_page)
+        GSFAIL("SHIFT + SAVE let go soon does not open SESSIONS (%u %u)", ui.ses_page, ui.set_page);
+    pages_off();
+    shift_save(1000);                                 /* held: GLOBAL SETUP */
+    if (!ui.set_page || ui.ses_page)
+        GSFAIL("SHIFT + SAVE held does not open GLOBAL SETUP");
+    ui.force = 1;
+    ui_draw();
+    screen_save("build/screens/screen-setup.ppm");
+    press(B_SAVE, 50);                                /* MIDI */
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 3;             /* IN CHAN -> SEND */
+    ui_input();
+    press(B_SAVE, 50);                                /* SEND: NOTES */
+    press(B_SAVE, 50);                                /* its value .. */
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;             /* .. ON */
+    ui_input();
+    ui_draw();
+    screen_save("build/screens/screen-setup-value.ppm");
+    press(B_SAVE, 50);                                /* set */
+    if (!mcfg.send_note)
+        GSFAIL("MIDI > SEND > NOTES was not set ON");
+    for (k = 0; k < 3u; k++)                          /* back, back, out */
+        shift_save(50);
+    if (ui.set_page || ui.ses_page)
+        GSFAIL("SHIFT + SAVE does not go back and out (%u %u)", ui.set_page, ui.ses_page);
+    setup_poll();
+    mcfg.send_note = 0;
+    ses_scan(1);                                      /* (a restart) */
+    setup_load();
+    if (!mcfg.send_note)
+        GSFAIL("the setting is not kept");
+    if (ses_has(SES_SLOTS + 1u) || ses_next_number() != 1u)
+        GSFAIL("the settings' record is taken for a session");
+    /* AUDIO: one part, opened on its row; USB: STEREO -> TRACKS, kept */
+    shift_save(1000);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;             /* MIDI -> AUDIO */
+    ui_input();
+    press(B_SAVE, 50);
+    if (set.lvl != 2u || strcmp(SET_PART[set.part].rows[set.row - 1u].name, "USB"))
+        GSFAIL("AUDIO does not open on its USB row (level %u)", set.lvl);
+    press(B_SAVE, 50);
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = 1;             /* .. TRACKS */
+    ui_input();
+    ui_draw();
+    screen_save("build/screens/screen-setup-usb.ppm");
+    press(B_SAVE, 50);
+    if (mcfg.usb_aud != 1u)
+        GSFAIL("AUDIO > USB was not set to TRACKS");
+    shift_save(50);                                   /* back to the sections (one level: no parts' list) */
+    if (!ui.set_page || set.lvl != 0u)
+        GSFAIL("back from AUDIO's rows is not the sections (level %u)", set.lvl);
+    press(B_FX, 50);                                  /* a slot's button: out */
+    if (ui.set_page)
+        GSFAIL("a slot's button does not leave GLOBAL SETUP");
+    setup_poll();
+    mcfg.usb_aud = 0;
+    ses_scan(1);
+    setup_load();
+    if (mcfg.usb_aud != 1u || !mcfg.send_note)
+        GSFAIL("USB AUDIO is not kept (%u)", mcfg.usb_aud);
+    if (ses_save(1) != SES_OK || ses_load_slot(1) != SES_OK || !mcfg.send_note)
+        GSFAIL("a session saved and loaded touches the settings");
+    /* the MIDI in: channel 3 to generator 3, channel 16 (AUTO) to the one the keys play, CC 7 to a level, the jack off */
+    press(B_SEL, 50);
+    host_midi(0x09u | 0x92u << 8 | 60u << 16 | 100u << 24);
+    host_midi(0x09u | 0x9Fu << 8 | 64u << 16 | 100u << 24);
+    host_midi(0x0Bu | 0xB0u << 8 | 7u << 16 | 0u << 24);
+    ui_input();
+    fw_run(10);
+    for (k = 0, found = 0; k < NVOICE; k++) {
+        found |= (vox[k].gate && vox[k].slot == 2u && vox[k].note == 60u) ? 1u : 0u;
+        found |= (vox[k].gate && vox[k].slot == 1u && vox[k].note == 64u) ? 2u : 0u;
+    }
+    if (found != 3u)
+        GSFAIL("the MIDI notes do not reach their generators by channel (%u)", found);
+    if (gen_lvl[0] != 0)
+        GSFAIL("CC 7 does not set generator 1's level (%d)", gen_lvl[0]);
+    host_midi(0x08u | 0x82u << 8 | 60u << 16);
+    host_midi(0x08u | 0x8Fu << 8 | 64u << 16);
+    mcfg.trs_in = 0;
+    host_midi(0x19u | 0x92u << 8 | 67u << 16 | 100u << 24);   /* (cable 1: the jack) */
+    ui_input();
+    fw_run(10);
+    for (k = 0, found = 0; k < NVOICE; k++)
+        found |= vox[k].gate && (vox[k].note == 60u || vox[k].note == 64u || vox[k].note == 67u);
+    if (found)
+        GSFAIL("a note-off is lost, or the jack is heard with TRS IN off");
+    mcfg.trs_in = 1;
+    gen_lvl[0] = LEVEL_UNITY;
+    /* the notes out (SEND NOTES on): a key on generator 1, its note on and off on channel 1; held, SEND NOTES off:
+     * still sent off */
+    press(B_FX, 50);
+    m0 = host_mout_n;
+    key(0, 1);
+    fw_run(5);
+    if (!host_mout_has(m0, 0x09u | 0x90u << 8, 0xFFFFu))
+        GSFAIL("a key's note is not sent on channel 1");
+    key(0, 0);
+    fw_run(5);
+    if (!host_mout_has(m0, 0x08u | 0x80u << 8, 0xFFFFu))
+        GSFAIL("a key's note is not sent off");
+    key(0, 1);
+    fw_run(5);
+    m0 = host_mout_n;
+    mcfg.send_note = 0;                               /* (as the page does it) */
+    ev_post(EV_MIDI_OFF, 0, 0, 0);
+    fw_run(3);
+    if (!host_mout_has(m0, 0x08u | 0x80u << 8, 0xFFFFu))
+        GSFAIL("SEND NOTES off leaves a note sent on hanging");
+    key(0, 0);
+    fw_run(5);
+    /* the CCs out (SEND CC on): KNOB 1, generator 1's DISINTEGRATOR on CC 16, channel 1 */
+    mcfg.send_cc = 1;
+    midi_poll();
+    fw_run(2);
+    m0 = host_mout_n;
+    fm1_in.enc[PANEL_ENC[EN_K1]] = 5;
+    ui_input();
+    midi_poll();
+    fw_run(2);
+    if (!host_mout_has(m0, 0x0Bu | 0xB0u << 8 | 16u << 16, 0xFFFFFFu))
+        GSFAIL("KNOB 1 is not sent as CC 16");
+    mcfg.send_cc = 0;
+    /* the tracks: generator 2 alone played -- its track sounds, the others are silent */
+    fw_init();                                        /* (from a fresh start: no tails of the notes before, which
+                                                       * any voice keeps sounding in every lane) */
+    fw_run(200);
+    press(B_SEL, 50);
+    key(0, 1);
+    for (b = 0; b < 3000u; b++) {
+        fw_run(1);
+        for (k = 0; k < NGEN; k++)
+            for (found = 0; found < CTL; found++)
+                e[k] += (double)trk_out[k][found] * trk_out[k][found];
+    }
+    key(0, 0);
+    printf("setup: tracks' energy %.3g %.3g %.3g\n", e[0], e[1], e[2]);
+    if (e[1] < 1e6 || e[0] > e[1] * 1e-6 || e[2] > e[1] * 1e-6)
+        GSFAIL("the tracks are not each their generator's alone");
+    if (!fails)
+        printf("setup: ok\n");
+    return fails;
+#undef GSFAIL
+}
 static int cmd_load(void)
 {
     int fails = 0;
@@ -4756,6 +4952,8 @@ int main(int argc, char **argv)
         return cmd_mutefade();
     if (!strcmp(argv[1], "load"))
         return cmd_load();
+    if (!strcmp(argv[1], "setup"))
+        return cmd_setup();
     if (!strcmp(argv[1], "timbres"))
         return cmd_timbres(argc, argv);
     if (!strcmp(argv[1], "drive"))

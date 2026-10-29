@@ -782,7 +782,7 @@ static void ses_scan(int flash_ok)
                 ses_kill(ses.sect[dup], ses.nsect[dup]);
                 ses_list_drop((uint32_t)dup);
             }
-            if (h.num >= 1u && h.num <= SES_SLOTS)
+            if ((h.num >= 1u && h.num <= SES_SLOTS) || h.num == SET_NUM)   /* (and GLOBAL SETUP's: build 43) */
                 ses_list_add(h.num, s, ns);
             for (; ns; ns--, s++)
                 ses.st[s] = SC_USED;

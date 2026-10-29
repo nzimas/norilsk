@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fm1_install import MidoBackend, Updater, pack7, unpack7   # noqa: E402
 
 PIECE = 256
+SET_NUM = 1000                                          # GLOBAL SETUP's settings (build 43): a record, not a session
 
 
 def frame(cmd, body=b""):
@@ -80,8 +81,8 @@ def restore(link, data, num=None):
         sys.exit("not a NORILSK session file")
     if num is None:
         num = data[4] | data[5] << 8
-    if not 1 <= num <= 64:
-        sys.exit(f"no session slot {num} (1 .. 64)")
+    if not (1 <= num <= 64 or num == SET_NUM):
+        sys.exit(f"no session slot {num} (1 .. 64; {SET_NUM}: the global setup)")
     if num != (data[4] | data[5] << 8):                 # another number: the head renumbered, its CRC made again (the
         data = bytearray(data)                          # FM-1 takes a record only under the number its head says)
         data[4], data[5] = num & 0xFF, num >> 8
@@ -117,7 +118,7 @@ def main():
         recs = listing(dev.link)
         if not args:
             for num, n in recs:
-                print(f"  session {num}: {n} B")
+                print(f"  {'global setup' if num == SET_NUM else 'session'} {num}: {n} B")
             if not recs:
                 print("  no sessions")
             return

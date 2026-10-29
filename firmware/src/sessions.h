@@ -22,3 +22,10 @@ static int snap_has(uint32_t i);
 static int snap_current(void);
 static int snap_morph_target(void);
 static void morph_poll(void);
+/* GLOBAL SETUP (setup.c, build 43): its record's number in the sessions' store, its page, the MIDI in */
+#define SET_NUM 1000u
+static void setup_open(void);
+static void setup_press(int sh);
+static void setup_preset(int32_t s);
+static void setup_draw(void);
+static void midi_take(void);

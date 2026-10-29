@@ -1194,6 +1194,8 @@ static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was s
  * blk_render), the master delay, reverb and drive another: each lane's output and sends apart, summed on CPU0 after
  * the join (rack_sum) -- the same sound whichever core ran which */
 static int32_t lane_l[NFX][CTL], lane_r[NFX][CTL], lane_dl[NFX][CTL], lane_rv[NFX][CTL];
+static int32_t lane_m[NFX][CTL];                /* (build 43) each lane's output, mono, after its level, before its
+                                                  * pan: its generator's USB track (gens.c) */
 static uint32_t lane_ticks[NFX], mst_ticks;     /* what each took its last block */
 /* KNOB 2 (build 33): the effects' mix, 0 (each effect passes its input) .. 100 (its own output alone, as before):
  * every effect of every slot at once, each its own input and output crossed by it; 50 at power-on. Glided over a
@@ -1328,9 +1330,9 @@ static void lane_job(uint32_t s)
 {
     uint32_t k, i, has = ebus_fed_run;
     uint32_t t0 = fm1_ticks();
-    int32_t *o_l = lane_l[s], *o_r = lane_r[s], *o_dl = lane_dl[s], *o_rv = lane_rv[s];
+    int32_t *o_l = lane_l[s], *o_r = lane_r[s], *o_dl = lane_dl[s], *o_rv = lane_rv[s], *o_m = lane_m[s];
     for (i = 0; i < CTL; i++)
-        o_l[i] = o_r[i] = o_dl[i] = o_rv[i] = 0;
+        o_l[i] = o_r[i] = o_dl[i] = o_rv[i] = o_m[i] = 0;
     do {
         const fx_patch_t *f = &fbuf[s][f_use[s]];
         int32_t sl[CTL], g, gl, gr, dg, dgl, dgr, gw;   /* (mono: build 32 -- no plate in a slot) */
@@ -1445,6 +1447,7 @@ static void lane_job(uint32_t s)
             fx_gl[s] += dgl;
             fx_gr[s] += dgr;
             a = (int32_t)(((int64_t)sl[i] * fx_g[s]) >> 14);
+            o_m[i] = a;
             o_l[i] = mulq15(a, fx_gl[s]);               /* (panned) */
             o_r[i] = mulq15(a, fx_gr[s]);
             o_dl[i] = mulq15(a, fx_dsend[s]);           /* (on to the master delay and reverb) */

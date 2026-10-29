@@ -129,7 +129,7 @@ static void bk_handle(const uint8_t *m, uint32_t d)
             bk_status(0x52u, 1u);
             return;
         }
-        if (len < sizeof(ses_head_t) || len > SES_NSECT * SES_SECT || num < 1u || num > SES_SLOTS) {
+        if (len < sizeof(ses_head_t) || len > SES_NSECT * SES_SECT || ((num < 1u || num > SES_SLOTS) && num != SET_NUM)) {
             bk_status(0x52u, 2u);
             return;
         }
@@ -167,6 +167,8 @@ static void bk_handle(const uint8_t *m, uint32_t d)
         uint32_t st = !bk.on || bk.got != bk.len ? 2u : bk.crc != bk.h.body_crc ? 4u : 0u;
         if (!st && ses_commit(bk.num, bk.s, bk.ns, &bk.h) != SES_OK)
             st = 5u;
+        if (!st && bk.num == SET_NUM)
+            setup_load();                        /* (GLOBAL SETUP's settings put back: in use at once) */
         bk.on = 0;
         ses_ext = 0;
         bk_status(0x54u, st);

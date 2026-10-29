@@ -2,6 +2,31 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 43 (2026-10-29): GLOBAL SETUP; MIDI by channel, the TRS jack; USB audio of the three generators
+
+- **GLOBAL SETUP** (Tonitor's): SHIFT + SAVE held 0.8 s. SHIFT + SAVE let go sooner opens SESSIONS, as before. PRESETS
+  moves through it, SAVE chooses or sets, SHIFT + SAVE goes a level back (from the top: out); a slot's button leaves
+  it. What changed is written to the flash on leaving, as a record of its own (number 1000), not a session: a session
+  or snapshot does not change it.
+  - MIDI > IN CHAN: GEN 1 .. 3 (1, 2, 3), AUTO (16: the generator the keys play); OFF or 1 .. 16.
+  - MIDI > OUT CHAN: GEN 1 .. 3 (1, 2, 3).
+  - MIDI > RECEIVE: NOTES, CC (on). MIDI > SEND: NOTES, CC (off). MIDI > PORTS: USB IN, TRS IN (on).
+  - AUDIO > USB: STEREO (the mix, as before) or TRACKS: three channels, each generator mono -- its dry sound and its
+    effect slot, after its level, before its pan, the master delay and reverb and the drive. Changed, the FM-1 leaves
+    USB for a moment and comes back as the new device.
+- **MIDI in by channel** (before: every note to the generator the keys play, any channel). CCs: 7 level, 10 pan,
+  16 DISINTEGRATOR, 17 FX MIX, 91 reverb send, 92 delay send.
+- **The TRS MIDI IN jack** (Tonitor's midi_uart.c): notes and CCs, as USB's.
+- **MIDI out**: each generator's notes (the keys', the loops', MIDI's) and the CCs above on its OUT channel. A note sent
+  on is always sent off on the channel it went out on, also when SEND NOTES or OUT CHAN changes while it sounds (in
+  Tonitor, turning SEND NOTES off left those notes on).
+- USB audio: the packet is looked to every tick (10 kHz; Tonitor build 62's), the ring's band higher with three
+  channels, the 48 kHz resampler in RAM.
+- The backup page and `tools/fm1_sessions.py` know the settings' record (1000): saved and restored with the sessions.
+- Tests: `host setup` (the gesture and pages, values kept over a restart and a session, MIDI in by channel and port,
+  CC 7, notes and CCs out, a note sent off after SEND NOTES off, each track its generator alone); the pages in
+  `host paint`.
+
 ## Build 42 (2026-10-29): the scale's root glows on the keys
 
 - **Every white key that plays the scale's root glows dimly** (Tonitor's), lit over it when held or latched. The loops'

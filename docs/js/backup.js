@@ -42,9 +42,13 @@ function refresh() {
   ui.save.disabled = busy || !onDevice || !onDevice.length;
   ui.restore.disabled = busy || !device || !backup || !ui.agree.checked;
 }
+const SET_NUM = 1000;   // GLOBAL SETUP's settings (build 43)
+const what = (n) => (n === SET_NUM ? "The global setup" : `Session ${n}`);
 const describe = (recs) => {
-  const ses = recs.map((r) => r.number).sort((a, b) => a - b);
-  return ses.length ? `${ses.length} session${ses.length > 1 ? "s" : ""} (${ses.join(", ")})` : "no sessions";
+  const ses = recs.filter((r) => r.number !== SET_NUM).map((r) => r.number).sort((a, b) => a - b);
+  const parts = [ses.length ? `${ses.length} session${ses.length > 1 ? "s" : ""} (${ses.join(", ")})` : "no sessions"];
+  if (recs.some((r) => r.number === SET_NUM)) parts.push("global setup");
+  return parts.join(", ");
 };
 const isNorilsk = (bytes) => MAGIC.every((m, i) => bytes[i] === m);
 const b64 = (u8) => {
@@ -98,9 +102,9 @@ async function save() {
     const out = [];
     progress(0);
     for (const rec of onDevice) {
-      say("Reading…", `Session ${rec.number}`);
+      say("Reading…", what(rec.number));
       const bytes = await readOn(device.link, rec, (n) => progress((got += n) / total));
-      if (!isNorilsk(bytes)) throw new Error(`Session ${rec.number} is not a Norilsk record.`);
+      if (!isNorilsk(bytes)) throw new Error(`${what(rec.number)} is not a Norilsk record.`);
       out.push({ number: rec.number, length: bytes.length, data: b64(bytes) });
     }
     const file = { format: "norilsk-backup", version: 1, saved: new Date().toISOString(), records: out };
@@ -131,7 +135,7 @@ async function openFile() {
     const j = JSON.parse(await f.text());
     if (j.format !== "norilsk-backup" || !Array.isArray(j.records)) throw new Error("This is not a Norilsk backup file.");
     const recs = j.records.map((r) => ({ number: r.number, bytes: unb64(r.data) }));
-    if (recs.some((r) => !Number.isInteger(r.number) || r.number < 1 || r.number > 64 || r.bytes.length < 32 || !isNorilsk(r.bytes)))
+    if (recs.some((r) => !Number.isInteger(r.number) || ((r.number < 1 || r.number > 64) && r.number !== SET_NUM) || r.bytes.length < 32 || !isNorilsk(r.bytes)))
       throw new Error("The file is damaged.");
     backup = recs;
     ui.facts.hidden = false;
@@ -156,7 +160,7 @@ async function restore() {
     let sent = 0;
     rprogress(0);
     for (const r of backup) {
-      rsay(`Restoring… ${Math.round((sent / total) * 100)}%`, `Session ${r.number}`);
+      rsay(`Restoring… ${Math.round((sent / total) * 100)}%`, what(r.number));
       await writeOn(device.link, r.number, r.bytes, (n) => rprogress((sent += n) / total));
     }
     onDevice = await listOn(device.link);

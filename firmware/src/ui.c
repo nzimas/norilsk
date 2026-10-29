@@ -59,7 +59,11 @@
  *                             KNOB 4 and SHIFT + KNOB 4): to the master delay and reverb, at the end of the chain
  *   SEQ                       the DELAY page, again the REVERB page, again MOD, again back (Tonitor's): KNOB 1 .. 4
  *                             (TIME FEEDBACK DAMP MIX; SIZE DECAY DAMP MIX), each a row, the one turned black on white
- *   SHIFT + SAVE              the SESSIONS list: PRESETS through the 64 slots (the number very large: red when it
+ *   SHIFT + SAVE held 0.8 s   GLOBAL SETUP (build 43, Tonitor's; setup.c): MIDI (IN CHAN, OUT CHAN, RECEIVE, SEND,
+ *                             PORTS) and AUDIO (USB: STEREO, or TRACKS -- the three generators, each mono). PRESETS
+ *                             through it, SAVE chooses, SHIFT + SAVE a level back (from the top: out); a slot's button
+ *                             leaves it. Kept in the flash, apart from the sessions
+ *   SHIFT + SAVE              (let go soon) the SESSIONS list: PRESETS through the 64 slots (the number very large: red when it
  *                             holds a session, grey when empty). SAVE: that slot's page (Bigorna's, build 28): BACK,
  *                             LOAD (NEW on an empty slot: a clean slate there), SAVE (over another session: asked),
  *                             COPY (to a slot PRESETS chooses, the first empty one first; over a session: asked),
@@ -83,7 +87,10 @@
  *                             clean slate in place of the session loaded (as NEW on an empty slot: not saved until
  *                             SAVE is held). Again, or SHIFT + SAVE: not cleared
  *   the black keys            each glows dimly in a view where it does something (build 41); lit when on
- *   USB MIDI notes            as the keys, on the generator chosen last
+ *   MIDI in (USB, the TRS jack)  notes and CCs (7 level, 10 pan, 16 DISINTEGRATOR, 17 FX MIX, 91 reverb send, 92 delay
+ *                             send) to each generator on its IN channel, AUTO's to the one the keys play (build 43;
+ *                             before, every note to the one the keys play); out, each generator's notes and those CCs
+ *                             on its OUT channel, as GLOBAL SETUP says
  *   MASTER (knob)             the level
  *
  * The screen is for low vision: a few words, large, high contrast. At the top, the audio's load at the left and the
@@ -207,7 +214,10 @@ static struct {
     uint8_t shown_scale, shown_root;
     uint32_t load_at;
     uint8_t load_shown;
-    uint8_t midi_note[128], midi_slot[128];
+    uint8_t midi_mask[128];      /* (build 43) each MIDI note held: the generators it went to (setup.c midi_take) */
+    uint8_t set_page;            /* (build 43) GLOBAL SETUP up (setup.c) */
+    uint8_t shs_down, shs_done;  /* SHIFT + SAVE down since shs_t0 (playing): held, GLOBAL SETUP; let go soon, SESSIONS */
+    uint32_t shs_t0;
     uint32_t latch[NGEN];        /* each generator's keys latched */
     uint8_t latch_note[NGEN][NKEY];
     uint8_t was_on;              /* (CPU1 running, last time: its loss said once) */
@@ -481,7 +491,7 @@ static void fade_text(char *v, uint32_t hs)    /* OFF, 4.5 S, 60 S */
 /* every page down: back to playing */
 static void pages_off(void)
 {
-    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = 0;
+    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = ui.set_page = 0;
     ui.force = 1;
 }
 /* a session's or a snapshot's outcome, on the whole screen, saying which (build 27): SESSION or SNAPSHOT, in its
@@ -690,26 +700,6 @@ static void mod_knob(uint32_t sl, uint32_t ix, uint32_t j, int32_t s)
     ui.force = 1;
 }
 
-/* USB MIDI in: notes as the keys, on the generator chosen last (any channel) */
-static void midi_take(void)
-{
-    while (mi_r != mi_w) {
-        uint32_t pkt = midi_in_q[mi_r % MQ], cin = pkt & 0xFu, d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
-        RING_PUBLISH();
-        mi_r++;
-        if (cin == 9u && d2) {
-            ev_post(EV_ON, ui.gen, d1, 0);
-            ui.midi_note[d1] = 1;
-            ui.midi_slot[d1] = ui.gen;
-        } else if (cin == 8u || (cin == 9u && !d2)) {
-            if (ui.midi_note[d1]) {
-                ev_post(EV_OFF, ui.midi_slot[d1], d1, 0);
-                ui.midi_note[d1] = 0;
-            }
-        }
-    }
-}
-
 static void ui_input(void)
 {
     uint32_t rel, press = fm1_input_edges(&rel), keys, ch, k, l;
@@ -735,7 +725,7 @@ static void ui_input(void)
             ui.btn_done[l] = (uint8_t)shift_held();   /* (with SHIFT: no mute -- SHIFT + its button + OCT moves its loops) */
             ui.btn_sh[l] = (uint8_t)(l < NGEN && shift_held() ? (ui.gs_page == l + 1u ? 2u : 1u) : 0u);
             ui.btn_t0[l] = fm1_ms;
-            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page)
+            if (ui.sc_page || ui.fx_page || ui.ses_page || ui.snap_page || ui.gs_page || ui.set_page)
                 pages_off();
             for (o = 0; l < NGEN && shift_held() && o < NGEN; o++)   /* SHIFT, generator o held, then generator l: o
                                                                     * modulates l, or no more (gens.c gen_link) */
@@ -822,21 +812,39 @@ static void ui_input(void)
         ui.fx_touched = -1;
         ui.mod_touched = -1;
     }
-    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SESSIONS page; on its pages, a level back
-                                                  * (a value being set: left as it was) */
+    if (ui.set_page && btn_bit(press, B_SAVE)) {    /* GLOBAL SETUP: SAVE chooses, SHIFT + SAVE a level back (build 43) */
+        setup_press(shift_held());
+        press &= ~(1u << PANEL_BTN[B_SAVE]);
+    }
+    if (btn_bit(press, B_SAVE) && shift_held() && !ui.ses_page) {   /* SHIFT and SAVE, playing: held 0.8 s, GLOBAL SETUP
+                                                  * (Tonitor's gesture, build 43); let go soon, the SESSIONS page */
+        ui.shs_down = 1;
+        ui.shs_done = 0;
+        ui.shs_t0 = fm1_ms;
+    } else if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE on the SESSIONS pages: a level back (a
+                                                  * value being set: left as it was) */
         if (ui.ses_page == SP_PAGE)
             ui.ses_page = SP_LIST;
         else if ((ui.ses_page == SP_ASK && ui.ses_ask != AK_SAVE_NEW && ui.ses_ask != AK_CLEAR) || ui.ses_page == SP_COPY)
             ui.ses_page = SP_PAGE;
-        else if (ui.ses_page)
-            pages_off();
         else
-            ses_page_on();
+            pages_off();
         ui.force = 1;
     } else if (btn_bit(press, B_SAVE)) {
         ui.save_t0 = fm1_ms;
         ui.save_down = 1;
         ui.save_long = 0;
+    }
+    if (ui.shs_down) {
+        if (!btn_bit(fm1_in.buttons, B_SAVE)) {
+            ui.shs_down = 0;
+            if (!ui.shs_done)
+                ses_page_on();
+            ui.force = 1;
+        } else if (!ui.shs_done && (uint32_t)(fm1_ms - ui.shs_t0) >= HOLD_MS) {
+            ui.shs_done = 1;
+            setup_open();
+        }
     }
     if (ui.save_down) {
         if (!btn_bit(fm1_in.buttons, B_SAVE)) {
@@ -849,7 +857,9 @@ static void ui_input(void)
         }
     }
     s = fm1_enc_take(PANEL_ENC[EN_PRESET]);      /* PRESETS: through the page's list */
-    if (s && ui.ses_page == SP_LIST) {
+    if (s && ui.set_page) {
+        setup_preset(s);
+    } else if (s && ui.ses_page == SP_LIST) {
         ui.ses_ix = (uint8_t)clampi((int32_t)ui.ses_ix + s, 1, SES_SLOTS);
     } else if (s && ui.ses_page == SP_PAGE) {
         ui.ses_row = (uint8_t)clampi((int32_t)ui.ses_row + s, 0, SR_N - 1);
@@ -1237,7 +1247,7 @@ static void ui_leds(void)
     fm1_led_key(PANEL_BTN[B_HOME], (int32_t)(ui.home_until - fm1_ms) > 0);
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
     fm1_led_key(PANEL_BTN[B_SEQ], ui.fx_page != 0u);
-    fm1_led_key(PANEL_BTN[B_SAVE], ui.ses_page || ui.snap_page || ui.save_down);
+    fm1_led_key(PANEL_BTN[B_SAVE], ui.ses_page || ui.snap_page || ui.set_page || ui.save_down || ui.shs_down);
     {
         const looper_t *p = &loop[ui.gen];
         fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
@@ -2261,6 +2271,14 @@ static void ui_draw(void)
         return;
     if (draw_dial())
         return;
+    if (ui.set_page) {                           /* GLOBAL SETUP (build 43) */
+        if (ui.shown_page != 20u)
+            ui.force = 1;
+        ui.shown_page = 20;
+        setup_draw();
+        ui.force = 0;
+        return;
+    }
     if (ui.ses_page || ui.snap_page) {
         uint8_t id = ui.ses_page ? 8u : 9u;
         if (ui.shown_page != id) {

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * NORILSK: boot, the interrupts, the main loop (Tonitor's main.c, without its sessions, settings and TRS MIDI). The boot order, the TIMER5 and audio ISRs, the crash screen and the update hooks follow SLOOP's
+ * NORILSK: boot, the interrupts, the main loop (Tonitor's main.c, without its sessions). The boot order, the TIMER5 and audio ISRs, the crash screen and the update hooks follow SLOOP's
  * / Felucca's main.c and audio.c (Leo Kuroshita, GPL-3.0). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
@@ -90,16 +90,20 @@ void fm1_timer5_irq(void)
     }
     if (sub % 5u == 0u)
         owed |= 1u;
+    if (sub % 5u == 2u)
+        uart_midi_poll();                        /* (the TRS jack, 2 kHz, nested in the audio too: build 43) */
     if (++sub == 10u)
         sub = 0;
-    if (dbg.in_audio) {
 #if FELUCCA_UAC
-        if (owed & 1u)
-            uac_service();                       /* (USB audio's packet each 1 ms frame, also while a half renders;
-                                                  * owed stays: usb_poll runs after the render, as before) */
+    uac_service();                               /* USB audio's packet each 1 ms frame, looked to every tick (10 kHz), also
+                                                  * while a half renders (build 43, TONITOR build 62's: more than two
+                                                  * channels are longer on the wire, and a look each 0.5 ms now and then
+                                                  * queued the next too late for its frame -- macOS then resets its
+                                                  * clock and drops audio) */
 #endif
+    if (dbg.in_audio) {
         t5_nested_ticks += fm1_ticks() - t0;
-        return;
+        return;                                  /* (owed stays: usb_poll runs after the render, as before) */
     }
     if (owed & 1u)
         usb_poll();
@@ -290,6 +294,10 @@ static void fm1_main(void)
     gens_init(ui.seed);                              /* three generators and three effect slots drawn (~1 s: the sounds
                                                       * measured) */
     ses_init(flash_ok);                              /* the sessions in the flash: listed (none loaded: a fresh start) */
+    setup_load();                                    /* GLOBAL SETUP's settings (MIDI, USB audio: build 43) */
+#if FELUCCA_UAC
+    uac_set_nch(mcfg.usb_aud ? UAC_NMAX : 2u);       /* (the USB audio's channels, before the host first sees it) */
+#endif
     /* CPU1: after a supply setup that held, on a boot after no failed one, and not barred since power-on. It starts
      * through the mask ROM before it reaches our RAM loop: the PC limit only after (Melodee, Tonitor) */
     if (fm1_core1_boot_allowed(fm1_power_ready, bootguard.failed))
@@ -300,6 +308,7 @@ static void fm1_main(void)
         say("1 CORE", 4000);                         /* (CPU1 held: half the room. Said, not silent) */
     audio_init();
     usb_start();
+    uart_midi_init();                                /* the TRS MIDI IN jack (before TIMER5: PORTH; build 43) */
     fm1_timer5_start(isr_timer5, 4);
     fm1_guard_lock_top();
     fm1_irq_enable_all();
@@ -352,6 +361,8 @@ static void fm1_main(void)
         ui_leds();
         ui_draw();
         ses_idle(!gens_sounding() && !loops_playing());   /* (Norilsk's retired sectors blanked, in silence) */
+        setup_poll();                                /* (GLOBAL SETUP left: its changes written; USB AUDIO set) */
+        midi_poll();                                 /* (the generators' CCs sent as they change) */
         while ((uint32_t)(fm1_ms - m) < 15u)        /* ~60 frames a second at most */
             ui_input();
     }
