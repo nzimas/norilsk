@@ -73,6 +73,7 @@ when on); a key with none does nothing and stays dark. "Hold" means 0.8 s unless
 | New sound for chosen generator (with its lane's effects) | **HOME** |
 | New effect chain for chosen lane | Choose the effect slot, press **HOME** |
 | New, but same family (or same recipe) | **SHIFT + HOME** |
+| Pick a family (generator) or recipe (effect slot) | Hold **SHIFT**, turn **PRESETS**: alphabetical list, four per page. Then **SHIFT + HOME** draws a new one of it |
 | Everything new, all six slots | Hold **HOME** |
 | New cables only | 1st black key (REWIRE) |
 | New values only (effects), or new sound of same family (generator) | **SHIFT** + 1st black key (RAND PARAMS) |
@@ -354,6 +355,7 @@ New sounds are always drawn on the newest generation.
 | 5 | Found sounds, three families |
 | 6 | Eight families; one older sound in four gets other waves (harmonic sets, bells, bent) |
 | 7 | Struck: eight families of industrial percussion, drawn only on the MACHINE path. Older families as in 6 |
+| 8 | ANVIL, STAMP, RIVET and SHEET strike again while held, on an unstable clock. The rest as in 7 |
 
 ### Families
 
@@ -395,10 +397,10 @@ New sounds are always drawn on the newest generation.
 | SUBSTRATE | 6 | Squares and saws an octave down, bent; sometimes a pipe's modes |
 | GLASSHARP | 6 | Noise drawn around a bell's modes an octave up, long |
 | OXIDE | 6 | Corroded metal: bent waves, crushed bits, plant grains |
-| ANVIL | 7 | Hammer on an anvil: bright inharmonic partials, a bar or plate ringing a second or two. One strike |
-| STAMP | 7 | Press coming down: low thud into a closed tube, dark burst, short. One strike |
-| RIVET | 7 | Rivet gun's single shot: high, small, a plate, very short. One strike |
-| SHEET | 7 | Metal sheet struck: crowded modes of a hull, wobbling, longer. One strike |
+| ANVIL | 7 | Hammer on an anvil: bright inharmonic partials, a bar or plate ringing a second or two. Scattered strikes while held (8) |
+| STAMP | 7 | Press coming down: low thud into a closed tube, dark burst, short. Scattered strikes while held (8) |
+| RIVET | 7 | Rivet gun: high, small, a plate, very short; clusters of shots. Scattered strikes while held (8) |
+| SHEET | 7 | Metal sheet struck: crowded modes of a hull, wobbling, longer. Scattered strikes while held (8) |
 | GEARS | 7 | Gears turning: quick ticks on a small plate in a pattern of teeth, pace wandering. Runs while held |
 | PISTON | 7 | Slow thump into a closed tube, a hiss of steam between. Runs while held |
 | RATCHET | 7 | Ratchet or chain: irregular clatter on a bar or bell, bounces. Runs while held |
@@ -497,8 +499,11 @@ Three black keys bias everything HOME draws, and RAND PARAMS too:
 
 - **MACHINE** (4th black key): industrial percussion. HOME on a generator draws only the struck families (ANVIL,
   STAMP, RIVET, SHEET, GEARS, PISTON, RATCHET, FORGE): metal against metal, presses, pistons, gears. No drums. The
-  first four strike once per key. The other four are machines: they keep striking on their own while the key is held,
-  each strike a little early or late, the pace wandering, no tempo. Let go, they stop and ring out. HOME on an effect
+  first four strike at the key, then again while it is held on a very unstable clock: intervals from 40 ms to
+  2.5 s, clusters, long pauses, each strike at its own level (softer ones darker) -- a percussive texture, nothing to
+  count. The other four are machines: they keep striking on their own while the key is held, each strike a little
+  early or late, the pace wandering, no tempo. Let go, they stop and ring out. (Sounds saved in build 47, generation 7,
+  keep their single strike.) HOME on an effect
   slot favours rooms, echoes, metal resonances and crushing; not frozen clouds or smoke, which would hold a strike into
   a drone. The struck families are never drawn on the other paths. SHIFT + HOME on a struck sound keeps its family
   on any path.

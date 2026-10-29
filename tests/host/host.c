@@ -625,16 +625,18 @@ static int cmd_struck(void)
 {
     enum { WB = 69, NW = 260 };                          /* windows of 69 blocks (50 ms): 13 s */
     int f, s, path, fails = 0, n = 0;
+    uint32_t g;
     int32_t blk[CTL];
+    for (g = 7u; g <= GEN_NOW; g++)              /* (7: struck once; 8: those strike again while held, scattered) */
     for (path = 0; path < PATH_N; path++)
         for (f = MF_G7; f < MF_N; f++)
             for (s = 0; s < 12; s++) {
                 uint32_t seed = 7100u + (uint32_t)f * 131u + (uint32_t)s * 17u + (uint32_t)path * 911u, b, i;
                 double w[NW] = {0}, mx = 0, first = 0, tail = 0, lull = 1e30, after = 0;
                 int motion, k, j;
-                mo_design(&design, f, seed, (uint32_t)path, GEN_NOW);
+                mo_design(&design, f, seed, (uint32_t)path, g);
                 mo_measure(&design);
-                motion = design.mc.mode == MC_MOTION;
+                motion = design.mc.mode == MC_MOTION || design.mc.mode == MC_SCATTER;   /* (striking while held) */
                 memset(&voice, 0, sizeof voice - MO_GR_N);
                 mo_note_on(&voice, &design, 60, 1);
                 for (b = 0; b < (uint32_t)(WB * NW); b++) {
@@ -665,22 +667,22 @@ static int cmd_struck(void)
                 n++;
                 if (mx < 0.01 || first < (motion ? 0.25 : 0.7) * mx) {   /* (a machine's later strikes may meet in a
                                                                           * window: louder than its first) */
-                    printf("FAIL struck %s %s seed %u: not heard at once (first %.3f, loudest %.3f)\n", MF_NAME[f],
+                    printf("FAIL struck gen %u %s %s seed %u: not heard at once (first %.3f, loudest %.3f)\n", g, MF_NAME[f],
                            PATH_NAME[path], seed, first, mx);
                     fails++;
                 }
                 if (!motion && tail > 0.1 * mx) {
-                    printf("FAIL struck %s %s seed %u: does not fall away (%.3f of %.3f)\n", MF_NAME[f], PATH_NAME[path],
+                    printf("FAIL struck gen %u %s %s seed %u: does not fall away (%.3f of %.3f)\n", g, MF_NAME[f], PATH_NAME[path],
                            seed, tail, mx);
                     fails++;
                 }
                 if (motion && lull < 0.05 * mx) {
-                    printf("FAIL struck %s %s seed %u: stops while held (%.4f of %.3f)\n", MF_NAME[f], PATH_NAME[path],
+                    printf("FAIL struck gen %u %s %s seed %u: stops while held (%.4f of %.3f)\n", g, MF_NAME[f], PATH_NAME[path],
                            seed, lull, mx);
                     fails++;
                 }
                 if (after > 0.001) {
-                    printf("FAIL struck %s %s seed %u: rings on after letting go (%.4f)\n", MF_NAME[f], PATH_NAME[path],
+                    printf("FAIL struck gen %u %s %s seed %u: rings on after letting go (%.4f)\n", g, MF_NAME[f], PATH_NAME[path],
                            seed, after);
                     fails++;
                 }
@@ -1909,6 +1911,15 @@ static int cmd_paint(void)
     fails += paint_one("presets");
     ui.pre_page = SP_ASK;
     fails += paint_one("presets asked");
+    pages_off();
+    fl_make();                                       /* (build 48) SHIFT + PRESETS: a page of families, of recipes */
+    ui.fl_on = 1;
+    ui.fl_slot = 0;
+    ui.fl_ix = 41;
+    fails += paint_one("families, the last page");
+    ui.fl_slot = NGEN + 2;
+    ui.fl_ix = 5;
+    fails += paint_one("recipes");
     pages_off();
     ui.morph = 9;
     ui.dial_until = fm1_ms + 1500u;
@@ -4668,6 +4679,82 @@ static int cmd_presets(void)
     return fails ? 1 : 0;
 #undef PFAIL
 }
+/* (build 48) SHIFT + PRESETS, playing: the families (a generator) or recipes (an effect slot) in alphabetical order,
+ * four to a page, opened where the slot stands; SHIFT + HOME draws the one picked, then or later; HOME forgets it */
+static void enc_turn(int32_t d)
+{
+    fm1_in.enc[PANEL_ENC[EN_PRESET]] = (int8_t)d;
+    ui_input();
+}
+static int cmd_pick(void)
+{
+    int fails = 0;
+    uint32_t i, fam, want;
+#define KFAIL(...) do { printf("FAIL pick: " __VA_ARGS__); printf("\n"); fails++; } while (0)
+    fw_init();
+    fl_make();
+    for (i = 1; i < fl_nfam; i++)
+        if (!name_before(MF_NAME[fl_fam[i - 1u]], MF_NAME[fl_fam[i]]))
+            KFAIL("families not in order: %s before %s", MF_NAME[fl_fam[i - 1u]], MF_NAME[fl_fam[i]]);
+    for (i = 1; i < FR_N; i++)
+        if (!name_before(FR_NAME[fl_rec[i - 1u]], FR_NAME[fl_rec[i]]))
+            KFAIL("recipes not in order: %s before %s", FR_NAME[fl_rec[i - 1u]], FR_NAME[fl_rec[i]]);
+    if (fl_nfam != MF_N - 2u)
+        KFAIL("%u families listed, not %u", fl_nfam, MF_N - 2u);
+    press(SLOT_BTN[0], 50);
+    fam = gbuf[0][g_use[0]].gen.family;
+    key(KEY_SHIFT, 1);
+    enc_turn(1);                                      /* opened where generator 1 stands */
+    if (!ui.fl_on || fl_item(0, ui.fl_ix) != fam)
+        KFAIL("SHIFT + PRESETS did not open the list on %s", MF_NAME[fam]);
+    enc_turn(5);
+    want = fl_item(0, ui.fl_ix);
+    ui_draw();
+    screen_save("build/screens/screen-families.ppm");
+    if (ui.pick[0] != want + 1u)
+        KFAIL("turning did not pick %s", MF_NAME[want]);
+    press(B_HOME, 50);                                /* SHIFT + HOME: the one picked */
+    fw_run(200);
+    if (gbuf[0][g_use[0]].gen.family != want || ui.fl_on || ui.pick[0])
+        KFAIL("SHIFT + HOME drew %s, not %s", MF_NAME[gbuf[0][g_use[0]].gen.family], MF_NAME[want]);
+    enc_turn(-3);                                     /* picked, SHIFT let go, SHIFT + HOME later */
+    enc_turn(-2);
+    want = fl_item(0, ui.fl_ix);
+    key(KEY_SHIFT, 0);
+    ui_input();
+    if (ui.fl_on)
+        KFAIL("the list stayed up with SHIFT let go");
+    key(KEY_SHIFT, 1);
+    press(B_HOME, 50);
+    fw_run(200);
+    if (gbuf[0][g_use[0]].gen.family != want)
+        KFAIL("SHIFT + HOME later drew %s, not %s", MF_NAME[gbuf[0][g_use[0]].gen.family], MF_NAME[want]);
+    enc_turn(1);
+    enc_turn(-40);                                    /* (at the first: stays there) */
+    if (ui.fl_ix != 0u)
+        KFAIL("the list ran past its first entry");
+    key(KEY_SHIFT, 0);
+    ui_input();
+    press(B_HOME, 50);                                /* HOME: the pick forgotten */
+    if (ui.pick[0])
+        KFAIL("HOME did not forget the pick");
+    press(SLOT_BTN[NGEN + 1], 50);                    /* an effect slot: the recipes */
+    key(KEY_SHIFT, 1);
+    enc_turn(1);
+    enc_turn(7);
+    want = fl_item(NGEN + 1, ui.fl_ix);
+    ui_draw();
+    screen_save("build/screens/screen-recipes.ppm");
+    press(B_HOME, 50);
+    fw_run(200);
+    key(KEY_SHIFT, 0);
+    ui_input();
+    if (fbuf[1][f_use[1]].recipe != want)
+        KFAIL("SHIFT + HOME on lane 2 drew %s, not %s", FR_NAME[fbuf[1][f_use[1]].recipe], FR_NAME[want]);
+    printf("pick: %s\n", fails ? "FAILED" : "families and recipes in order, opened where they stand, SHIFT + HOME draws the pick");
+    return fails ? 1 : 0;
+#undef KFAIL
+}
 static int cmd_setup(void)
 {
     int fails = 0;
@@ -5308,6 +5395,8 @@ int main(int argc, char **argv)
         return cmd_mutefade();
     if (!strcmp(argv[1], "load"))
         return cmd_load();
+    if (!strcmp(argv[1], "pick"))
+        return cmd_pick();
     if (!strcmp(argv[1], "presets"))
         return cmd_presets();
     if (!strcmp(argv[1], "setup"))

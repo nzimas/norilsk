@@ -211,7 +211,10 @@ typedef struct {
         uint8_t rsv;
     } mc;
 } mo_design_t;
-enum { MC_NONE, MC_STRIKE, MC_MOTION };
+enum { MC_NONE, MC_STRIKE, MC_MOTION, MC_SCATTER };
+/* (generation 8: SCATTER -- a struck family's strikes again while held, on an unstable clock: RATE the mean, each
+ * interval up or down by as much as JIT tenths of an octave, the density wandering by DRIFT; SOFT the quietest strike;
+ * FLAM the chance of a cluster of up to ACCN quick strikes FLAM_MS apart; PAT the chance of a long pause) */
 enum { BD_NONE, BD_TUBE, BD_MODAL };
 enum { EX_FM, EX_NOISE, EX_BOW };
 enum { BS_BAR, BS_PLATE, BS_BELL, BS_PIPE, BS_HULL, BS_N };
@@ -300,6 +303,7 @@ typedef struct {
     int32_t kenv, kdec, klp, kcol, henv, hdec, hlp;
     int32_t knext, khiss, kflam, kper, kwand, kflev;
     int32_t kog, kot;            /* the operators' level as it glides, and where to (Q15: a soft strike quieter) */
+    int32_t kcol0, kvel;         /* (generation 8, SCATTER) the burst's colour as drawn; the strikes' level wandering */
     uint8_t kstep, krsv[3];
     uint8_t buf[MO_GR_N];
 } mo_voice_t;
@@ -1221,6 +1225,8 @@ static void mo_strike_start(mo_voice_t *v, const mo_design_t *d)
     v->kper = (int32_t)(FS * 4u / (uint32_t)clampi(d->mc.rate, 1, 80));
     v->kwand = Q15;
     v->kstep = 0;
+    v->kcol0 = v->kcol;
+    v->kvel = Q15;
     v->kenv = d->mc.level * 327;                 /* (the first strike: at the key, full) */
     v->knext = v->kper;
     v->khiss = d->mc.mode == MC_MOTION && d->mc.off ? v->kper / 2 : 0;
@@ -1264,6 +1270,26 @@ static FAST void mo_strikes(mo_voice_t *v, const mo_design_t *d, int32_t *kb, in
             v->henv = d->mc.off * 327;
         if (v->kflam > 0 && (v->kflam -= (int32_t)CTL) <= 0)
             mo_strike(v, d, v->kflev);
+    } else if (d->mc.mode == MC_SCATTER && (v->n.down || v->hold) && (v->knext -= (int32_t)CTL) <= 0) {
+        int32_t u = rnd_q15(&v->brnd), soft = d->mc.soft * 327, lev, per;
+        v->kvel = clampi(v->kvel + mulq15(rnd_bi(&v->brnd), Q15 / 5), Q15 / 2, Q15);   /* (the hand tiring, pressing) */
+        lev = mulq15(soft + mulq15(Q15 - soft, mulq15(u, u)), v->kvel);   /* (soft ones more often than hard) */
+        v->kcol = mulq15(v->kcol0, Q15 / 2 + lev / 2);   /* (a softer strike darker) */
+        mo_strike(v, d, lev);
+        v->kwand = clampi(v->kwand + mulq15(rnd_bi(&v->brnd), d->mc.drift * 328), Q15 / 3, Q15 * 5 / 2);
+        if (v->kstep) {                          /* (in a cluster) */
+            v->kstep--;
+            per = d->mc.flam_ms * 44 + mulq15(d->mc.flam_ms * 22, rnd_bi(&v->brnd));
+        } else if (rnd_chance(&v->brnd, d->mc.flam)) {
+            v->kstep = (uint8_t)(1 + rnd_below(&v->brnd, maxi(d->mc.accn, 1)));
+            per = d->mc.flam_ms * 44;
+        } else {                                 /* (an interval: the mean, the density, up or down by octaves) */
+            int32_t oct16 = rnd_bi(&v->brnd) * (int32_t)d->mc.jit / 5;
+            per = (int32_t)(((int64_t)mulq15(v->kper, v->kwand) * (int32_t)exp2_q16(oct16)) >> 16);
+            if (rnd_chance(&v->brnd, d->mc.pat))
+                per *= 3 + rnd_below(&v->brnd, 3);   /* (a long pause) */
+        }
+        v->knext += clampi(per, 1764, 110250);   /* (40 ms .. 2.5 s) */
     }
     v->kog += (v->kot - v->kog) >> 1;
     for (i = 0; i < CTL; i++) {
@@ -2657,6 +2683,26 @@ static void mo_ops7(mo_design_t *d, rnd_t *r, int lo, int hi, int bright, int r2
     p[FP_LAMD] = 0;
     p[FP_LPMD] = 0;
 }
+/* generation 8: the families struck once strike again while the key is held, on an unstable clock -- intervals
+ * scattered over octaves around a mean that wanders, clusters, long pauses, each strike's level at random (soft ones
+ * more often), a softer one darker: a percussive texture, no pulse to count */
+static void mo_scatter8(mo_design_t *d, int32_t f, rnd_t *r)
+{
+    static const uint8_t RT[4][2] = {{5, 14}, {2, 7}, {10, 30}, {3, 9}};   /* (ANVIL STAMP RIVET SHEET: x 4 a second) */
+    static const uint8_t SP[4][2] = {{10, 16}, {8, 14}, {12, 20}, {10, 16}};
+    static const uint8_t CL[4][2] = {{15, 35}, {8, 20}, {30, 55}, {10, 25}};
+    static const uint8_t CM[4][2] = {{40, 110}, {70, 160}, {25, 70}, {60, 140}};
+    int k = clampi(f - MF_ANVIL, 0, 3);
+    d->mc.mode = MC_SCATTER;
+    d->mc.rate = (uint8_t)rnd_in(r, RT[k][0], RT[k][1]);
+    d->mc.jit = (uint8_t)rnd_in(r, SP[k][0], SP[k][1]);
+    d->mc.drift = (uint8_t)rnd_in(r, 15, 45);
+    d->mc.soft = (uint8_t)rnd_in(r, 12, 40);
+    d->mc.flam = (uint8_t)rnd_in(r, CL[k][0], CL[k][1]);
+    d->mc.flam_ms = (uint8_t)rnd_in(r, CM[k][0], CM[k][1]);
+    d->mc.accn = (uint8_t)rnd_in(r, 1, k == 2 ? 7 : 4);
+    d->mc.pat = (uint8_t)rnd_in(r, 5, 20);
+}
 static void mo_fam7(mo_design_t *d, int32_t f, rnd_t *r)
 {
     uint8_t *p = d->p;
@@ -2814,6 +2860,8 @@ static void mo_fam7(mo_design_t *d, int32_t f, rnd_t *r)
         d->mc.level = (uint8_t)rnd_in(r, 60, 95);
         break;
     }
+    if (d->gen >= 8u && d->mc.mode == MC_STRIKE)        /* (generation 8: struck again while held, at random) */
+        mo_scatter8(d, f, r);
 }
 /* the hand drawn: most sounds of generation 3 have one; what it moves leans on the family (the glitchy ones' speed
  * on their glitches, the dark ones' age on the cloud's darkness); paced by the path (AMBIENT slower) */

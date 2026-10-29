@@ -2,6 +2,21 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 48 (2026-10-29): scattered strikes; families and recipes picked from a list
+
+- **Engine generation 8**: ANVIL, STAMP, RIVET and SHEET strike at the key, then again while it is held, on a very
+  unstable clock: each interval scattered up to two octaves either side of a mean (ANVIL 1.3 to 3.5 a second, STAMP
+  0.5 to 1.8, RIVET 2.5 to 7.5, SHEET 0.8 to 2.3), the mean itself wandering (x 1/3 to x 2.5), clusters of quick
+  strikes, now and then a long pause; 40 ms to 2.5 s apart. Each strike its own level, soft ones more often, a softer
+  one darker, the overall force drifting: a percussive texture, nothing to count. Let go: no more strikes. GEARS,
+  PISTON, RATCHET and FORGE as in 7. Sounds saved under generation 7 keep their single strike (golden 0 .. 7
+  unchanged).
+- **SHIFT + PRESETS** (playing): the families (a generator chosen) or the recipes (an effect slot) in alphabetical
+  order, four a page, opened on what the slot plays, which carries a block at the right. Turning picks; SHIFT + HOME
+  draws a new sound of the family picked (or a new chain of the recipe). Let SHIFT go and the list closes, the pick
+  said and kept for SHIFT + HOME; HOME forgets it. IMPACT and PULSE are not listed (not drawn since generation 2).
+- Tests: `host struck` runs generations 7 and 8; `host pick`; the lists in `host paint` and `build/screens`.
+
 ## Build 47 (2026-10-29): presets; industrial percussion on the MACHINE path
 
 - **PRESETS** (Tonitor's; `firmware/src/presets.c`): hold SHIFT, hold ARP 0.8 s. 64 slots for the generator being

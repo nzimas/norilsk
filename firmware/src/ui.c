@@ -7,7 +7,12 @@
  *   HOME                      a new patch for the slot chosen. A generator: its sound, the effects it is wired into,
  *                             (its level and pan, and a modulation by another generator, stay). An effect slot: a recipe -- its
  *                             two or three effects, their values, its cables across to the slots after it.
- *                             SHIFT + HOME: a new one of the same family, or recipe. HOME held 0.8 s: all six anew
+ *                             SHIFT + HOME: a new one of the same family, or recipe (or of the one picked: SHIFT +
+ *                             PRESETS). HOME held 0.8 s: all six anew
+ *   SHIFT + PRESETS           (build 48, playing) the families (a generator chosen) or the recipes (an effect slot), in
+ *                             alphabetical order, four a page, opened on what the slot plays: turning picks one, SHIFT
+ *                             + HOME draws a new sound of it (or recipe). SHIFT let go: the list down, the pick kept
+ *                             for SHIFT + HOME; HOME forgets it
  *   the white keys            play the generator chosen, in the scale chosen: the first key is the root, every
  *                             white key the next note of the scale (each root glows dimly, Tonitor's; build 42). Four
  *                             voices for the three generators. A key held and SHIFT pressed: its note latched (the
@@ -234,6 +239,10 @@ static struct {
     uint8_t pk_down, pk_done;    /* the scale button (or SAVE) down on PRESETS since pk_t0: held, saved; let go, loaded */
     uint32_t scl_t0, pk_t0;
     int32_t shown_pre;
+    uint8_t fl_on, fl_slot, fl_ix;   /* (build 48) SHIFT + PRESETS playing: the list of families (a generator) or recipes
+                                      * (an effect slot) up, for which slot, where in it */
+    uint8_t pick[NSLOT];         /* .. what was picked in it for each slot, + 1 (0: none): SHIFT + HOME draws that */
+    int32_t shown_fl;
     uint32_t latch[NGEN];        /* each generator's keys latched */
     uint8_t latch_note[NGEN][NKEY];
     uint8_t was_on;              /* (CPU1 running, last time: its loss said once) */
@@ -457,16 +466,75 @@ static void say_slot(uint32_t l, const char *t, uint32_t ms)
     say(b, ms);
 }
 /* HOME on slot l (same: of the same family, or recipe) */
+/* (build 48) the lists SHIFT + PRESETS goes through, in alphabetical order: the families HOME may draw (not IMPACT and
+ * PULSE, left out from generation 2), the recipes */
+static uint8_t fl_fam[MF_N], fl_rec[FR_N], fl_nfam, fl_made;
+static int name_before(const char *a, const char *b)
+{
+    while (*a && *a == *b)
+        a++, b++;
+    return (uint8_t)*a < (uint8_t)*b;
+}
+static void fl_make(void)
+{
+    uint32_t i, j, n;
+    if (fl_made)
+        return;
+    for (i = 0, n = 0; i < MF_N; i++) {
+        if (i == MF_IMPACT || i == MF_PULSE)
+            continue;
+        for (j = n++; j > 0 && name_before(MF_NAME[i], MF_NAME[fl_fam[j - 1u]]); j--)
+            fl_fam[j] = fl_fam[j - 1u];
+        fl_fam[j] = (uint8_t)i;
+    }
+    fl_nfam = (uint8_t)n;
+    for (i = 0; i < FR_N; i++) {
+        for (j = i; j > 0 && name_before(FR_NAME[i], FR_NAME[fl_rec[j - 1u]]); j--)
+            fl_rec[j] = fl_rec[j - 1u];
+        fl_rec[j] = (uint8_t)i;
+    }
+    fl_made = 1;
+}
+static uint32_t fl_n(uint32_t sl) { return sl < NGEN ? fl_nfam : FR_N; }
+static uint32_t fl_item(uint32_t sl, uint32_t i) { return sl < NGEN ? fl_fam[i % fl_nfam] : fl_rec[i % FR_N]; }
+static const char *fl_name(uint32_t sl, uint32_t i) { return sl < NGEN ? MF_NAME[fl_item(sl, i)] : FR_NAME[fl_item(sl, i)]; }
+/* slot sl's sound's family, or its lane's recipe, now */
+static uint32_t fl_now(uint32_t sl)
+{
+    return sl < NGEN ? gbuf[sl][g_use[sl]].gen.family : fbuf[sl - NGEN][f_use[sl - NGEN]].recipe;
+}
+/* SHIFT + PRESETS, playing: the list up on the slot chosen (on what was picked, or what it plays), or a step through it;
+ * the item under the cursor picked */
+static void fl_turn(int32_t s)
+{
+    uint32_t i, sl = ui.sel, want;
+    fl_make();
+    if (!ui.fl_on || ui.fl_slot != sl) {
+        want = ui.pick[sl] ? ui.pick[sl] - 1u : fl_now(sl);
+        ui.fl_ix = 0;
+        for (i = 0; i < fl_n(sl); i++)
+            if (fl_item(sl, i) == want)
+                ui.fl_ix = (uint8_t)i;
+        ui.fl_on = 1;
+        ui.fl_slot = (uint8_t)sl;
+        s = 0;                                   /* (the first detent shows where it stands) */
+    }
+    ui.fl_ix = (uint8_t)clampi((int32_t)ui.fl_ix + s, 0, (int32_t)fl_n(sl) - 1);
+    ui.pick[sl] = (uint8_t)(fl_item(sl, ui.fl_ix) + 1u);
+    ui.force = 1;
+}
 static int new_patch(uint32_t l, int same)
 {
-    int ok;
+    int ok, pk = same && ui.pick[l] ? (int)ui.pick[l] - 1 : -1;   /* (build 48: SHIFT + HOME, the one picked) */
+    ui.pick[l] = 0;
+    ui.fl_on = 0;
     if (l < NGEN) {
-        ok = gen_draw(l, same && gen_drawn[l] ? (int32_t)gbuf[l][g_use[l]].gen.family : -1, next_seed());
+        ok = gen_draw(l, pk >= 0 ? pk : same && gen_drawn[l] ? (int32_t)gbuf[l][g_use[l]].gen.family : -1, next_seed());
         if (ok)                                  /* (its lane's chain drawn with it -- part of the patch; SHIFT:
                                                   * of the recipe it had) */
             ok = fx_draw(l, same ? (int32_t)fbuf[l][f_use[l]].recipe : -1, next_seed());
     } else
-        ok = fx_draw(l - NGEN, same ? (int32_t)fbuf[l - NGEN][f_use[l - NGEN]].recipe : -1, next_seed());
+        ok = fx_draw(l - NGEN, pk >= 0 ? pk : same ? (int32_t)fbuf[l - NGEN][f_use[l - NGEN]].recipe : -1, next_seed());
     if (ok) {
         ui.home_until = fm1_ms + 400u;
         say_slot(l, l < NGEN ? MF_NAME[gbuf[l][g_pub[l]].gen.family % MF_N] : FR_NAME[fbuf[l - NGEN][f_pub[l - NGEN]].recipe % FR_N],
@@ -507,7 +575,7 @@ static void fade_text(char *v, uint32_t hs)    /* OFF, 4.5 S, 60 S */
 /* every page down: back to playing */
 static void pages_off(void)
 {
-    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = ui.set_page = ui.pre_page = 0;
+    ui.sc_page = ui.fx_page = ui.ses_page = ui.snap_page = ui.gs_page = ui.set_page = ui.pre_page = ui.fl_on = 0;
     ui.force = 1;
 }
 /* a session's or a snapshot's outcome, on the whole screen, saying which (build 27): SESSION or SNAPSHOT, in its
@@ -957,7 +1025,17 @@ static void ui_input(void)
         }
     }
     s = fm1_enc_take(PANEL_ENC[EN_PRESET]);      /* PRESETS: through the page's list */
-    if (s && ui.set_page) {
+    if (ui.fl_on && !shift_held()) {             /* (SHIFT let go: the list down, what was picked said) */
+        ui.fl_on = 0;
+        ui.force = 1;
+        if (ui.pick[ui.fl_slot])
+            say_slot(ui.fl_slot, ui.fl_slot < NGEN ? MF_NAME[(ui.pick[ui.fl_slot] - 1u) % MF_N]
+                                                   : FR_NAME[(ui.pick[ui.fl_slot] - 1u) % FR_N], 1500);
+    }
+    if (s && shift_held() && !ui.set_page && !ui.pre_page && !ui.ses_page && !ui.snap_page && !ui.fx_page && !ui.gs_page &&
+        !ui.sc_page && !ui.ovd) {
+        fl_turn(s);                              /* SHIFT + PRESETS, playing: the families or recipes (build 48) */
+    } else if (s && ui.set_page) {
         setup_preset(s);
     } else if (s && ui.pre_page == SP_LIST) {
         ui.pre_ix = (uint8_t)clampi((int32_t)ui.pre_ix + s, 1, PRE_SLOTS);
@@ -2219,6 +2297,37 @@ static void pre_title(const char *t)
     cv_rect(0, 52, 240, 3, C_PRE);
     cv_blit(0, 0);
 }
+/* (build 48) the list SHIFT + PRESETS goes through: FAMILY or RECIPE on a band in the slot's colour, four rows a page
+ * (past the fourth, the next four), the one under the cursor black on white, what the slot plays now with a block at
+ * its right */
+static void draw_fl_page(void)
+{
+    uint32_t sl = ui.fl_slot, top = ui.fl_ix / 4u * 4u, r, now = fl_now(sl);
+    int32_t key = ui.fl_ix | (int32_t)sl << 8 | (int32_t)now << 12;
+    if (!ui.force && ui.shown_fl == key)
+        return;
+    ui.shown_fl = key;
+    cv_begin(240, 55, GEN_COL[sl % NGEN]);
+    cv_text_fit((52 - (int32_t)FONT_M.h) / 2, &FONT_M, sl < NGEN ? "FAMILY" : "RECIPE", C_BLACK);
+    cv_bg_set(C_BLACK);
+    cv_rect(0, 52, 240, 3, C_PRE);
+    cv_blit(0, 0);
+    for (r = 0; r < 4u; r++) {
+        uint32_t i = top + r;
+        int chosen = i == ui.fl_ix;
+        cv_begin(240, SES_ROW_H, chosen ? C_WHITE : C_BLACK);
+        if (i < fl_n(sl)) {
+            const char *nm = fl_name(sl, i);
+            const font_t *f = text_fits(&FONT_M, nm, 196) ? &FONT_M : &FONT_S;
+            cv_text(8, (SES_ROW_H - (int32_t)f->h) / 2, f, nm, chosen ? C_BLACK : C_WHITE);
+            if (fl_item(sl, i) == now)
+                cv_rect(214, (SES_ROW_H - 18) / 2, 18, 18, chosen ? C_BLACK : C_OK);
+        }
+        cv_rect(0, SES_ROW_H - 1, 240, 1, RGB(50, 50, 50));
+        cv_blit(0, 55 + SES_ROW_H * r);
+    }
+    ses_foot();
+}
 static void draw_pre_page(void)
 {
     uint32_t sel = ui.pre_ix, top = sel <= 2u ? 1u : sel > PRE_SLOTS - 2u ? PRE_SLOTS - 3u : sel - 1u, r;
@@ -2446,6 +2555,14 @@ static void ui_draw(void)
             ui.force = 1;
         ui.shown_page = 20;
         setup_draw();
+        ui.force = 0;
+        return;
+    }
+    if (ui.fl_on) {                              /* SHIFT + PRESETS: the families or recipes (build 48) */
+        if (ui.shown_page != 22u)
+            ui.force = 1;
+        ui.shown_page = 22;
+        draw_fl_page();
         ui.force = 0;
         return;
     }
