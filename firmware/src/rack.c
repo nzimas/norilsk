@@ -29,7 +29,11 @@
  *   RVS  REVERSE   windows of the sound played backwards, at their pitch, fed back if asked
  *   SPR  SPRING    a spring reverb: allpass chirps in a short tank, a resonance for its tone
  *   REV  REVERB    (the master's from build 30; a saved one loads as SPRING, build 31)
- * and build 32's: SMR SMEAR, DIF DIFFUSE, SLW SLEW, XOR XOR, DST DUST (further down) */
+ * and build 32's: SMR SMEAR, DIF DIFFUSE, SLW SLEW, XOR XOR, DST DUST (further down).
+ *
+ * Build 44: twin recipes (MIRRORS .. FOG) -- one effect twice in a row, the second's values drawn from the first's and
+ * kept apart from them; in SWARM, LOOPHOLE, CAVERN and FOG the second fed back into the first, its gain following the
+ * lane's input (nothing in: the loop closes) */
 
 enum { RM_FLT, RM_FLD, RM_MU, RM_SHF, RM_MDL, RM_STR, RM_VOW, RM_DLY, RM_TAP, RM_RVS, RM_SPR, RM_REV, RM_GLT,
        RM_CLD, RM_SCR, RM_RNG, RM_STV, RM_CHB, RM_BNK, RM_SMR, RM_DIF, RM_SLW, RM_XOR, RM_DST, NKIND };
@@ -1096,11 +1100,17 @@ static uint32_t rm_size(uint32_t k)
 #define K(x) (1u << RM_##x)
 enum { FR_SPACE, FR_ECHO, FR_METAL, FR_STRINGS, FR_EROSION, FR_GHOST, FR_SPECTRAL, FR_RESONANT, FR_FOLDS, FR_TELEPHONE,
        FR_HELL, FR_FACTORY, FR_GLITCH, FR_BROADCAST, FR_ABYSS, FR_RUST,
-       FR_FREEZER, FR_FEEDBACK, FR_FOUNDRY, FR_GONG, FR_SPECTRE, FR_SPUTTER, FR_SMOG, FR_STATIC, FR_N };
+       FR_FREEZER, FR_FEEDBACK, FR_FOUNDRY, FR_GONG, FR_SPECTRE, FR_SPUTTER, FR_SMOG, FR_STATIC,
+       FR_MIRRORS, FR_FOLDOVER, FR_SWARM, FR_CLANGOUR, FR_LOOPHOLE, FR_CAVERN, FR_CRUSH, FR_OVERTONE, FR_FOG, FR_N };
 static const char *const FR_NAME[FR_N] = {"SPACE", "ECHO", "METAL", "STRINGS", "EROSION", "GHOST", "SPECTRAL", "RESONANT",
                                           "FOLDS", "TELEPHONE", "HELL", "FACTORY", "GLITCH", "BROADCAST", "ABYSS", "RUST",
-                                          "FREEZER", "FEEDBACK", "FOUNDRY", "GONG", "SPECTRE", "SPUTTER", "SMOG", "STATIC"};
+                                          "FREEZER", "FEEDBACK", "FOUNDRY", "GONG", "SPECTRE", "SPUTTER", "SMOG", "STATIC",
+                                          "MIRRORS", "FOLDOVER", "SWARM", "CLANGOUR", "LOOPHOLE", "CAVERN", "CRUSH",
+                                          "OVERTONE", "FOG"};
 #define FX_OPT 0x80000000u       /* (a place that may be left out) */
+#define FX_TWIN 0x40000000u      /* (build 44) the same effect as the place before, its values drawn from that one's and
+                                  * kept apart from them (fx_twin_values) */
+typedef char fr_kinds_fit[NKIND <= 30 ? 1 : -1];
 static const uint32_t FR_PLACE[FR_N][FX_N] = {   /* (build 30: DELAY and REVERB no longer drawn -- they are the
                                                  * master's; a session saved with them still plays them. Build 32: SMEAR,
                                                  * DIFFUSE, SLEW, XOR, DUST among the choices; SMOG, STATIC) */
@@ -1131,17 +1141,40 @@ static const uint32_t FR_PLACE[FR_N][FX_N] = {   /* (build 30: DELAY and REVERB 
     /* build 32 */
     {K(SMR) | K(DIF), K(FLT) | K(VOW) | K(SLW), FX_OPT | K(DST) | K(TAP)},      /* SMOG: a haze, dark, a grain in it */
     {K(XOR) | K(DST), K(SLW) | K(MU) | K(FLT), FX_OPT | K(DIF) | K(SPR)},       /* STATIC: a broken signal, blurred */
+    /* build 44: twins -- one effect twice in a row, the second's values apart from the first's; in four of them the
+     * second fed back into the first (FR_RET) */
+    {K(SHF), FX_TWIN, FX_OPT | K(SPR) | K(DIF) | K(SMR)},                       /* MIRRORS: moved, moved back the other way */
+    {K(FLD), FX_TWIN, FX_OPT | K(FLT) | K(SLW) | K(SPR)},                       /* FOLDOVER: folded, folded again */
+    {K(CLD), FX_TWIN, FX_OPT | K(SLW) | K(FLT) | K(XOR)},                       /* SWARM: grains of grains, fed back */
+    {K(RNG), FX_TWIN, FX_OPT | K(SPR) | K(BNK) | K(DIF)},                       /* CLANGOUR: two carriers, a cluster */
+    {K(GLT), FX_TWIN, FX_OPT | K(XOR) | K(FLT) | K(DST)},                       /* LOOPHOLE: bent buffers bending each other */
+    {K(SPR), FX_TWIN, FX_OPT | K(MDL) | K(SHF) | K(SMR)},                       /* CAVERN: springs into springs, fed back */
+    {K(MU), FX_TWIN, FX_OPT | K(XOR) | K(DST) | K(SPR)},                        /* CRUSH: two rates beating, aliased */
+    {K(CHB), FX_TWIN, FX_OPT | K(CLD) | K(SMR) | K(SPR)},                       /* OVERTONE: harmonics of harmonics */
+    {K(SMR), FX_TWIN, FX_OPT | K(SPR) | K(FLT) | K(SLW)},                       /* FOG: smoke into smoke, fed back */
 };
-static const uint8_t FR_W[FR_N] = {4, 4, 4, 3, 4, 3, 3, 3, 3, 2, 4, 4, 4, 3, 4, 3, 5, 4, 5, 4, 4, 4, 4, 4};
+static const uint8_t FR_W[FR_N] = {4, 4, 4, 3, 4, 3, 3, 3, 3, 2, 4, 4, 4, 3, 4, 3, 5, 4, 5, 4, 4, 4, 4, 4,
+                                   3, 3, 3, 3, 3, 3, 3, 3, 3};
+/* (build 44) the recipes whose second place feeds back into the first: one block later (0.73 ms) plus the effects' own
+ * delay -- only effects that hold the sound a while (a cloud, a buffer, a spring, a smear), so the loop is an echo
+ * of the texture, never a comb's whistle. Its gain, drawn, follows the lane's input: no sound in, the loop closes */
+static const uint8_t FR_RET[FR_N] = {[FR_SWARM] = 90, [FR_LOOPHOLE] = 90, [FR_CAVERN] = 60, [FR_FOG] = 85};   /* (the
+                                                  * most each draws, %: a spring's loop gains on its own, the others
+                                                  * give back less than they take) */
+#define FXR_MAX 95u
 #undef K
 
 typedef struct { uint8_t kind, p[4]; } fx_eff_t;
+#define FXR_ON 0x8000u
 typedef struct {
     fx_eff_t e[FX_N];
     uint8_t n;                   /* 2 or 3 */
     uint8_t recipe;
     uint8_t out;                 /* bit k: place k's output to the master (the last always) */
-    uint16_t xto[FX_N];          /* bit i: place k's output wired into instance i (of a later slot) */
+    uint16_t ret;                /* (build 44) the return: 0 none, else FXR_ON | its gain (0 .. FXR_MAX), place 1 into place 0
+                                  * (FR_RET's recipes only). (Builds 10 .. 43: three cables across to other slots here,
+                                  * unused from build 36 and zeroed as a patch loads) */
+    uint16_t rsv[2];
     uint32_t seed, serial;
 } fx_patch_t;
 static fx_patch_t fbuf[NFX][2];
@@ -1194,6 +1227,11 @@ static uint32_t ebus_fed, ebus_fed_run;        /* (the instances something was s
  * blk_render), the master delay, reverb and drive another: each lane's output and sends apart, summed on CPU0 after
  * the join (rack_sum) -- the same sound whichever core ran which */
 static int32_t lane_l[NFX][CTL], lane_r[NFX][CTL], lane_dl[NFX][CTL], lane_rv[NFX][CTL];
+static int32_t lane_ret[NFX][CTL];              /* (build 44) a lane's return: place 1's output the block before, into
+                                                  * place 0 (FR_RET's recipes) */
+static int32_t lane_renv[NFX], lane_rg[NFX];    /* .. the lane's input followed; the return's gain as the last block
+                                                  * ended (Q15) */
+#define RET_KNEE 400             /* (the input at which the return is half open: -38 dB) */
 static int32_t lane_m[NFX][CTL];                /* (build 43) each lane's output, mono, after its level, before its
                                                   * pan: its generator's USB track (gens.c) */
 static uint32_t lane_ticks[NFX], mst_ticks;     /* what each took its last block */
@@ -1276,6 +1314,8 @@ static void fx_start(uint32_t s)
 {
     const fx_patch_t *f = &fbuf[s][f_use[s]];
     uint32_t k, at = 0;
+    lane_rg[s] = lane_renv[s] = 0;                   /* (build 44: the return starts closed, empty) */
+    memset(lane_ret[s], 0, sizeof lane_ret[s]);
     for (k = 0; k < FX_N; k++) {
         uint32_t inst = s * FX_N + k;
         rm_env[inst] = 0;
@@ -1330,6 +1370,7 @@ static void lane_job(uint32_t s)
 {
     uint32_t k, i, has = ebus_fed_run;
     uint32_t t0 = fm1_ticks();
+    int32_t ret_g1 = 0;
     int32_t *o_l = lane_l[s], *o_r = lane_r[s], *o_dl = lane_dl[s], *o_rv = lane_rv[s], *o_m = lane_m[s];
     for (i = 0; i < CTL; i++)
         o_l[i] = o_r[i] = o_dl[i] = o_rv[i] = o_m[i] = 0;
@@ -1348,7 +1389,24 @@ static void lane_job(uint32_t s)
         fx_wq[s] = wq1;
         if (fx_phase[s] == FS_CLEAR || (fx_mute[s] && !((fx_fine >> s) & 1u))) {   /* (a morph: the mute is its level) */
             fx_g[s] = 0;
+            lane_rg[s] = lane_renv[s] = 0;
+            memset(lane_ret[s], 0, sizeof lane_ret[s]);
             break;
+        }
+        {   /* (build 44) the return: its gain follows what the generator sends into the lane, so with nothing in the
+             * loop closes (over ~2 s) and nothing is held */
+            int32_t pk = 0, e = lane_renv[s], gt = 0;
+            const int32_t *hx = ebus_run[s * FX_N];
+            if ((has >> (s * FX_N)) & 1u)
+                for (i = 0; i < CTL; i++)
+                    pk = maxi(pk, absi(hx[i]));
+            e = pk > e ? pk : maxi(e - (e >> 9) - 1, 0);
+            lane_renv[s] = e;
+            if ((f->ret & FXR_ON) && f->n >= 2u && f->e[0].kind == f->e[1].kind && f->recipe < FR_N && FR_RET[f->recipe]) {
+                uint32_t ec = (uint32_t)mini(e, 65535);          /* (32-bit: e / (e + knee), Q15) */
+                gt = mulq15(clampi(f->ret & 0x7Fu, 0, FXR_MAX) * Q15 / 100, (int32_t)((ec << 15) / (ec + RET_KNEE)));
+            }
+            ret_g1 = gt;
         }
         for (i = 0; i < CTL; i++)
             sl[i] = 0;
@@ -1363,6 +1421,17 @@ static void lane_job(uint32_t s)
         for (k = 0; k < f->n; k++) {
             uint32_t inst = s * FX_N + k, out = k + 1u == f->n || ((f->out >> k) & 1u);
             int32_t *x = ebus_run[inst];
+            if (!k && (ret_g1 || lane_rg[s])) {      /* (build 44) place 1's output the block before, in */
+                int32_t g = lane_rg[s], dg = (ret_g1 - g) / (int32_t)CTL;
+                for (i = 0; i < CTL; i++) {
+                    g += dg;
+                    x[i] += mulq15(lane_ret[s][i], g);
+                }
+                lane_rg[s] = ret_g1;
+                has |= 1u << inst;
+            }
+            if (k == 1u)
+                memset(lane_ret[s], 0, sizeof lane_ret[s]);   /* (taken: what place 1 gives this block replaces it) */
             if (!((has >> inst) & 1u) && rm_quiet[inst] >= RM_TAIL)
                 continue;
             int32_t dry[CTL], lvl;
@@ -1392,6 +1461,8 @@ static void lane_job(uint32_t s)
                 rm_quiet[inst] = 0;
             if (rm_quiet[inst] >= RM_TAIL)
                 continue;
+            if (k == 1u && lane_renv[s])             /* (kept for the return: place 0 hears it next block) */
+                memcpy(lane_ret[s], x, sizeof lane_ret[s]);
             if (out)
                 for (i = 0; i < CTL; i++)
                     sl[i] += x[i];
@@ -1512,8 +1583,10 @@ static const uint8_t RM_ROLE[NKIND][4] = {
 #define RM_HARSH ((1u << RM_FLD) | (1u << RM_MU) | (1u << RM_STV) | (1u << RM_SCR) | (1u << RM_GLT) | (1u << RM_CHB) | (1u << RM_RNG) | \
                   (1u << RM_XOR) | (1u << RM_SLW))
 /* the recipes' weights on each path (ANY: FR_W) */
-static const uint8_t FR_W_ROUGH[FR_N] = {0, 1, 3, 1, 6, 1, 2, 1, 6, 4, 6, 6, 6, 5, 2, 6, 1, 6, 6, 1, 3, 6, 1, 6};
-static const uint8_t FR_W_DARK[FR_N] = {6, 5, 1, 4, 1, 6, 4, 5, 0, 0, 2, 0, 0, 0, 6, 0, 6, 0, 0, 4, 4, 0, 6, 0};
+static const uint8_t FR_W_ROUGH[FR_N] = {0, 1, 3, 1, 6, 1, 2, 1, 6, 4, 6, 6, 6, 5, 2, 6, 1, 6, 6, 1, 3, 6, 1, 6,
+                                         3, 6, 3, 5, 6, 2, 6, 5, 1};
+static const uint8_t FR_W_DARK[FR_N] = {6, 5, 1, 4, 1, 6, 4, 5, 0, 0, 2, 0, 0, 0, 6, 0, 6, 0, 0, 4, 4, 0, 6, 0,
+                                        3, 0, 5, 1, 0, 5, 0, 1, 6};
 /* an effect's value v (0 .. 100 within lo .. hi) leant the path's way */
 static int32_t fx_lean(uint32_t role, int32_t v, int32_t lo, int32_t hi)
 {
@@ -1554,6 +1627,50 @@ static void fx_values(fx_eff_t *e, rnd_t *r)
                                   RM_LO[e->kind][k], RM_HI[e->kind][k]);
     }
 }
+/* (build 44) a twin's values: the first's, each moved 15 .. 45 either way; its drive two thirds of the way down (two
+ * drives in a row are dense enough); then what keeps the two apart where the same values would only double the
+ * sound: a shifter goes the other way, a ring and a crusher run at another rate, a frozen cloud's twin is not
+ * frozen. Leant the path's way */
+static int32_t fx_apart(int32_t v, int32_t ref, int32_t d, int32_t lo, int32_t hi)
+{
+    if (v > ref - d && v < ref + d)
+        v = v >= ref ? (ref + d <= hi ? ref + d : ref - d) : (ref - d >= lo ? ref - d : ref + d);
+    return clampi(v, lo, hi);
+}
+static void fx_twin_values(fx_eff_t *e, const fx_eff_t *a, rnd_t *r)
+{
+    uint32_t k, m = a->kind % NKIND;
+    e->kind = a->kind;
+    for (k = 0; k < 4u; k++) {
+        int32_t lo = RM_LO[m][k], hi = RM_HI[m][k], d = rnd_in(r, 15, 45), v;
+        v = clampi(a->p[k] + (rnd_chance(r, 50) ? d : -d), lo, hi);
+        if (RM_ROLE[m][k] == VR_DRIVE)
+            v = lo + (v - lo) / 3;
+        e->p[k] = (uint8_t)clampi(fx_lean(RM_ROLE[m][k], v, lo, hi), lo, hi);
+    }
+    if (m == RM_SHF) {                               /* (the direction: down < 45, both 45 .. 55, up > 55) */
+        e->p[2] = (uint8_t)(a->p[2] < 45 ? rnd_in(r, 56, 100) : a->p[2] > 55 ? rnd_in(r, 0, 44)
+                                                                               : (rnd_chance(r, 50) ? rnd_in(r, 0, 44) : rnd_in(r, 56, 100)));
+        e->p[0] = (uint8_t)fx_apart(e->p[0], a->p[0], 15, RM_LO[m][0], RM_HI[m][0]);
+    } else if (m == RM_RNG || m == RM_MU)
+        e->p[0] = (uint8_t)fx_apart(e->p[0], a->p[0], 20, RM_LO[m][0], RM_HI[m][0]);
+    else if (m == RM_CLD && a->p[2] >= 50)
+        e->p[2] = (uint8_t)rnd_in(r, RM_LO[m][2], 45);
+    else if (m == RM_CHB)
+        e->p[0] = (uint8_t)fx_apart(e->p[0], a->p[0], 25, RM_LO[m][0], RM_HI[m][0]);
+}
+/* (build 44) a return's gain, drawn: up to the recipe's most, 35 points under it at least (abrasive: more; dark: less) */
+static uint16_t fx_ret_draw(uint32_t recipe, rnd_t *r)
+{
+    int32_t top = recipe < FR_N ? FR_RET[recipe] : 0, g = rnd_in(r, top - 35, top);
+    g += draw_path == DP_ROUGH ? 10 : draw_path == DP_DARK ? -10 : 0;
+    return (uint16_t)(top ? FXR_ON | (uint32_t)clampi(g, 10, top) : 0u);
+}
+/* a patch's return is one its recipe has (a session's, a snapshot's: checked as it loads) */
+static int fx_ret_ok(const fx_patch_t *f)
+{
+    return (f->ret & FXR_ON) && f->recipe < FR_N && FR_RET[f->recipe] && f->n >= 2u && f->e[0].kind == f->e[1].kind;
+}
 /* HOME on effect slot s: a recipe (recipe >= 0: that one -- SHIFT + HOME), its effects place by place among the
  * recipe's choices, as fit the slot's memory, their values; the outs; the cables across to the slots after it (one
  * time in three a place has one, to the first or second effect of a later slot). Published to the ISR; 0 if the
@@ -1582,6 +1699,14 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
         uint8_t c[NKIND];
         if (!(can & ~FX_OPT) || ((can & FX_OPT) && !rnd_chance(r, 55)))
             break;
+        if (can & FX_TWIN) {                         /* (build 44) the place before's effect again, if it fits */
+            if (!k || rm_size(f->e[k - 1u].kind) > room)
+                break;
+            fx_twin_values(&f->e[k], &f->e[k - 1u], r);
+            room -= rm_size(f->e[k].kind);
+            f->n++;
+            continue;
+        }
         if (draw_path == DP_DARK && (can & ~FX_OPT & ~RM_HARSH))
             can &= ~RM_HARSH;                        /* (dark: the harsh ones left out where there is another) */
         else if (draw_path == DP_ROUGH && (can & RM_HARSH) && rnd_chance(r, 67))
@@ -1604,6 +1729,7 @@ static int fx_draw(uint32_t s, int32_t recipe, uint32_t seed)
         f->n = 2;
     }
     fx_wire(s, f, r);                                /* the outs, the cables across */
+    f->ret = f->n >= 2u && f->e[1].kind == f->e[0].kind ? fx_ret_draw(f->recipe, r) : 0u;   /* (the return, build 44) */
     RING_PUBLISH();
     f_pub[s] = (uint8_t)b;
     return 1;
@@ -1615,8 +1741,6 @@ static void fx_wire(uint32_t s, fx_patch_t *f, rnd_t *r)
 {
     uint32_t k;
     f->out = 0;
-    for (k = 0; k < FX_N; k++)
-        f->xto[k] = 0;
     for (k = 0; k + 1u < f->n; k++)
         if (rnd_chance(r, 20))
             f->out |= (uint8_t)(1u << k);
@@ -1637,12 +1761,11 @@ static int fx_rewire(uint32_t s, uint32_t seed)
     t = *f;
     for (tries = 0; tries < 8u; tries++) {       /* (anew, where anything can change: the last slot only its outs) */
         fx_wire(s, &t, &r);
-        if (t.out != f->out || memcmp(t.xto, f->xto, sizeof t.xto))
+        if (t.out != f->out)
             break;
     }
     f->out = t.out;
-    for (k = 0; k < FX_N; k++)
-        f->xto[k] = t.xto[k];
+    (void)k;
     RING_PUBLISH();
     return 1;
 }
@@ -1673,7 +1796,10 @@ static int fx_revalue(uint32_t s, uint32_t seed)
     rnd_seed(&r, seed ^ 0x46585641u);
     for (k = 0; k < f->n && k < FX_N; k++) {
         e = f->e[k];
-        fx_values(&e, &r);
+        if (k && f->recipe < FR_N && (FR_PLACE[f->recipe][k] & FX_TWIN) && e.kind == f->e[k - 1u].kind)
+            fx_twin_values(&e, &f->e[k - 1u], &r);   /* (a twin: apart from its first, as drawn) */
+        else
+            fx_values(&e, &r);
         memcpy(f->e[k].p, e.p, sizeof e.p);
     }
     RING_PUBLISH();
@@ -1699,7 +1825,7 @@ static int fx_set(uint32_t s, const fx_patch_t *src)
     fx_patch_t *f = &fbuf[s][b];
     const fx_patch_t *now = &fbuf[s][f_pub[s]];
     if (now->seed == src->seed && now->n == src->n && now->recipe == src->recipe && now->out == src->out &&
-        !memcmp(now->e, src->e, sizeof now->e) && !memcmp(now->xto, src->xto, sizeof now->xto))
+        !memcmp(now->e, src->e, sizeof now->e) && now->ret == src->ret)
         return 1;                                    /* (the same patch: left playing, no fade) */
     while (f_pub[s] != f_use[s] || fx_phase[s] != FS_ON) {
         if ((uint32_t)(fm1_ms - t0) > 60u)
@@ -1715,7 +1841,6 @@ static int fx_set(uint32_t s, const fx_patch_t *src)
             f->n = (uint8_t)k;                       /* (a third that no longer fits: left out, build 31) */
         if (k >= f->n) {
             memset(&f->e[k], 0, sizeof f->e[k]);
-            f->xto[k] = 0;
             continue;
         }
         if (f->e[k].kind >= NKIND || rm_size(f->e[k].kind) > room)
@@ -1723,8 +1848,10 @@ static int fx_set(uint32_t s, const fx_patch_t *src)
         room -= rm_size(f->e[k].kind);
         for (j = 0; j < 4u; j++)
             f->e[k].p[j] = (uint8_t)clampi(f->e[k].p[j], RM_LO[f->e[k].kind][j], RM_HI[f->e[k].kind][j]);
-        f->xto[k] = 0;                           /* (lanes: no cable across, build 36) */
     }
+    f->ret = fx_ret_ok(f) ? (uint16_t)(FXR_ON | clampi(f->ret & 0x7Fu, 0, FR_RET[f->recipe])) : 0u;   /* (an older patch's cables
+                                                  * across: nothing, build 36; a return only where its recipe has one) */
+    f->rsv[0] = f->rsv[1] = 0;
     f->serial = ++fx_serial;
     RING_PUBLISH();
     f_pub[s] = (uint8_t)b;

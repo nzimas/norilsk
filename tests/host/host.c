@@ -729,10 +729,10 @@ static void print_fx(uint32_t s)
         printf(" %s(%u %u %u %u)%s", RM_NAME[f->e[k].kind], f->e[k].p[0], f->e[k].p[1], f->e[k].p[2], f->e[k].p[3],
                (f->out >> k) & 1u ? "+out" : "");
         mem += rm_size(f->e[k].kind);
-        for (j = 0; j < NINST; j++)
-            if ((f->xto[k] >> j) & 1u)
-                printf("->%u.%u", j / FX_N + 4u, j % FX_N + 1u);
     }
+    (void)j;
+    if (f->ret)
+        printf(" return %u%%", f->ret & 0x7Fu);
     printf("  [%u B]\n", mem);
 }
 /* the keys: a few notes, held, let go; blocks run between; the output into wav2 */
@@ -1914,7 +1914,7 @@ static int cmd_rewire(void)
             printf("FAIL rewire: slot 4's effects changed\n"), fails++;
         if (ph0 != FS_ON || fx_phase[0] != FS_ON)
             printf("FAIL rewire: slot 4 faded or cleared\n"), fails++;
-        fchanged += f0.out != fbuf[0][f_use[0]].out || memcmp(f0.xto, fbuf[0][f_use[0]].xto, sizeof f0.xto);
+        fchanged += f0.out != fbuf[0][f_use[0]].out || f0.ret != fbuf[0][f_use[0]].ret;
     }
     if (fchanged < 18u)
         printf("FAIL rewire: slot 4's cables changed only %u times of 20\n", fchanged), fails++;
@@ -2590,7 +2590,7 @@ static int cmd_revalue(void)
         b = fbuf[1][f_use[1]];
         for (k = 0; k < a.n; k++)
             same &= !memcmp(a.e[k].p, b.e[k].p, 4);
-        if (same || a.n != b.n || a.out != b.out || memcmp(a.xto, b.xto, sizeof a.xto) || f_pub[1] != f_use[1])
+        if (same || a.n != b.n || a.out != b.out || a.ret != b.ret || f_pub[1] != f_use[1])
             printf("FAIL revalue: slot 5 (seed %u): values %s, effects or cables changed, or republished\n", 300u + n,
                    same ? "the same" : "new"), fails++;
         for (k = 0; k < a.n; k++)
@@ -2980,12 +2980,13 @@ static int lanes_ok(const char *what)
             return 1;
         }
     }
-    for (l = 0; l < NFX; l++)
-        for (k = 0; k < FX_N; k++)
-            if (fbuf[l][f_pub[l]].xto[k]) {
-                printf("FAIL lanes: %s: slot %u cabled across\n", what, l + 4u);
-                return 1;
-            }
+    for (l = 0; l < NFX; l++)                            /* (build 44: where the cables across were, a return -- only
+                                                          * where its recipe has one) */
+        if ((fbuf[l][f_pub[l]].ret && !fx_ret_ok(&fbuf[l][f_pub[l]])) || fbuf[l][f_pub[l]].rsv[0] || fbuf[l][f_pub[l]].rsv[1]) {
+            printf("FAIL lanes: %s: slot %u cabled across\n", what, l + 4u);
+            return 1;
+        }
+    (void)k;
     return 0;
 }
 static int cmd_lanes(void)
@@ -2999,7 +3000,7 @@ static int cmd_lanes(void)
          * across into slot 6, the slots left, middle, right -- loads into lanes, its snapshots too, nothing redrawn */
         gbuf[0][g_pub[0]].nent = 1;
         gbuf[0][g_pub[0]].ent[0] = 2 * FX_N;
-        fbuf[0][f_pub[0]].xto[0] = (uint16_t)(1u << (2 * FX_N));
+        fbuf[0][f_pub[0]].ret = (uint16_t)(1u << (2 * FX_N));   /* (the old cables' place: build 44's return) */
         fx_pan[0] = -10;
         fx_pan[1] = 0;
         fx_pan[2] = 10;
@@ -3018,7 +3019,7 @@ static int cmd_lanes(void)
         if (fx_pan[0] != 0 || fx_pan[1] != -14 || fx_pan[2] != 14)
             printf("FAIL lanes: the lanes not panned centre, left, right\n"), fails++;
         for (l = 0; l < NFX; l++)
-            cross |= snap.s[0].x[l].f.xto[0] | snap.s[0].x[l].f.xto[1] | snap.s[0].x[l].f.xto[2];
+            cross |= (uint32_t)(snap.s[0].x[l].f.ret | snap.s[0].x[l].f.rsv[0] | snap.s[0].x[l].f.rsv[1]);
         if (cross || snap.s[0].g[0].g.ent[0] / FX_N != 0u)
             printf("FAIL lanes: a snapshot still cabled across\n"), fails++;
     }
@@ -3568,10 +3569,6 @@ static int cmd_replay(int argc, char **argv)
                 in0 = maxi(in0, absi(ebus_run[7][j]));
             if (!b) {
                 uint32_t q, e;
-                for (q = 0; q < NFX; q++)
-                    for (e = 0; e < FX_N; e++)
-                        if ((fbuf[q][f_use[q]].xto[e] >> 7) & 1u)
-                            printf(" [%u.%u -> 6.2, meter %d quiet %u]", q + 4u, e + 1u, rm_meter[q * FX_N + e], rm_quiet[q * FX_N + e]);
                 for (q = 0; q < NGEN; q++)
                     for (e = 0; e < gbuf[q][g_use[q]].nent; e++)
                         if (gbuf[q][g_use[q]].ent[e] == 7u)
@@ -4590,6 +4587,122 @@ static int cmd_setup(void)
     return fails;
 #undef GSFAIL
 }
+/* build 44: the twin recipes -- the same effect twice in a row, the second's values apart from the first's, a return
+ * from the second into the first in FR_RET's -- drawn as meant, within memory; through a lane on noise: neither silent
+ * nor running away; the return heard; with nothing in, silent within 40 s though the gate is held open (a morph) */
+static int32_t tw_cap[2756u * CTL];
+static void tw_lane(uint32_t blocks, int noise, rnd_t *nz, double *e, int32_t *pk, int cap)
+{
+    uint32_t b, i;
+    for (b = 0; b < blocks; b++) {
+        memset(ebus_run, 0, EBUS_SIZE);
+        for (i = 0; i < CTL; i++)
+            ebus_run[0][i] = noise ? mulq15(rnd_bi(nz), 9000) : 0;
+        ebus_fed_run = noise ? 1u : 0u;
+        rack_voices = 1;                                 /* (the gate held open) */
+        lane_job(0);
+        for (i = 0; i < CTL; i++) {
+            if (e)
+                *e += (double)lane_m[0][i] * lane_m[0][i];
+            if (pk)
+                *pk = maxi(*pk, absi(lane_m[0][i]));
+            if (cap == 1 && b < 2756u)
+                tw_cap[b * CTL + i] = lane_m[0][i];
+            else if (cap == 2 && b < 2756u)               /* (the difference from what was kept) */
+                tw_cap[b * CTL + i] -= lane_m[0][i];
+        }
+    }
+}
+static int cmd_twins(void)
+{
+    int fails = 0;
+    uint32_t rc, t, k, nret = 0;
+    double in_e = (double)9000 * 9000 / 3.0 * CTL;       /* (a block of the noise: uniform, +-9000) */
+#define TFAIL(...) do { printf("FAIL twins: " __VA_ARGS__); printf("\n"); fails++; } while (0)
+    for (rc = FR_MIRRORS; rc < FR_N; rc++) {
+        double lo_db = 1e9, hi_db = -1e9, ret_db = 0;
+        uint32_t nr = 0;
+        for (t = 0; t < 12u; t++) {
+            fx_patch_t *f;
+            rnd_t nz;
+            double e = 0, e0 = 0;
+            int32_t pk = 0, pk_end = 0;
+            uint32_t mem = 0;
+            fw_init();
+            draw_path = (uint8_t)(t % DP_N);
+            fw_run(30);
+            if (!fx_draw(0, (int32_t)rc, 4400u + t * 17u + rc)) {
+                TFAIL("%s: fx_draw busy", FR_NAME[rc]);
+                continue;
+            }
+            fw_run(40);                                  /* (taken: faded, cleared, started) */
+            f = &fbuf[0][f_use[0]];
+            for (k = 0; k < f->n; k++)
+                mem += rm_size(f->e[k].kind);
+            if (f->n < 2u || f->e[0].kind != f->e[1].kind || mem > FX_ARENA)
+                TFAIL("%s: drew %s then %s (%u B)", FR_NAME[rc], RM_NAME[f->e[0].kind], RM_NAME[f->e[1].kind], mem);
+            if (!memcmp(f->e[0].p, f->e[1].p, 4))
+                TFAIL("%s: the twins' values the same", FR_NAME[rc]);
+            if (f->e[0].kind == RM_SHF && ((f->e[0].p[2] < 45) == (f->e[1].p[2] < 45)) && ((f->e[0].p[2] > 55) == (f->e[1].p[2] > 55)))
+                TFAIL("MIRRORS: both shifters the same way (%u, %u)", f->e[0].p[2], f->e[1].p[2]);
+            if (f->e[0].kind == RM_CLD && f->e[0].p[2] >= 50 && f->e[1].p[2] >= 50)
+                TFAIL("SWARM: both clouds frozen");
+            if (!!FR_RET[rc] != !!fx_ret_ok(f))
+                TFAIL("%s: a return where none is meant, or none where one is (%04x)", FR_NAME[rc], f->ret);
+            draw_path = DP_ANY;
+            rnd_seed(&nz, 99u + t);
+            tw_lane(2756u, 1, &nz, &e, &pk, 1);          /* 2 s of noise */
+            {
+                double db = 10.0 * __builtin_log10((e / 2756.0 + 1.0) / in_e);
+                lo_db = db < lo_db ? db : lo_db;
+                hi_db = db > hi_db ? db : hi_db;
+                if (db < -40.0)
+                    TFAIL("%s (seed %u): all but silent, %.1f dB", FR_NAME[rc], t, db);
+            }
+            tw_lane(55120u, 0, &nz, 0, 0, 0);            /* 40 s of nothing, the gate open .. */
+            tw_lane(1378u, 0, &nz, 0, &pk_end, 0);       /* .. and the last second */
+            if (pk_end >= 32 && !(f->e[0].kind == RM_CLD && (f->e[0].p[2] >= 50 || f->e[1].p[2] >= 50)))
+                TFAIL("%s (seed %u, return %u%%): still sounding 40 s after its input stopped (peak %d)", FR_NAME[rc], t,
+                      f->ret & 0x7Fu, pk_end);
+            else if (pk_end >= 32)
+                printf("  (%s seed %u: its first cloud frozen -- held, as a frozen CLOUD alone is, until the gate closes)\n",
+                       FR_NAME[rc], t);
+            if (FR_RET[rc] && fx_ret_ok(f)) {            /* the return heard: the same again without it */
+                uint16_t r0 = f->ret;
+                fx_patch_t keep = *f;
+                fw_init();
+                fw_run(30);
+                fx_set(0, &keep);
+                fw_run(40);
+                fbuf[0][f_use[0]].ret = 0;
+                rnd_seed(&nz, 99u + t);
+                tw_lane(2756u, 1, &nz, &e0, 0, 2);
+                fbuf[0][f_use[0]].ret = r0;
+                {   /* (what the return changes: the difference's level under the sound with it) */
+                    double d = 0;
+                    uint32_t i;
+                    for (i = 0; i < 2756u * CTL; i++)
+                        d += (double)tw_cap[i] * tw_cap[i];
+                    ret_db += 10.0 * __builtin_log10((d + 1.0) / (e + 1.0));
+                }
+                nr++;
+                (void)pk;
+            }
+        }
+        if (nr) {
+            nret++;
+            printf("  %-9s %5.1f .. %5.1f dB of the noise in; what the return changes %+.1f dB under it, on average\n",
+                   FR_NAME[rc], lo_db, hi_db, ret_db / nr);
+        } else
+            printf("  %-9s %5.1f .. %5.1f dB of the noise in\n", FR_NAME[rc], lo_db, hi_db);
+    }
+    draw_path = DP_ANY;
+    if (nret != 4u)
+        TFAIL("%u recipes with a return heard, not 4", nret);
+    printf("twins: %d failures\n", fails);
+    return fails ? 1 : 0;
+#undef TFAIL
+}
 static int cmd_load(void)
 {
     int fails = 0;
@@ -4954,6 +5067,8 @@ int main(int argc, char **argv)
         return cmd_load();
     if (!strcmp(argv[1], "setup"))
         return cmd_setup();
+    if (!strcmp(argv[1], "twins"))
+        return cmd_twins();
     if (!strcmp(argv[1], "timbres"))
         return cmd_timbres(argc, argv);
     if (!strcmp(argv[1], "drive"))

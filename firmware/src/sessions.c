@@ -483,8 +483,7 @@ static void morph_poll(void)
             if (fx_same_effects(&morph.a.x[l].f, &morph.b.x[l].f) && f_pub[l] == f_use[l]) {
                 fx_patch_t *f = &fbuf[l][f_use[l]];
                 f->out = morph.b.x[l].f.out;
-                for (k = 0; k < FX_N; k++)
-                    f->xto[k] = (uint16_t)(morph.b.x[l].f.xto[k] & ~((1u << ((l + 1u) * FX_N)) - 1u));
+                f->ret = fx_ret_ok(&morph.b.x[l].f) ? morph.b.x[l].f.ret : 0u;   /* (its return, build 44) */
             }
         ui.force = 1;
     }
@@ -517,7 +516,7 @@ static void morph_poll(void)
  * generator into its own effect slot alone, no cables between slots, the slots centre, left, right -- nothing redrawn */
 static void st_lanes(st_t *t)
 {
-    uint32_t l, k;
+    uint32_t l;
     for (l = 0; l < NGEN; l++) {
         gen_keep_t *g = &t->g[l].g;
         uint8_t e = (uint8_t)(g->nent && g->ent[0] / FX_N == l ? g->ent[0] : l * FX_N);
@@ -528,8 +527,8 @@ static void st_lanes(st_t *t)
             g->dry = LV(0.2);
     }
     for (l = 0; l < NFX; l++) {
-        for (k = 0; k < FX_N; k++)
-            t->x[l].f.xto[k] = 0;
+        t->x[l].f.ret = 0;                       /* (the cables across, where the return is now: build 44) */
+        t->x[l].f.rsv[0] = t->x[l].f.rsv[1] = 0;
         t->x[l].pan = LANE_PAN[l];
     }
 }

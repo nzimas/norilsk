@@ -2,6 +2,25 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 44 (2026-10-29): twin recipes -- one effect twice in a lane, some fed back
+
+- **Nine new recipes** (names provisional), drawn by HOME on an effect slot and with a generator's new patch, as the
+  others are. In each the same effect stands twice in a row; the second's values are drawn from the first's, each moved
+  15 .. 45 either way, its drive a third of the first's range, and kept apart where the same values would only double
+  the sound (a shifter goes the other way, a ring and a crusher at another rate, a Chebyshev shaper with another shape,
+  a frozen cloud's twin not frozen). A third effect after them one time in two.
+  - MIRRORS: SHIFT, SHIFT. FOLDOVER: FOLD, FOLD. CLANGOUR: RING, RING. CRUSH: MULAW, MULAW. OVERTONE: CHEB, CHEB.
+  - Fed back, the second into the first: SWARM (CLOUD, CLOUD: grains of grains), LOOPHOLE (GLITCH, GLITCH), CAVERN
+    (SPRING, SPRING), FOG (SMEAR, SMEAR). Only effects that hold the sound a while: a return between instant ones
+    (FOLD, RING) is a 0.73 ms loop, a fixed whistle. The return's gain is drawn (up to 60 .. 90 %, by recipe) and
+    follows the lane's input: with nothing in, it closes over about 2 s, so nothing is held.
+  - Their weights: about a quarter of all draws on ANY; ABRASIVE leans to FOLDOVER, LOOPHOLE, CRUSH, CLANGOUR,
+    OVERTONE; DARK to FOG, SWARM, CAVERN. The existing recipes are unchanged, but which recipe a seed draws changes.
+- The return is kept where the cables across to other slots were (unused from build 36): the session format is the
+  same; an older session or snapshot loads with no return.
+- Tests: `host twins` (each recipe drawn as meant and within memory, neither silent nor running away on noise, what
+  the return changes, silent 40 s after its input stops with the gate held open).
+
 ## Build 43 (2026-10-29): GLOBAL SETUP; MIDI by channel, the TRS jack; USB audio of the three generators
 
 - **GLOBAL SETUP** (Tonitor's): SHIFT + SAVE held 0.8 s. SHIFT + SAVE let go sooner opens SESSIONS, as before. PRESETS
