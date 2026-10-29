@@ -38,7 +38,7 @@ CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-fu
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
 PRODUCT = "FM-1_700"                # package identity
-BUILD = 45                           # the build number: the next build is one more
+BUILD = 46                           # the build number: the next build is one more
 
 
 def toolchain():
@@ -79,7 +79,8 @@ def tc_all(*cmds):
 
 def generate():
     GEN.mkdir(parents=True, exist_ok=True)
-    for tool, out in (("gen_tables.py", "norilsk_tables.h"), ("gen_font.py", "norilsk_font.h")):
+    for tool, out in (("gen_tables.py", "norilsk_tables.h"), ("gen_font.py", "norilsk_font.h"),
+                      ("gen_splash.py", "norilsk_splash.h")):
         subprocess.run([sys.executable, str(SRC / "tools" / tool), str(GEN / out)], check=True)
 
 

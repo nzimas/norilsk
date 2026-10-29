@@ -52,6 +52,7 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "lcd.c"
 #include "dsp.h"
 #include "gfx.c"
+#include "logo.c"
 #include "wt.c"
 #include "fm6_core.c"
 #define MO_PROBE_CANVAS 1                                   /* (the probe voice in the screen's canvas) */

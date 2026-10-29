@@ -2,6 +2,14 @@
 
 From build 5 the releases carry build numbers, not versions: build 5 follows 0.04, the next is build 6.
 
+## Build 46 (2026-10-29): the logo on the splash screen
+
+- **The splash** shows the logo as Tonitor's does: the mark (the three stacks, their fumes, their red reflection) large
+  in the middle, NORILSK in its stencil lettering across the width under it, the build at the foot. It is the
+  website's logo rendered at the screen's size, with its eroded edges and torn fumes (`tools/make_splash.py`, kept in
+  `assets/splash/`), 16 colours an image in the firmware (`tools/gen_splash.py`, `firmware/src/logo.c`: 12 KiB).
+- Tests: `host screens` draws it (`build/screens/screen-splash.png`).
+
 ## Build 45 (2026-10-29): WAVESET, XMOD, CHAOS
 
 Three effects chosen from the research (build 44's survey of GitHub): mangling whose result follows what goes in more

@@ -8,6 +8,7 @@ PY=python3
 [ -x .venv/bin/python ] && PY=.venv/bin/python
 mkdir -p build/gen build/sounds
 $PY tools/gen_tables.py build/gen/norilsk_tables.h >/dev/null
+$PY tools/gen_splash.py build/gen/norilsk_splash.h
 tests/check_target_ir.sh
 $PY tools/gen_font.py build/gen/norilsk_font.h >/dev/null
 $PY tools/list_says.py build/gen/norilsk_says.h >/dev/null

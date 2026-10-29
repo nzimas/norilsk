@@ -258,9 +258,7 @@ static void ota_commit(const uint8_t *parm)
 /* ------------------------------------------------------------ the loop --- */
 static void splash(void)
 {
-    lcd_fill(0, 0, 240, 240, C_BLACK);
-    draw_text_box(0, 88, 240, &FONT_M, "NORILSK", C_WHITE, 1);
-    draw_text_box(0, 136, 240, &FONT_S, NORILSK_BUILD, C_GREY, 1);
+    splash_draw(NORILSK_BUILD);                      /* (the logo, the name, the build: logo.c) */
 }
 
 static void enter_uboot(const char *why)

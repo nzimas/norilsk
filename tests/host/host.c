@@ -120,6 +120,7 @@ static volatile uint32_t mi_w, mi_r;
 
 #include "dsp.h"
 #include "gfx.c"
+#include "logo.c"
 #include "wt.c"
 #include "fm6_core.c"
 #define MO_PROBE_CANVAS 1                                   /* (the probe voice in the screen's canvas) */
@@ -3854,6 +3855,9 @@ static int cmd_screens(int argc, char **argv)
     load_pct = 23;
 #define SHOT(nm) do { ui.load_at = fm1_ms - 1000u; ui.msg_until = 0; ui.force = 1; ui_draw(); ui_draw(); ui_draw(); \
     snprintf(name, sizeof name, "%s/screen-%s.ppm", dir, nm); screen_save(name); } while (0)
+    splash_draw("BUILD 46");                             /* (build 46) the splash: the logo, the name, the build */
+    snprintf(name, sizeof name, "%s/screen-splash.ppm", dir);
+    screen_save(name);
     SHOT("start");
     for (n = 0; n < NGEN; n++)
         print_gen(n);
